@@ -36,11 +36,14 @@ func validAuthorizationFixture(t *testing.T) (Authorization, ExecutionAttempt) {
 		t.Fatalf("expected sha256 evidence digest, got %q", result.Authorization.EvidenceDigest)
 	}
 
+	result.Authorization.PlanDigest = "sha256:plan-a"
+
 	attempt := ExecutionAttempt{
 		ActionID:        req.ActionID,
 		Action:          req.Action,
 		Target:          req.Target,
 		ResourceVersion: req.ResourceVersion,
+		PlanDigest:      "sha256:plan-a",
 		Now:             now.Add(2 * time.Second),
 	}
 
@@ -76,6 +79,17 @@ func TestChangedResourceVersionInvalidatesAuthorization(t *testing.T) {
 
 	if got.Valid || !containsReason(got.ReasonCodes, ResourceVersionChanged) {
 		t.Fatalf("expected %s, got valid=%v reasons=%v", ResourceVersionChanged, got.Valid, got.ReasonCodes)
+	}
+}
+
+func TestChangedExecutionPlanInvalidatesAuthorization(t *testing.T) {
+	auth, attempt := validAuthorizationFixture(t)
+	attempt.PlanDigest = "sha256:plan-b"
+
+	got := ValidateAuthorization(auth, attempt)
+
+	if got.Valid || !containsReason(got.ReasonCodes, ExecutionPlanChanged) {
+		t.Fatalf("expected %s, got valid=%v reasons=%v", ExecutionPlanChanged, got.Valid, got.ReasonCodes)
 	}
 }
 
