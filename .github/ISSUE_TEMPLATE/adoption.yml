@@ -1,0 +1,53 @@
+name: Adoption / real usage report
+description: Tell us what happened when you ran StateLatch or tried it on a real Kubernetes workflow.
+title: "[adoption] "
+labels:
+  - adoption
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form is for real usage evidence. A successful run, failed run, missing capability, or decision to use a simpler alternative are all useful.
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - KinD / local test cluster
+        - Development Kubernetes cluster
+        - Staging Kubernetes cluster
+        - Production-like / production cluster
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What workflow were you trying to protect?
+      description: Describe the automation or Kubernetes change you were evaluating.
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened?
+      description: Include the decision, error, friction, or useful behavior you observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternative
+    attributes:
+      label: What would you use instead?
+      description: OPA/Rego, admission policy, custom scripts, kubectl, another product, or nothing.
+
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Reproducibility
+      options:
+        - label: I am comfortable sharing enough non-sensitive detail for this report to be reproduced or investigated.
+          required: true

@@ -1,48 +1,57 @@
 # StateLatch
 
-**Evidence-gated authorization for autonomous Kubernetes actions.**
+**Evidence before action for autonomous Kubernetes changes.**
 
-StateLatch asks one extra question before automation changes production:
+StateLatch is an experimental runtime-assurance layer for high-consequence automation. Before an automated system changes Kubernetes, StateLatch asks:
 
-> Is the world-state evidence that justified this action still fresh, consistent, sufficient, and still valid at execution time?
+> Is the evidence that justified this action still current, consistent, sufficient, and valid for this exact action and world state?
 
-## Problem
+Today the proof target is deliberately narrow: **Kubernetes node drain**. The goal is to prove the execution-safety model before expanding the surface area.
 
-Identity and policy may permit an action even when the operational state that justified it has changed between observation, dry-run, authorization, and execution.
+## Why this exists
 
-StateLatch v0.1 focuses on one narrow Kubernetes node-drain path:
+A normal request-time policy can be correct when it runs and still become unsafe milliseconds later.
+
+Examples StateLatch is designed to catch:
+
+```text
+policy says ALLOW
+→ PDB changes
+→ original decision is now stale
+
+Kubernetes says healthy
+→ Prometheus says unhealthy
+→ evidence conflicts
+
+authorization was valid
+→ Pod is replaced or its drain-relevant state changes
+→ execution plan is no longer the authorized plan
+
+drain finishes
+→ a new workload appears directly on the cordoned node
+→ expected outcome no longer matches reality
+```
+
+The control loop is:
 
 ```text
 Observe
-  ↓
-Preflight
-  ↓
-Verify evidence + blast radius
-  ↓
-Build state-bound plan
-  ↓
-Server-side dry-run
-  ↓
-Mint plan-bound authorization
-  ↓
-Final live revalidation
-  ↓
-Experimental mutation gate
-  ↓
-Cordon
-  ↓
-Revalidate remaining plan
-  ↓
-Evict one Pod
-  ↓
-Observe deletion
-  ↓
-Checkpoint observed progress
-  ↓
-Repeat / pause / recover
+→ maintain evidence/assumptions
+→ verify
+→ acquire missing evidence safely
+→ authorize exact action + state
+→ execute
+→ observe outcome
+→ record divergence
 ```
 
-Any state drift, PDB denial, expired authorization, identity mismatch, optimistic-concurrency conflict, or checkpoint failure stops the execution path.
+Insufficient evidence does **not** become ALLOW:
+
+```text
+UNKNOWN → safe read-only probe → re-evaluate
+still unknown → ESCALATE
+contradiction → BLOCK
+```
 
 ## 60-second quickstart
 
@@ -51,146 +60,262 @@ Requires Go 1.25+.
 ```bash
 git clone https://github.com/achirothmane/state-latch
 cd state-latch
+
 go test ./...
+go run ./cmd/moatbench
 ```
 
-The main CI also creates a temporary KinD cluster and runs live Kubernetes integration tests.
+The second command runs the reproducible synthetic falsification benchmark and prints the baseline-vs-StateLatch comparison.
 
-## Safe-by-default adapter
+The main CI also creates a temporary KinD cluster and runs the live Kubernetes adversarial and incident-replay suites.
 
-The normal constructors keep real mutations disabled:
+## What the benchmark currently shows
+
+### Benchmark v1 — 40 labeled synthetic cases
+
+Baseline:
+
+```text
+live primary lookup
++ fixed TTL
++ static policy
++ request-time decision
+```
+
+Current CI result:
+
+| Metric | Baseline | StateLatch |
+| --- | ---: | ---: |
+| Unsafe ALLOWs | 19 | **0** |
+| Unresolved/UNKNOWN ALLOWs | 4 | **0** |
+| Safe blocks | 0 | **0** |
+| Safe escalations | 0 | **0** |
+| Postflight divergences detected | 0/2 | **2/2** |
+
+CPU-only GitHub-runner microbenchmark from the same run:
+
+```text
+Baseline   ~61 ns/scenario
+StateLatch ~1.9 µs/scenario
+```
+
+This is **not production latency**. Real Kubernetes/Prometheus network and API costs dominate these in-memory numbers.
+
+### Benchmark v2 — live adversarial KinD corpus
+
+Eight live cases use real Kubernetes state transitions.
+
+Current CI result:
+
+| Metric | Baseline | StateLatch |
+| --- | ---: | ---: |
+| Unsafe ALLOWs | 3 | **0** |
+| Unresolved-source ALLOWs | 1 | **0** |
+| Safe controls preserved | 2/2 | **2/2** |
+| Ordinary PDB policy block | 1/1 | **1/1** |
+| Postflight divergence detected | 0/1 | **1/1** |
+
+The baseline is intentionally not trivial: it performs a live request-time Kubernetes preflight over Node/Pods/PDB state. It simply lacks StateLatch's continuous invalidation, independent evidence, state-bound revalidation, and postflight loop.
+
+### Benchmark v3 — source-backed incident replay
+
+The replay suite uses public Kubernetes issue reports as external scenario sources.
+
+One replay **falsified StateLatch before it passed**:
+
+```text
+real drain succeeds
+→ Node remains cordoned
+→ a new Pod is created with spec.nodeName
+→ old postflight logic returns MATCH   ❌
+```
+
+That exposed a real gap: postflight only checked the originally authorized Pod UIDs.
+
+The repair added this invariant:
+
+```text
+unexpected_workload_pods = 0
+```
+
+The same replay then passed without changing its success criterion.
+
+Other source-backed replays verify:
+
+- same Pod name with a different UID invalidates the old authorization;
+- a rejected cordon stops execution before any Pod eviction.
+
+See [Real incident replay benchmark v3](docs/real-incident-replay-v3.md).
+
+## What StateLatch adds beyond request-time policy
+
+### 1. Continuous invalidation
+
+A watched world-state change can invalidate an assumption **before another execution request arrives**.
+
+```text
+Kubernetes event
+→ resource dependency
+→ assumption invalidated
+```
+
+### 2. Transitive assumption graph
+
+Higher-level assumptions can depend on lower-level assumptions.
+
+```text
+PDB changed
+→ "PDB permits disruption" invalid
+→ "node drain is safe" invalid
+```
+
+The target Node itself does not need to change.
+
+### 3. Independent evidence
+
+StateLatch can require distinct evidence sources.
+
+```text
+Kubernetes = healthy
+Prometheus = unhealthy
+→ BLOCK / EVIDENCE_CONTRADICTED
+```
+
+If evidence is missing, a bounded **READ_ONLY** probe can acquire it and force a deterministic re-evaluation.
+
+### 4. Fresh-evidence reconciliation
+
+Contradictions are not resolved by majority vote.
+
+```text
+historical contradiction
+→ start fresh evidence epoch
+→ reacquire independent sources
+→ agree     → ALLOW may become possible
+→ disagree  → BLOCK
+→ incomplete → ESCALATE
+```
+
+### 5. Action-sensitive temporal validity
+
+The same assumption may be fresh enough for a low-consequence action but expired for a critical one.
+
+```text
+same assumption, age 20s
+
+LOW window = 60s
+→ VALID
+
+CRITICAL window = 5s
+→ EXPIRED / BLOCK
+```
+
+Event invalidation always dominates temporal freshness.
+
+### 6. State-bound authorization
+
+The plan is built from Kubernetes-observed state, not agent-supplied state.
+
+Authorization is bound to the exact execution context, including:
+
+- action and target;
+- Node identity and state;
+- deterministic plan digest;
+- evidence digest;
+- short expiry;
+- Pod identity and drain-relevant semantic state.
+
+A same-name replacement Pod is not treated as the original object.
+
+### 7. Revalidation during execution
+
+With experimental mutations enabled:
+
+```text
+final live revalidation
+→ cordon
+→ re-read state
+→ compare remaining plan
+→ evict one Pod
+→ observe deletion
+→ revalidate
+→ repeat
+```
+
+The execution loop does not blindly consume a previously authorized plan.
+
+### 8. Postflight outcome verification
+
+StateLatch compares expected and observed outcome:
+
+```text
+MATCH
+DIVERGED
+UNKNOWN
+```
+
+For node drain, postflight checks include:
+
+- Node remains unschedulable;
+- originally evicted Pod UIDs remain absent;
+- no unexpected non-terminal, non-mirror, non-DaemonSet workload appears on the drained Node.
+
+Outcome reliability calibration exists, but it is **advisory only**. It cannot silently rewrite production authorization policy.
+
+## Safe-by-default mutation model
+
+Normal constructors keep real mutations disabled:
 
 ```go
 NewForConfig(config)
 NewWithExecutor(reader, executor)
 ```
 
-They can inspect state, preflight, dry-run, and mint/revalidate authorizations, but `ExecuteAuthorizedNodeDrain(...)` returns:
-
-```text
-ESCALATE / REAL_EXECUTION_UNAVAILABLE
-```
-
-Real mutations currently require the explicitly named experimental path:
+Real mutation currently requires the explicitly named experimental path:
 
 ```go
 NewForConfigWithExperimentalMutations(config)
 ```
 
-This opt-in exists for controlled KinD integration work. Production mutation enablement is not part of v0.1.
-
-## State-bound execution plan
-
-The plan is built from Kubernetes-observed state, not agent-supplied state.
+Without that opt-in, real execution returns:
 
 ```text
-NODE
-  name=node-7
-  uid=<observed node uid>
-  health=<observed health>
-  resourceVersion=928441
-
-CORDON_NODE
-  node=node-7
-  resourceVersion=928441
-
-EVICT_POD
-  pod=default/api-a
-  uid=<observed pod uid>
-  stateDigest=<drain-relevant semantic digest>
+ESCALATE / REAL_EXECUTION_UNAVAILABLE
 ```
 
-StateLatch computes a deterministic SHA-256 `plan_digest` over the complete ordered plan and binds it into the authorization.
+Production mutation enablement is intentionally not part of this pre-alpha release.
 
-For Pods, the plan digest intentionally does **not** bind to raw `resourceVersion`. Live KinD testing showed that Kubernetes can change Pod `resourceVersion` because of status/controller churn even when drain-relevant state has not changed.
+## Node-drain checks
 
-Instead, StateLatch binds to a semantic Pod state digest covering:
-
-- UID and node assignment
-- labels
-- controlling workload identity
-- mirror/static-pod marker
-- `emptyDir` presence
-- phase and Ready state
-- deletion state
-
-Raw Pod `resourceVersion` is retained for observation/audit.
-
-The Node side remains stricter: Node UID and health are part of the authorized plan, while the cordon request uses the current observed Node `resourceVersion` as an optimistic-concurrency precondition.
-
-## Preparation
-
-`PrepareNodeDrainExecution(...)` requires Kubernetes to accept:
-
-1. a server-side dry-run cordon;
-2. a server-side dry-run eviction for every planned Pod.
-
-Pod eviction uses a UID delete precondition, preventing a same-name replacement Pod from being treated as the original object.
-
-No execution authorization is exposed until all current gates and dry-runs pass.
-
-A Node `resourceVersion` conflict during dry-run is treated as state drift:
+Current preflight includes:
 
 ```text
-ESCALATE / RESOURCE_VERSION_CHANGED
+DaemonSet pod without explicit ignore
+→ BLOCK
+
+Unmanaged pod without explicit force
+→ BLOCK
+
+emptyDir without explicit delete permission
+→ BLOCK
+
+PDB disruption capacity insufficient
+→ BLOCK
+
+PDB status stale
+→ ESCALATE
+
+PDB state unavailable
+→ ESCALATE
 ```
 
-It is not misclassified as a policy denial.
+Mirror/static Pods are recorded and skipped according to drain semantics.
 
-## Final live revalidation
-
-`RevalidateNodeDrainAuthorization(...)` re-reads Kubernetes state, reruns drain preflight, rebuilds the execution plan, recomputes its digest, and validates the short-lived authorization.
-
-```text
-same drain-relevant state + same plan digest + valid TTL
-→ ALLOW
-
-Pod labels / owner / UID / readiness / phase / node assignment changed
-→ ESCALATE / EXECUTION_PLAN_CHANGED
-
-raw Pod resourceVersion changed but semantic state did not
-→ plan remains valid
-
-Node resourceVersion changed before execution
-→ ESCALATE / RESOURCE_VERSION_CHANGED
-
-PDB now blocks the drain
-→ BLOCK / PDB_DISRUPTION_BLOCKED
-
-authorization expired
-→ ESCALATE / AUTHORIZATION_EXPIRED
-```
-
-## Guarded experimental execution
-
-With the experimental mutation constructor, `ExecuteAuthorizedNodeDrain(...)` performs:
-
-```text
-final authorization revalidation
-→ real cordon with Node resourceVersion precondition
-→ verify Node UID + health + cordon state
-→ rerun live Pod/PDB preflight
-→ compare remaining semantic Pod set
-→ real Eviction API call with Pod UID precondition
-→ wait until that Pod UID is absent
-→ revalidate remaining state
-→ repeat
-→ final empty-plan revalidation
-```
-
-The execution loop never blindly consumes the plan after authorization. It re-reads live state before every eviction.
-
-If another actor modifies the Node between final revalidation and cordon, Kubernetes returns an optimistic-concurrency conflict and StateLatch returns:
-
-```text
-ESCALATE / RESOURCE_VERSION_CHANGED
-```
-
-If the world changes after cordon, the remaining evictions are stopped.
+Server-side dry-run is required for the cordon and every planned eviction before an authorization is exposed.
 
 ## Partial failure and recovery
 
-For experimental mutation execution, StateLatch can persist a recovery checkpoint through:
+Experimental real execution can persist a checkpoint and recover from interruption.
 
 ```go
 ExecuteAuthorizedNodeDrainWithCheckpointStore(...)
@@ -198,145 +323,67 @@ InspectDrainRecovery(...)
 ResumeAuthorizedNodeDrain(...)
 ```
 
-A checkpoint records:
-
-- the original and active plan digests;
-- Node identity and health;
-- the complete originally authorized Pod set;
-- whether cordon was observed as applied;
-- Pod UIDs whose removal was observed;
-- RUNNING / PAUSED / COMPLETED state;
-- the last decision and reason codes.
-
-Two checkpoint stores currently exist:
-
-```go
-NewMemoryDrainCheckpointStore()
-NewFileDrainCheckpointStore(path)
-```
-
-The file store uses a per-action atomic replacement file with restricted permissions.
-
-Recovery is state-derived, not replay-based:
+Recovery is state-derived:
 
 ```text
 load checkpoint
 → re-read Kubernetes
-→ reconcile already-absent authorized UIDs
-→ rerun Pod/PDB preflight
-→ compare remaining semantic Pod set
-→ COMPLETED
-   or REAUTHORIZATION_REQUIRED
-   or BLOCKED
-   or DIVERGED
+→ reconcile already-observed completion
+→ rebuild remaining state
+→ require fresh authorization if work remains
+→ resume only the current authorized remainder
 ```
 
-A stale authorization is never silently reused after partial execution. If work remains, the caller must obtain a **fresh authorization for the current remaining plan** before `ResumeAuthorizedNodeDrain(...)` can mutate again.
-
-This also handles the ambiguous case:
-
-```text
-Kubernetes accepted eviction
-→ process/error occurs before checkpoint update
-→ recovery sees authorized UID is already absent
-→ reconcile as completed
-→ do not replay that eviction
-```
+A stale authorization is never silently reused after partial execution.
 
 See [Partial failure and recovery](docs/partial-failure-recovery.md).
 
-## Drain preflight
+## What is implemented
 
-Implemented checks include:
+- continuous Kubernetes watch invalidation;
+- transitive assumption dependency graph;
+- action-sensitive temporal validity;
+- bounded read-only active evidence acquisition;
+- independent Prometheus-compatible HTTP evidence;
+- contradiction detection and fresh-epoch reconciliation;
+- Node / Pod / PDB live state inspection;
+- server-side dry-run cordon and eviction;
+- deterministic execution plan + digest;
+- state-bound short-lived authorization;
+- final and in-flight revalidation;
+- real guarded cordon + eviction behind explicit experimental opt-in;
+- Pod UID and semantic-state protection;
+- persistent partial-failure checkpoints and recovery;
+- postflight expected-vs-observed comparison;
+- advisory reliability ledger;
+- synthetic, live KinD, and source-backed incident falsification suites.
 
-```text
-DaemonSet pod
-→ BLOCK / DAEMONSET_POD_REQUIRES_IGNORE
+## What is not implemented
 
-Unmanaged pod
-→ BLOCK / UNMANAGED_POD_REQUIRES_FORCE
+- production mutation enablement;
+- production daemon/API surface;
+- distributed execution locking;
+- HA checkpoint storage;
+- tamper-evident/WORM execution journal;
+- mature rollback/compensation semantics;
+- full `kubectl drain` parity;
+- AWS/GCP/SSH/database/PLC adapters;
+- automatic policy changes from reliability calibration.
 
-emptyDir
-→ BLOCK / EMPTYDIR_DATA_REQUIRES_DELETE
+StateLatch is still a **controlled research/prototype system**, not a production-ready drain replacement.
 
-PDB disruption capacity insufficient
-→ BLOCK / PDB_DISRUPTION_BLOCKED
+## Adoption gate
 
-PDB status stale
-→ ESCALATE / PDB_STATUS_STALE
+Development is now gated by external adoption evidence rather than feature count.
 
-PDB state unavailable
-→ ESCALATE / PDB_EVIDENCE_UNAVAILABLE
-```
+**No new major capability or new infrastructure adapter is justified solely because it is technically interesting.**
 
-Mirror/static Pods are recorded and skipped.
-
-## Live integration evidence
-
-GitHub Actions runs unit tests plus a temporary KinD Kubernetes cluster.
-
-Current live scenarios prove that:
-
-- server-side cordon + eviction dry-runs do not persist mutations;
-- a healthy Pod protected by a zero-disruption PDB is rejected by Kubernetes and StateLatch returns `BLOCK`;
-- a drain-relevant Pod change after authorization produces `ESCALATE / EXECUTION_PLAN_CHANGED`;
-- experimental guarded execution performs a **real cordon** and a **real Pod eviction** in KinD;
-- when a semantic Pod change is injected immediately after the real cordon, StateLatch detects it before eviction and stops;
-- raw Node optimistic-concurrency conflicts fail closed instead of being retried blindly.
-
-These are live integration tests against a real temporary Kubernetes API server, not mocked client behavior.
-
-## Implemented
-
-- evidence freshness and contradiction gates
-- distinct-source requirements
-- Kubernetes-derived blast radius
-- live Node / Pod / PDB reads
-- drain preflight
-- deterministic execution-plan generation
-- Node UID + health binding
-- drain-relevant semantic Pod state digest
-- deterministic plan digest
-- state-bound authorization
-- server-side dry-run cordon and eviction
-- Pod UID eviction precondition
-- final live revalidation
-- guarded real cordon + eviction loop behind explicit experimental opt-in
-- in-flight revalidation before every eviction
-- bounded observation of accepted Pod evictions
-- persistent atomic file checkpoints
-- partial-execution reconciliation against live Kubernetes state
-- fresh-authorization requirement before resume
-- safe resume of only the remaining authorized Pod set
-- optimistic-concurrency drift classification
-- default mutation lock
-- unit + KinD live integration CI
-
-## Not implemented yet
-
-- production mutation enablement
-- graceful termination/retry policy comparable to mature drain tooling
-- exact `kubectl drain` parity
-- production-grade rollback/compensation after a partial drain
-- distributed/HA checkpoint storage and execution locking
-- tamper-evident append-only execution journal
-- Prometheus evidence adapter/cache
-- multi-source live evidence
-- production daemon / API surface
-- AWS/GCP, SSH, databases, PLC, or financial execution
-
-## Guarantees and limits
-
-StateLatch currently proves a guarded execution primitive, not a production-ready drain replacement.
-
-There is still an unavoidable race between a userspace re-read and a later API mutation. StateLatch reduces that race with Kubernetes-enforced Node `resourceVersion` and Pod UID preconditions plus the Eviction API's own live PDB enforcement.
-
-If state changes outside those server-enforced preconditions, StateLatch can only detect it at the next live revalidation boundary. Production use therefore requires more work on recovery, observability, execution semantics, and operational policy.
-
-Real mutations are disabled by default.
+The next BUILD gate requires external usage evidence. See [ADOPTION.md](ADOPTION.md) for the thresholds and decision rules.
 
 ## Docs
 
+- [Adoption gate](ADOPTION.md)
+- [Real incident replay benchmark v3](docs/real-incident-replay-v3.md)
 - [Kubernetes node-drain adapter](docs/kubernetes-node-drain.md)
 - [Server-side dry-run](docs/server-dry-run.md)
 - [Guarded experimental execution](docs/guarded-real-execution.md)
@@ -345,7 +392,17 @@ Real mutations are disabled by default.
 
 ## Current status
 
-`v0.1-prealpha` — tested decision kernel + Kubernetes drain preflight + state-bound authorization + server-side dry-run + final/in-flight revalidation + guarded real KinD mutations + persistent partial-failure recovery. Production mutation mode is intentionally disabled.
+**v0.2.0-prealpha**
+
+The execution-safety thesis now has three evidence layers:
+
+```text
+synthetic falsification
+→ live KinD adversarial testing
+→ source-backed incident replay
+```
+
+That supports a differentiation claim for the tested Kubernetes drain scenarios. It does **not** establish a commercial moat, production-wide superiority, or broad incident coverage.
 
 ## Design principle
 
