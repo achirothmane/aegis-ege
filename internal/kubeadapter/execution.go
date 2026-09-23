@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/achirothmane/state-latch/internal/decision"
 )
 
@@ -37,9 +39,10 @@ type DrainExecutionPlan struct {
 }
 
 type DrainDryRunStepResult struct {
-	Step   DrainExecutionStep
-	Passed bool
-	Error  string
+	Step       DrainExecutionStep
+	Passed     bool
+	ReasonCode decision.ReasonCode
+	Error      string
 }
 
 type DrainDryRunReport struct {
@@ -109,6 +112,11 @@ func (a *Adapter) DryRunDrainExecutionPlan(
 			err := a.executor.DryRunCordonNode(ctx, step.NodeName, step.ResourceVersion)
 			if err != nil {
 				stepResult.Error = err.Error()
+				if apierrors.IsConflict(err) {
+					stepResult.ReasonCode = decision.ResourceVersionChanged
+				} else {
+					stepResult.ReasonCode = ReasonServerDryRunCordonRejected
+				}
 				report.Passed = false
 				report.Steps = append(report.Steps, stepResult)
 				return report, nil
@@ -120,6 +128,14 @@ func (a *Adapter) DryRunDrainExecutionPlan(
 			}
 			if err := a.executor.DryRunEvictPod(ctx, *step.Pod); err != nil {
 				stepResult.Error = err.Error()
+				switch {
+				case apierrors.IsConflict(err):
+					stepResult.ReasonCode = decision.ExecutionPlanChanged
+				case apierrors.IsTooManyRequests(err):
+					stepResult.ReasonCode = decision.ReasonCode(FindingPDBDisruptionBlocked)
+				default:
+					stepResult.ReasonCode = ReasonServerDryRunEvictionRejected
+				}
 				report.Passed = false
 			}
 
@@ -185,8 +201,9 @@ func (a *Adapter) PrepareNodeDrainExecution(
 	preparation.DryRun = &dryRun
 
 	if !dryRun.Passed {
-		preparation.Decision = decision.Block
-		preparation.ReasonCodes = []decision.ReasonCode{dryRunFailureReason(dryRun)}
+		failureDecision, failureReason := dryRunFailure(dryRun)
+		preparation.Decision = failureDecision
+		preparation.ReasonCodes = []decision.ReasonCode{failureReason}
 		return preparation, nil
 	}
 
@@ -209,15 +226,27 @@ func (a *Adapter) PrepareNodeDrainExecution(
 	return preparation, nil
 }
 
-func dryRunFailureReason(report DrainDryRunReport) decision.ReasonCode {
+func dryRunFailure(report DrainDryRunReport) (decision.Decision, decision.ReasonCode) {
 	for _, step := range report.Steps {
 		if step.Passed {
 			continue
 		}
-		if step.Step.Kind == DrainStepCordonNode {
-			return ReasonServerDryRunCordonRejected
+
+		reason := step.ReasonCode
+		if reason == "" {
+			if step.Step.Kind == DrainStepCordonNode {
+				reason = ReasonServerDryRunCordonRejected
+			} else {
+				reason = ReasonServerDryRunEvictionRejected
+			}
 		}
-		return ReasonServerDryRunEvictionRejected
+
+		switch reason {
+		case decision.ResourceVersionChanged, decision.ExecutionPlanChanged:
+			return decision.Escalate, reason
+		default:
+			return decision.Block, reason
+		}
 	}
-	return ReasonServerDryRunEvictionRejected
+	return decision.Block, ReasonServerDryRunEvictionRejected
 }
