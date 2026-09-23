@@ -48,6 +48,15 @@ func NewForConfig(config *rest.Config) (*Adapter, error) {
 	return NewWithExecutor(reader, reader), nil
 }
 
+func NewForConfigWithExperimentalMutations(config *rest.Config) (*Adapter, error) {
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("build kubernetes client: %w", err)
+	}
+	reader := NewClientGoReader(client)
+	return NewWithExperimentalMutations(reader, reader), nil
+}
+
 func (r *ClientGoReader) GetNode(ctx context.Context, name string) (*corev1.Node, error) {
 	return r.client.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
 }
