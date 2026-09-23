@@ -6,7 +6,8 @@ package decision
 //  1. required evidence must still be fresh;
 //  2. fresh observations of the same claim must not contradict;
 //  3. action blast radius must stay within the configured hard limit;
-//  4. the configured number of distinct evidence sources must be present.
+//  4. the configured number of distinct evidence sources must be present;
+//  5. ALLOW requires enough state-binding data to mint a short-lived authorization.
 func Evaluate(req Request) Result {
 	for _, observation := range req.Evidence {
 		age := req.RequestedAt.Sub(observation.ObservedAt)
@@ -55,5 +56,24 @@ func Evaluate(req Request) Result {
 		}
 	}
 
-	return Result{Decision: Allow}
+	if req.Action == "" || req.Target == "" || req.ResourceVersion == "" || req.AuthorizationTTL <= 0 {
+		return Result{
+			Decision:    Escalate,
+			ReasonCodes: []ReasonCode{InsufficientStateBinding},
+		}
+	}
+
+	auth := &Authorization{
+		ActionID:        req.ActionID,
+		Action:          req.Action,
+		Target:          req.Target,
+		ResourceVersion: req.ResourceVersion,
+		EvidenceDigest:  DigestEvidence(req.Evidence),
+		ValidUntil:      req.RequestedAt.Add(req.AuthorizationTTL),
+	}
+
+	return Result{
+		Decision:      Allow,
+		Authorization: auth,
+	}
 }
