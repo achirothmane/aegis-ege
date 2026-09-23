@@ -279,6 +279,48 @@ func TestExecuteAuthorizedNodeDrainAppliesCordonAndEvictionsAfterRevalidation(t 
 	}
 }
 
+func TestExecuteAuthorizedNodeDrainEscalatesWhenRealCordonHitsResourceVersionConflict(t *testing.T) {
+	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{}
+	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+
+	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-conflict", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("prepare returned error: %v", err)
+	}
+	if preparation.Authorization == nil {
+		t.Fatalf("expected authorization, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	executor.cordonApply = func(_ string, _ string) error {
+		return apierrors.NewConflict(
+			schema.GroupResource{Resource: "nodes"},
+			"node-7",
+			errors.New("object modified"),
+		)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		context.Background(),
+		*preparation.Authorization,
+		"node-7",
+		defaultExecutionPolicy(),
+	)
+	if err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if report.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if !hasReason(report.ReasonCodes, decision.ResourceVersionChanged) {
+		t.Fatalf("expected %s, got %v", decision.ResourceVersionChanged, report.ReasonCodes)
+	}
+	if len(executor.realEvictedPods) != 0 {
+		t.Fatalf("expected no eviction after cordon conflict, got %d", len(executor.realEvictedPods))
+	}
+}
+
 func TestExecuteAuthorizedNodeDrainStopsBeforeEvictionWhenStateDriftsAfterCordon(t *testing.T) {
 	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
 	reader := executionReaderFixture()
