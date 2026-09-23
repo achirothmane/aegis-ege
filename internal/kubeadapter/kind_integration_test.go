@@ -183,6 +183,153 @@ func TestKindLiveRevalidationDetectsPodSemanticDrift(t *testing.T) {
 	}
 }
 
+
+func TestKindGuardedRealExecutionCordonsAndEvictsAuthorizedPod(t *testing.T) {
+	env := newKindUnmanagedIntegrationEnv(t, "real")
+	ctx := context.Background()
+	policy := integrationExecutionPolicy()
+
+	preparation, err := env.adapter.PrepareNodeDrainExecution(
+		ctx,
+		"act-kind-real",
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
+	}
+	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
+		t.Fatalf("expected prepared ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := env.adapter.ExecuteAuthorizedNodeDrain(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("ExecuteAuthorizedNodeDrain returned error: %v", err)
+	}
+	if report.Decision != decision.Allow {
+		t.Fatalf("expected execution ALLOW, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if report.PlanDigest != preparation.PlanDigest {
+		t.Fatalf("expected executed plan digest %q, got %q", preparation.PlanDigest, report.PlanDigest)
+	}
+	if len(report.Steps) != 2 {
+		t.Fatalf("expected cordon + eviction, got %d steps", len(report.Steps))
+	}
+
+	node, err := env.client.CoreV1().Nodes().Get(ctx, env.nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get node after execution: %v", err)
+	}
+	if !node.Spec.Unschedulable {
+		t.Fatal("expected real execution to persist node cordon")
+	}
+
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(ctx, env.podName, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected real execution to evict pod, got err=%v", err)
+	}
+}
+
+func TestKindGuardedRealExecutionStopsOnDriftAfterCordon(t *testing.T) {
+	env := newKindUnmanagedIntegrationEnv(t, "real-drift")
+	ctx := context.Background()
+	policy := integrationExecutionPolicy()
+
+	reader := NewClientGoReader(env.client)
+	executor := &driftAfterCordonExecutor{
+		delegate:  reader,
+		client:    env.client,
+		namespace: env.namespace,
+		podName:   env.podName,
+	}
+	adapter := NewWithExecutor(reader, executor)
+
+	preparation, err := adapter.PrepareNodeDrainExecution(
+		ctx,
+		"act-kind-real-drift",
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
+	}
+	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
+		t.Fatalf("expected prepared ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("ExecuteAuthorizedNodeDrain returned error: %v", err)
+	}
+	if report.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE after post-cordon drift, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if !hasReason(report.ReasonCodes, decision.ExecutionPlanChanged) {
+		t.Fatalf("expected %s, got %v", decision.ExecutionPlanChanged, report.ReasonCodes)
+	}
+	if executor.evictions != 0 {
+		t.Fatalf("expected zero real evictions after drift, got %d", executor.evictions)
+	}
+
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(ctx, env.podName, metav1.GetOptions{}); err != nil {
+		t.Fatalf("pod must remain after guarded stop: %v", err)
+	}
+
+	node, err := env.client.CoreV1().Nodes().Get(ctx, env.nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get node after guarded stop: %v", err)
+	}
+	if !node.Spec.Unschedulable {
+		t.Fatal("expected cordon to remain persisted after later drift stops eviction")
+	}
+}
+
+type driftAfterCordonExecutor struct {
+	delegate  *ClientGoReader
+	client    kubernetes.Interface
+	namespace string
+	podName   string
+	evictions int
+}
+
+func (e *driftAfterCordonExecutor) DryRunCordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	return e.delegate.DryRunCordonNode(ctx, nodeName, resourceVersion)
+}
+
+func (e *driftAfterCordonExecutor) DryRunEvictPod(ctx context.Context, pod PodStateRef) error {
+	return e.delegate.DryRunEvictPod(ctx, pod)
+}
+
+func (e *driftAfterCordonExecutor) CordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	if err := e.delegate.CordonNode(ctx, nodeName, resourceVersion); err != nil {
+		return err
+	}
+
+	patch := []byte(`{"metadata":{"labels":{"state-latch.dev/in-flight-drift":"changed"}}}`)
+	_, err := e.client.CoreV1().Pods(e.namespace).Patch(
+		ctx,
+		e.podName,
+		types.MergePatchType,
+		patch,
+		metav1.PatchOptions{},
+	)
+	return err
+}
+
+func (e *driftAfterCordonExecutor) EvictPod(ctx context.Context, pod PodStateRef) error {
+	e.evictions++
+	return e.delegate.EvictPod(ctx, pod)
+}
+
 type kindIntegrationEnv struct {
 	client    kubernetes.Interface
 	adapter   *Adapter
@@ -346,6 +493,101 @@ func markPodRunningAndReady(
 		t.Fatalf("mark test pod Running/Ready: %v", err)
 	}
 	return *updated
+}
+
+
+func newKindUnmanagedIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
+	t.Helper()
+
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		t.Fatal("KUBECONFIG is required for KinD integration tests")
+	}
+
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		t.Fatalf("load kubeconfig: %v", err)
+	}
+
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		t.Fatalf("build clientset: %v", err)
+	}
+	adapter, err := NewForConfig(config)
+	if err != nil {
+		t.Fatalf("build StateLatch adapter: %v", err)
+	}
+
+	namespace := "sl-it-" + suffix
+	nodeName := "sl-it-node-" + suffix
+	podName := "workload"
+	ctx := context.Background()
+
+	if _, err := client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create namespace: %v", err)
+	}
+
+	if _, err := client.CoreV1().Nodes().Create(ctx, &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create synthetic node: %v", err)
+	}
+
+	if _, err := client.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: namespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create default service account: %v", err)
+	}
+
+	zero := int64(0)
+	pod, err := client.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels:    map[string]string{"app": "state-latch-real-it"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:                      nodeName,
+			ServiceAccountName:            "default",
+			TerminationGracePeriodSeconds: &zero,
+			Containers: []corev1.Container{
+				{
+					Name:  "hold",
+					Image: "registry.k8s.io/pause:3.10",
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create unmanaged test pod: %v", err)
+	}
+	pod = ptrPod(markPodRunningAndReady(t, client, *pod))
+
+	t.Cleanup(func() {
+		_ = client.CoreV1().Namespaces().Delete(context.Background(), namespace, metav1.DeleteOptions{})
+		_ = client.CoreV1().Nodes().Delete(context.Background(), nodeName, metav1.DeleteOptions{})
+	})
+
+	return kindIntegrationEnv{
+		client:    client,
+		adapter:   adapter,
+		namespace: namespace,
+		nodeName:  nodeName,
+		podName:   pod.Name,
+	}
+}
+
+func ptrPod(pod corev1.Pod) *corev1.Pod {
+	return &pod
+}
+
+func integrationExecutionPolicy() NodeDrainPolicy {
+	policy := integrationPolicy()
+	policy.ForceUnmanagedPods = true
+	policy.EvictionObservationTimeout = 10 * time.Second
+	return policy
 }
 
 func integrationPolicy() NodeDrainPolicy {
