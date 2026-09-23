@@ -275,7 +275,7 @@ func TestKindGuardedRealExecutionStopsOnDriftAfterCordon(t *testing.T) {
 		t.Fatalf("expected ESCALATE after post-cordon drift, got %s reasons=%v", report.Decision, report.ReasonCodes)
 	}
 	if !hasReason(report.ReasonCodes, decision.ExecutionPlanChanged) {
-		t.Fatalf("expected %s, got %v", decision.ExecutionPlanChanged, report.ReasonCodes)
+		t.Fatalf("expected %s, got reasons=%v steps=%+v", decision.ExecutionPlanChanged, report.ReasonCodes, report.Steps)
 	}
 	if executor.evictions != 0 {
 		t.Fatalf("expected zero real evictions after drift, got %d", executor.evictions)
