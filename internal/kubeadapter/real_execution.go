@@ -193,7 +193,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 		_ = lockGuard.Close(releaseCtx)
 	}()
 
-	if err := lockGuard.EnsureHeld(); err != nil {
+	if err := lockGuard.EnsureHeld(ctx); err != nil {
 		return GuardedDrainExecutionReport{
 			Decision:    decision.Escalate,
 			ReasonCodes: []decision.ReasonCode{ReasonExecutionLockLost},
@@ -255,7 +255,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 	cordonStep := plan.Steps[0]
 	alreadyCordoned := checkpoint != nil && checkpoint.Cordoned
 	if !alreadyCordoned {
-		if err := lockGuard.EnsureHeld(); err != nil {
+		if err := lockGuard.EnsureHeld(ctx); err != nil {
 			report.Decision = decision.Escalate
 			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
@@ -293,7 +293,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 
 	remaining := evictionCandidatesFromPlan(plan)
 	for len(remaining) > 0 {
-		if err := lockGuard.EnsureHeld(); err != nil {
+		if err := lockGuard.EnsureHeld(ctx); err != nil {
 			report.Decision = decision.Escalate
 			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
@@ -322,7 +322,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			Kind: DrainStepEvictPod,
 			Pod:  &target,
 		}
-		if err := lockGuard.EnsureHeld(); err != nil {
+		if err := lockGuard.EnsureHeld(ctx); err != nil {
 			report.Decision = decision.Escalate
 			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
@@ -358,7 +358,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
 		}
-		if err := lockGuard.EnsureHeld(); err != nil {
+		if err := lockGuard.EnsureHeld(ctx); err != nil {
 			report.Decision = decision.Escalate
 			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
@@ -384,7 +384,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 		remaining = remaining[1:]
 	}
 
-	if err := lockGuard.EnsureHeld(); err != nil {
+	if err := lockGuard.EnsureHeld(ctx); err != nil {
 		report.Decision = decision.Escalate
 		report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
 		pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
