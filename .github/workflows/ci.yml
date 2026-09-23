@@ -22,6 +22,8 @@ jobs:
       - run: go mod download
       - run: go mod verify
       - run: go test ./...
+      - name: Run moat falsification benchmark v1
+        run: go run ./cmd/moatbench
 
   integration:
     runs-on: ubuntu-latest
