@@ -6,8 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
+		"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +17,7 @@ import (
 	"time"
 )
 
-const formatVersion = 1
+const formatVersion = 2
 
 type EventType string
 
@@ -56,6 +55,7 @@ type Anchor struct {
 	JournalID string    `json:"journal_id"`
 	Sequence  uint64    `json:"sequence"`
 	HeadHash  string    `json:"head_hash"`
+	KeyID     string    `json:"key_id"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Signature string    `json:"signature"`
 }
@@ -68,30 +68,61 @@ type Verification struct {
 }
 
 type FileJournal struct {
-	mu         sync.Mutex
-	path       string
-	anchorPath string
-	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
-	now        func() time.Time
+	mu           sync.Mutex
+	path         string
+	anchorPath   string
+	signer       AnchorSigner
+	verifier     AnchorVerifier
+	externalHead ExternalHeadStore
+	publicKey    ed25519.PublicKey
+	now          func() time.Time
 }
 
 func NewFileJournal(path, anchorPath string, privateKey ed25519.PrivateKey) (*FileJournal, error) {
-	if len(privateKey) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("invalid Ed25519 private key length: %d", len(privateKey))
-	}
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-	j := &FileJournal{
-		path:       path,
-		anchorPath: anchorPath,
-		privateKey: append(ed25519.PrivateKey(nil), privateKey...),
-		publicKey:  append(ed25519.PublicKey(nil), publicKey...),
-		now:        time.Now,
-	}
-	if err := j.initialize(); err != nil {
+	signer, err := NewEd25519Signer("", privateKey)
+	if err != nil {
 		return nil, err
 	}
-	verification := j.verifyUnlocked()
+	keyring := NewEd25519Keyring()
+	if err := keyring.Add(signer.KeyID(), signer.PublicKey()); err != nil {
+		return nil, err
+	}
+	j, err := NewFileJournalWithSecurity(path, anchorPath, signer, keyring, nil)
+	if err != nil {
+		return nil, err
+	}
+	j.publicKey = signer.PublicKey()
+	return j, nil
+}
+
+func NewFileJournalWithSecurity(
+	path string,
+	anchorPath string,
+	signer AnchorSigner,
+	verifier AnchorVerifier,
+	externalHead ExternalHeadStore,
+) (*FileJournal, error) {
+	if signer == nil {
+		return nil, fmt.Errorf("journal signer is required")
+	}
+	if signer.KeyID() == "" {
+		return nil, fmt.Errorf("journal signer key id is required")
+	}
+	if verifier == nil {
+		return nil, fmt.Errorf("journal anchor verifier is required")
+	}
+	j := &FileJournal{
+		path:         path,
+		anchorPath:   anchorPath,
+		signer:       signer,
+		verifier:     verifier,
+		externalHead: externalHead,
+		now:          time.Now,
+	}
+	if err := j.initialize(context.Background()); err != nil {
+		return nil, err
+	}
+	verification := j.verifyUnlocked(context.Background())
 	if !verification.Valid {
 		return nil, fmt.Errorf("journal verification failed during open: %s", verification.Error)
 	}
@@ -102,12 +133,18 @@ func VerifyFiles(path, anchorPath string, publicKey ed25519.PublicKey) Verificat
 	if len(publicKey) != ed25519.PublicKeySize {
 		return Verification{Error: "invalid Ed25519 public key"}
 	}
+	keyring := NewEd25519Keyring()
+	keyID := Ed25519KeyID(publicKey)
+	if err := keyring.Add(keyID, publicKey); err != nil {
+		return Verification{Error: err.Error()}
+	}
 	j := &FileJournal{
 		path:       path,
 		anchorPath: anchorPath,
+		verifier:   keyring,
 		publicKey:  append(ed25519.PublicKey(nil), publicKey...),
 	}
-	return j.verifyUnlocked()
+	return j.verifyUnlocked(context.Background())
 }
 
 func (j *FileJournal) PublicKey() ed25519.PublicKey {
@@ -122,7 +159,7 @@ func (j *FileJournal) Append(ctx context.Context, event Event) (Entry, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	verification := j.verifyUnlocked()
+	verification := j.verifyUnlocked(ctx)
 	if !verification.Valid {
 		return Entry{}, fmt.Errorf("refusing append to unverifiable journal: %s", verification.Error)
 	}
@@ -178,13 +215,21 @@ func (j *FileJournal) Append(ctx context.Context, event Event) (Entry, error) {
 		JournalID: anchor.JournalID,
 		Sequence:  entry.Sequence,
 		HeadHash:  entry.EntryHash,
+		KeyID:     j.signer.KeyID(),
 		UpdatedAt: j.now().UTC(),
 	}
-	if err := signAnchor(&newAnchor, j.privateKey); err != nil {
+	if err := signAnchor(ctx, &newAnchor, j.signer); err != nil {
 		return Entry{}, err
 	}
 	if err := writeAnchorAtomic(j.anchorPath, newAnchor); err != nil {
 		return Entry{}, err
+	}
+	if j.externalHead != nil {
+		previous := externalHeadFromAnchor(anchor)
+		next := externalHeadFromAnchor(newAnchor)
+		if _, err := j.externalHead.CompareAndAdvance(ctx, previous, next); err != nil {
+			return Entry{}, fmt.Errorf("advance external journal head: %w", err)
+		}
 	}
 
 	return entry, nil
@@ -196,7 +241,7 @@ func (j *FileJournal) Verify(ctx context.Context) Verification {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.verifyUnlocked()
+	return j.verifyUnlocked(ctx)
 }
 
 func DigestPayload(value any) (string, error) {
@@ -208,7 +253,7 @@ func DigestPayload(value any) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func (j *FileJournal) initialize() error {
+func (j *FileJournal) initialize(ctx context.Context) error {
 	journalExists, err := pathExists(j.path)
 	if err != nil {
 		return err
@@ -253,15 +298,28 @@ func (j *FileJournal) initialize() error {
 		JournalID: journalID,
 		Sequence:  0,
 		HeadHash:  "",
+		KeyID:     j.signer.KeyID(),
 		UpdatedAt: j.now().UTC(),
 	}
-	if err := signAnchor(&anchor, j.privateKey); err != nil {
+	if err := signAnchor(ctx, &anchor, j.signer); err != nil {
 		return err
 	}
-	return writeAnchorAtomic(j.anchorPath, anchor)
+	if err := writeAnchorAtomic(j.anchorPath, anchor); err != nil {
+		return err
+	}
+	if j.externalHead != nil {
+		if _, err := j.externalHead.CompareAndAdvance(
+			ctx,
+			ExternalHead{JournalID: journalID},
+			externalHeadFromAnchor(anchor),
+		); err != nil {
+			return fmt.Errorf("initialize external journal head: %w", err)
+		}
+	}
+	return nil
 }
 
-func (j *FileJournal) verifyUnlocked() Verification {
+func (j *FileJournal) verifyUnlocked(ctx context.Context) Verification {
 	anchor, err := readAnchor(j.anchorPath)
 	if err != nil {
 		return Verification{Error: err.Error()}
@@ -269,8 +327,11 @@ func (j *FileJournal) verifyUnlocked() Verification {
 	if anchor.Version != formatVersion {
 		return Verification{Error: fmt.Sprintf("unsupported anchor version %d", anchor.Version)}
 	}
-	if !verifyAnchor(anchor, j.publicKey) {
-		return Verification{Error: "signed anchor verification failed"}
+	if j.verifier == nil {
+		return Verification{Error: "journal anchor verifier is not configured"}
+	}
+	if err := verifyAnchor(ctx, anchor, j.verifier); err != nil {
+		return Verification{Error: "signed anchor verification failed: " + err.Error()}
 	}
 
 	file, err := os.Open(j.path)
@@ -340,6 +401,31 @@ func (j *FileJournal) verifyUnlocked() Verification {
 		}
 	}
 
+	if j.externalHead != nil {
+		external, err := j.externalHead.Load(ctx, anchor.JournalID)
+		if err != nil {
+			return Verification{
+				EntryCount: entryCount,
+				HeadHash:   previousHash,
+				Error:      "external journal head unavailable: " + err.Error(),
+			}
+		}
+		local := externalHeadFromAnchor(anchor)
+		if external.Sequence != local.Sequence ||
+			external.HeadHash != local.HeadHash ||
+			external.KeyID != local.KeyID {
+			return Verification{
+				EntryCount: entryCount,
+				HeadHash:   previousHash,
+				Error: fmt.Sprintf(
+					"external journal head mismatch: external sequence=%d hash=%q key=%q local sequence=%d hash=%q key=%q",
+					external.Sequence, external.HeadHash, external.KeyID,
+					local.Sequence, local.HeadHash, local.KeyID,
+				),
+			}
+		}
+	}
+
 	return Verification{
 		Valid:      true,
 		EntryCount: entryCount,
@@ -358,31 +444,53 @@ func hashEntry(entry Entry) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func signAnchor(anchor *Anchor, privateKey ed25519.PrivateKey) error {
-	if len(privateKey) != ed25519.PrivateKeySize {
-		return errors.New("invalid Ed25519 private key")
+func signAnchor(ctx context.Context, anchor *Anchor, signer AnchorSigner) error {
+	if signer == nil {
+		return errors.New("journal signer is not configured")
+	}
+	if anchor.KeyID == "" {
+		anchor.KeyID = signer.KeyID()
+	}
+	if anchor.KeyID != signer.KeyID() {
+		return fmt.Errorf("anchor key id %q does not match signer %q", anchor.KeyID, signer.KeyID())
 	}
 	payload, err := anchorSigningPayload(*anchor)
 	if err != nil {
 		return err
 	}
-	anchor.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
+	signature, err := signer.Sign(ctx, payload)
+	if err != nil {
+		return fmt.Errorf("sign journal anchor: %w", err)
+	}
+	anchor.Signature = encodeSignature(signature)
 	return nil
 }
 
-func verifyAnchor(anchor Anchor, publicKey ed25519.PublicKey) bool {
-	if len(publicKey) != ed25519.PublicKeySize {
-		return false
+func verifyAnchor(ctx context.Context, anchor Anchor, verifier AnchorVerifier) error {
+	if verifier == nil {
+		return errors.New("journal verifier is not configured")
 	}
-	signature, err := base64.StdEncoding.DecodeString(anchor.Signature)
+	if anchor.KeyID == "" {
+		return errors.New("journal anchor key id is missing")
+	}
+	signature, err := decodeSignature(anchor.Signature)
 	if err != nil {
-		return false
+		return err
 	}
 	payload, err := anchorSigningPayload(anchor)
 	if err != nil {
-		return false
+		return err
 	}
-	return ed25519.Verify(publicKey, payload, signature)
+	return verifier.Verify(ctx, anchor.KeyID, payload, signature)
+}
+
+func externalHeadFromAnchor(anchor Anchor) ExternalHead {
+	return ExternalHead{
+		JournalID: anchor.JournalID,
+		Sequence:  anchor.Sequence,
+		HeadHash:  anchor.HeadHash,
+		KeyID:     anchor.KeyID,
+	}
 }
 
 func anchorSigningPayload(anchor Anchor) ([]byte, error) {
