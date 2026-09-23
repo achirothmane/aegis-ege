@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/achirothmane/state-latch/internal/decision"
 )
 
@@ -72,8 +74,12 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 
 	cordonStep := plan.Steps[0]
 	if err := mutator.CordonNode(ctx, cordonStep.NodeName, cordonStep.ResourceVersion); err != nil {
+		reason := ReasonExecutionCordonRejected
+		if apierrors.IsConflict(err) {
+			reason = decision.ResourceVersionChanged
+		}
 		report.Decision = decision.Escalate
-		report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCordonRejected}
+		report.ReasonCodes = []decision.ReasonCode{reason}
 		report.Steps = append(report.Steps, DrainMutationStepResult{
 			Step:  cordonStep,
 			Error: err.Error(),
@@ -109,8 +115,17 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 			Pod:  &target,
 		}
 		if err := mutator.EvictPod(ctx, target); err != nil {
-			report.Decision = decision.Escalate
-			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionEvictionRejected}
+			mutationDecision := decision.Escalate
+			reason := ReasonExecutionEvictionRejected
+			switch {
+			case apierrors.IsConflict(err):
+				reason = decision.ExecutionPlanChanged
+			case apierrors.IsTooManyRequests(err):
+				mutationDecision = decision.Block
+				reason = decision.ReasonCode(FindingPDBDisruptionBlocked)
+			}
+			report.Decision = mutationDecision
+			report.ReasonCodes = []decision.ReasonCode{reason}
 			report.Steps = append(report.Steps, DrainMutationStepResult{
 				Step:  step,
 				Error: err.Error(),
