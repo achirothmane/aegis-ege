@@ -247,7 +247,7 @@ func TestKindGuardedRealExecutionStopsOnDriftAfterCordon(t *testing.T) {
 		namespace: env.namespace,
 		podName:   env.podName,
 	}
-	adapter := NewWithExecutor(reader, executor)
+	adapter := NewWithExperimentalMutations(reader, executor)
 
 	preparation, err := adapter.PrepareNodeDrainExecution(
 		ctx,
@@ -526,7 +526,7 @@ func newKindUnmanagedIntegrationEnv(t *testing.T, suffix string) kindIntegration
 	if err != nil {
 		t.Fatalf("build clientset: %v", err)
 	}
-	adapter, err := NewForConfig(config)
+	adapter, err := NewForConfigWithExperimentalMutations(config)
 	if err != nil {
 		t.Fatalf("build StateLatch adapter: %v", err)
 	}
