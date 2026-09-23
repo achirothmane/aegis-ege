@@ -20,6 +20,7 @@ const (
 	InsufficientStateBinding ReasonCode = "INSUFFICIENT_STATE_BINDING"
 	AuthorizationExpired     ReasonCode = "AUTHORIZATION_EXPIRED"
 	ResourceVersionChanged   ReasonCode = "RESOURCE_VERSION_CHANGED"
+	ExecutionPlanChanged     ReasonCode = "EXECUTION_PLAN_CHANGED"
 	ActionChanged            ReasonCode = "ACTION_CHANGED"
 	TargetChanged            ReasonCode = "TARGET_CHANGED"
 )
@@ -51,6 +52,7 @@ type Authorization struct {
 	Target          string
 	ResourceVersion string
 	EvidenceDigest  string
+	PlanDigest      string
 	ValidUntil      time.Time
 }
 
@@ -65,6 +67,7 @@ type ExecutionAttempt struct {
 	Action          string
 	Target          string
 	ResourceVersion string
+	PlanDigest      string
 	Now             time.Time
 }
 
