@@ -186,6 +186,79 @@ func TestKindLiveRevalidationDetectsPodSemanticDrift(t *testing.T) {
 }
 
 
+func TestKindExecutionLeasePreventsConcurrentDrainOnSameNode(t *testing.T) {
+	env := newKindUnmanagedIntegrationEnv(t, "lock")
+	ctx := context.Background()
+	policy := integrationExecutionPolicy()
+	policy.ExecutionLockNamespace = env.namespace
+	policy.ExecutionLockDuration = 10 * time.Second
+
+	reader := NewClientGoReader(env.client)
+	heldLease, err := reader.AcquireExecutionLock(
+		ctx,
+		policy.ExecutionLockNamespace,
+		"node/"+env.nodeName,
+		"external-holder",
+		policy.ExecutionLockDuration,
+	)
+	if err != nil {
+		t.Fatalf("AcquireExecutionLock returned error: %v", err)
+	}
+
+	preparation := prepareKindDrainWithFreshAuthorization(
+		t,
+		env.adapter,
+		"act-kind-lock-contender",
+		env.nodeName,
+		policy,
+	)
+
+	blocked, err := env.adapter.ExecuteAuthorizedNodeDrain(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("contending ExecuteAuthorizedNodeDrain returned error: %v", err)
+	}
+	if blocked.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE under lock contention, got %s reasons=%v", blocked.Decision, blocked.ReasonCodes)
+	}
+	if !hasReason(blocked.ReasonCodes, ReasonExecutionLockHeld) {
+		t.Fatalf("expected %s, got %v", ReasonExecutionLockHeld, blocked.ReasonCodes)
+	}
+
+	node, err := env.client.CoreV1().Nodes().Get(ctx, env.nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get node after blocked contender: %v", err)
+	}
+	if node.Spec.Unschedulable {
+		t.Fatal("lock contender must not cordon the node")
+	}
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(ctx, env.podName, metav1.GetOptions{}); err != nil {
+		t.Fatalf("lock contender must not evict the pod: %v", err)
+	}
+
+	if err := reader.ReleaseExecutionLock(ctx, heldLease); err != nil {
+		t.Fatalf("ReleaseExecutionLock returned error: %v", err)
+	}
+
+	freshPreparation, report := executeKindDrainWithFreshAuthorizationRetry(
+		t,
+		env.adapter,
+		"act-kind-lock-contender",
+		env.nodeName,
+		policy,
+	)
+	if report.Decision != decision.Allow {
+		t.Fatalf("expected ALLOW after lock release, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if report.PlanDigest != freshPreparation.PlanDigest {
+		t.Fatalf("expected executed plan digest %q, got %q", freshPreparation.PlanDigest, report.PlanDigest)
+	}
+}
+
 func TestKindGuardedRealExecutionCordonsAndEvictsAuthorizedPod(t *testing.T) {
 	env := newKindUnmanagedIntegrationEnv(t, "real")
 	ctx := context.Background()
