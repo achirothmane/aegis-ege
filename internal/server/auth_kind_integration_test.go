@@ -121,25 +121,12 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 	clientHTTP.Transport = transport
 
 	preparePayload := []byte("{\"action_id\":\"m8-kind\",\"node_name\":\"" + nodeName + "\"}")
-	prepareResp, err := clientHTTP.Post(
-		testServer.URL+"/v1/node-drains/prepare",
-		"application/json",
-		bytes.NewReader(preparePayload),
+	preparation := prepareUntilStable(
+		t,
+		clientHTTP,
+		testServer.URL,
+		preparePayload,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer prepareResp.Body.Close()
-	if prepareResp.StatusCode != http.StatusOK {
-		t.Fatalf("prepare status=%d", prepareResp.StatusCode)
-	}
-	var preparation prepareResponse
-	if err := json.NewDecoder(prepareResp.Body).Decode(&preparation); err != nil {
-		t.Fatal(err)
-	}
-	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
-		t.Fatalf("expected authenticated ALLOW preparation, got %+v", preparation)
-	}
 
 	executePayload, err := json.Marshal(executeRequest{
 		NodeName:       nodeName,
