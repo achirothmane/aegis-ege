@@ -47,6 +47,7 @@ type NodeDrainPolicy struct {
 
 type NodeDrainSnapshot struct {
 	NodeName        string
+	NodeUID         string
 	ResourceVersion string
 	NodeHealth      string
 	ActivePods      int
@@ -106,6 +107,7 @@ func (a *Adapter) inspectNodeDrainState(ctx context.Context, nodeName string) (N
 
 	return NodeDrainSnapshot{
 		NodeName:        node.Name,
+		NodeUID:         string(node.UID),
 		ResourceVersion: node.ResourceVersion,
 		NodeHealth:      nodeHealth(node),
 		ActivePods:      activePods,
