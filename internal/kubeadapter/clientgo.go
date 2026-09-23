@@ -2,11 +2,14 @@ package kubeadapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -41,7 +44,8 @@ func NewForConfig(config *rest.Config) (*Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build kubernetes client: %w", err)
 	}
-	return New(NewClientGoReader(client)), nil
+	reader := NewClientGoReader(client)
+	return NewWithExecutor(reader, reader), nil
 }
 
 func (r *ClientGoReader) GetNode(ctx context.Context, name string) (*corev1.Node, error) {
@@ -76,4 +80,54 @@ func (r *ClientGoReader) ListPodDisruptionBudgets(ctx context.Context) ([]PodDis
 		})
 	}
 	return out, nil
+}
+
+func (r *ClientGoReader) DryRunCordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]string{
+			"resourceVersion": resourceVersion,
+		},
+		"spec": map[string]bool{
+			"unschedulable": true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal cordon patch: %w", err)
+	}
+
+	_, err = r.client.CoreV1().Nodes().Patch(
+		ctx,
+		nodeName,
+		types.MergePatchType,
+		patch,
+		metav1.PatchOptions{DryRun: []string{metav1.DryRunAll}},
+	)
+	if err != nil {
+		return fmt.Errorf("server dry-run cordon node %q: %w", nodeName, err)
+	}
+	return nil
+}
+
+func (r *ClientGoReader) DryRunEvictPod(ctx context.Context, pod PodStateRef) error {
+	uid := types.UID(pod.UID)
+	resourceVersion := pod.ResourceVersion
+
+	eviction := &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pod.Name,
+			Namespace: pod.Namespace,
+		},
+		DeleteOptions: &metav1.DeleteOptions{
+			DryRun: []string{metav1.DryRunAll},
+			Preconditions: &metav1.Preconditions{
+				UID:             &uid,
+				ResourceVersion: &resourceVersion,
+			},
+		},
+	}
+
+	if err := r.client.PolicyV1().Evictions(pod.Namespace).Evict(ctx, eviction); err != nil {
+		return fmt.Errorf("server dry-run evict pod %s/%s: %w", pod.Namespace, pod.Name, err)
+	}
+	return nil
 }
