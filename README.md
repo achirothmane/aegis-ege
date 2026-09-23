@@ -6,7 +6,29 @@ StateLatch asks one extra question before automation changes production:
 
 > Is the world-state evidence that justified this action still fresh, consistent, sufficient, and still valid at execution time?
 
-It is not a general AI governance platform. `v0.1` focuses on a narrow primitive for Kubernetes node-drain actions: **observe → preflight → verify → server dry-run → authorize**.
+## Problem
+
+Identity and policy may permit an action even when the operational state that justified it has changed between observation, dry-run, and execution.
+
+StateLatch v0.1 focuses on one narrow path for Kubernetes node drains:
+
+```text
+Observe
+  ↓
+Preflight
+  ↓
+Verify evidence + blast radius
+  ↓
+Build state-bound plan
+  ↓
+Server-side dry-run
+  ↓
+Mint plan-bound authorization
+  ↓
+Final live revalidation
+  ↓
+ALLOW / BLOCK / ESCALATE
+```
 
 ## 60-second quickstart
 
@@ -18,27 +40,65 @@ cd state-latch
 go test ./...
 ```
 
-## Current node-drain path
+## State-bound execution plan
+
+The plan is built from Kubernetes-observed state, not agent-supplied state:
 
 ```text
-Agent proposes drain
-        ↓
-Read Kubernetes state
-        ↓
-Drain preflight
-        ↓
-Evidence + blast-radius gates
-        ↓
-Build state-bound execution plan
-        ↓
-Server-side dry-run
-  - cordon node
-  - evict each candidate pod
-        ↓
-ALLOW / BLOCK / ESCALATE
+CORDON_NODE
+  node=node-7
+  resourceVersion=928441
+
+EVICT_POD
+  pod=default/api-a
+  uid=<observed uid>
+  resourceVersion=<observed rv>
 ```
 
-The trusted `resourceVersion`, Pod UID/resourceVersion, blast radius, and PDB state come from Kubernetes — not from the agent.
+StateLatch computes a deterministic SHA-256 `plan_digest` across the complete ordered plan and binds that digest into the authorization.
+
+Changing any bound execution input — including a Pod UID/resourceVersion, Node resourceVersion, target set, or step ordering — changes the digest.
+
+## Server-side dry-run
+
+`PrepareNodeDrainExecution(...)` requires Kubernetes to accept:
+
+1. a server-side dry-run cordon;
+2. a server-side dry-run eviction for every planned Pod.
+
+Evictions carry UID and `resourceVersion` delete preconditions.
+
+A preparation authorization is exposed only after all current gates and dry-runs pass.
+
+## Final live revalidation
+
+Immediately before any future real mutation, callers must use:
+
+```go
+RevalidateNodeDrainAuthorization(...)
+```
+
+This path re-reads live Kubernetes state, reruns drain preflight, rebuilds the execution plan, recomputes its digest, and validates the short-lived authorization.
+
+Examples:
+
+```text
+same live state + same plan digest + valid TTL
+→ ALLOW
+
+Pod resourceVersion / UID / target set changed
+→ ESCALATE / EXECUTION_PLAN_CHANGED
+
+Node resourceVersion changed
+→ ESCALATE / RESOURCE_VERSION_CHANGED
+  (+ EXECUTION_PLAN_CHANGED because the plan changed)
+
+PDB now blocks the drain
+→ BLOCK / PDB_DISRUPTION_BLOCKED
+
+authorization expired
+→ ESCALATE / AUTHORIZATION_EXPIRED
+```
 
 ## Drain preflight
 
@@ -66,94 +126,49 @@ PDB state unavailable
 
 Mirror/static pods are recorded and skipped.
 
-## State-bound execution plan
-
-When preflight and the generic decision kernel pass, StateLatch builds a deterministic plan:
-
-```text
-1. CORDON_NODE
-   node=node-7
-   resourceVersion=928441
-
-2. EVICT_POD
-   pod=default/api-a
-   uid=<observed uid>
-   resourceVersion=<observed rv>
-
-3. EVICT_POD
-   pod=default/api-b
-   uid=<observed uid>
-   resourceVersion=<observed rv>
-```
-
-The eviction dry-run uses Kubernetes delete preconditions for both Pod UID and `resourceVersion`.
-
-## Server-side dry-run gate
-
-`PrepareNodeDrainExecution` is the execution-readiness path.
-
-It does not expose an execution authorization unless:
-
-1. preflight returns `ALLOW`;
-2. evidence/risk gates return `ALLOW`;
-3. Kubernetes accepts a server-side dry-run of the cordon;
-4. Kubernetes accepts server-side dry-run eviction for every planned Pod;
-5. the short-lived authorization has not expired during preparation.
-
-Failure semantics:
-
-```text
-No server dry-run capability
-→ ESCALATE / SERVER_DRY_RUN_UNAVAILABLE
-
-Cordon dry-run rejected
-→ BLOCK / SERVER_DRY_RUN_CORDON_REJECTED
-
-Any eviction dry-run rejected
-→ BLOCK / SERVER_DRY_RUN_EVICTION_REJECTED
-```
-
-See:
-- [`docs/kubernetes-node-drain.md`](docs/kubernetes-node-drain.md)
-- [`docs/server-dry-run.md`](docs/server-dry-run.md)
-- [`docs/decision-contract.md`](docs/decision-contract.md)
-
 ## Implemented
 
-- evidence freshness
-- claim-scoped contradiction detection
+- evidence freshness and contradiction gates
 - distinct-source requirements
-- blast-radius hard limits
+- Kubernetes-derived blast radius
+- live Node / Pod / PDB reads
+- drain preflight
+- deterministic execution-plan generation
+- deterministic plan digest
 - state-bound authorization
-- TOCTOU invalidation checks
-- live Kubernetes Node / Pod / PDB reads
-- DaemonSet / unmanaged / emptyDir / mirror / PDB preflight
-- state-bound execution-plan generation
-- server-side dry-run cordon
-- server-side dry-run eviction
+- server-side dry-run cordon and eviction
 - Pod UID + resourceVersion eviction preconditions
-- in-cluster and kubeconfig client construction
+- final live revalidation
+- TOCTOU invalidation for Node and complete drain plan
 
 ## Not implemented yet
 
 - real node cordon
 - real Pod eviction
-- waiting for graceful termination
+- graceful termination / retry execution loop
 - exact `kubectl drain` parity
 - Prometheus evidence adapter/cache
 - multi-source live evidence
 - production daemon / API surface
 - AWS/GCP, SSH, databases, PLC, or financial execution
 
-## Important limit
+## Guarantees and limits
 
-A passing server dry-run is stronger evidence than local simulation, but it is **not a guarantee that the later real drain will succeed**. Dry-run mutations are not persisted, cluster state can change immediately afterward, and individual dry-run evictions do not consume disruption budget.
+A passing dry-run plus passing live revalidation is stronger than local simulation, but it is still not a mathematical guarantee that a later mutation will succeed.
 
-StateLatch therefore still requires state validation immediately before any future real execution.
+Cluster state can change after revalidation. A future real execution path must therefore keep the same Node and Pod preconditions on the actual mutation requests so state drift fails closed at the API server too.
+
+StateLatch does not execute production mutations yet.
+
+## Docs
+
+- [Kubernetes node-drain adapter](docs/kubernetes-node-drain.md)
+- [Server-side dry-run](docs/server-dry-run.md)
+- [Decision contract](docs/decision-contract.md)
 
 ## Current status
 
-`v0.1-prealpha` — tested decision kernel + Kubernetes node-drain preflight + server-side dry-run preparation. Production mutation is not implemented.
+`v0.1-prealpha` — tested decision kernel + Kubernetes drain preflight + server-side dry-run preparation + final live plan revalidation.
 
 ## Design principle
 
