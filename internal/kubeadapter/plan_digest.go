@@ -9,6 +9,8 @@ import (
 type canonicalDrainPlan struct {
 	ActionID            string               `json:"action_id"`
 	NodeName            string               `json:"node_name"`
+	NodeUID             string               `json:"node_uid"`
+	NodeHealth          string               `json:"node_health"`
 	NodeResourceVersion string               `json:"node_resource_version"`
 	Steps               []canonicalDrainStep `json:"steps"`
 }
@@ -27,6 +29,8 @@ func DigestDrainExecutionPlan(plan DrainExecutionPlan) string {
 	canonical := canonicalDrainPlan{
 		ActionID:            plan.ActionID,
 		NodeName:            plan.NodeName,
+		NodeUID:             plan.NodeUID,
+		NodeHealth:          plan.NodeHealth,
 		NodeResourceVersion: plan.NodeResourceVersion,
 		Steps:               make([]canonicalDrainStep, 0, len(plan.Steps)),
 	}
