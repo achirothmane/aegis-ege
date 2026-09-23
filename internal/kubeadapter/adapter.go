@@ -29,9 +29,10 @@ type DryRunExecutor interface {
 type Clock func() time.Time
 
 type Adapter struct {
-	reader   Reader
-	executor DryRunExecutor
-	now      Clock
+	reader            Reader
+	executor          DryRunExecutor
+	now               Clock
+	mutationsEnabled  bool
 }
 
 type NodeDrainPolicy struct {
@@ -66,6 +67,16 @@ func NewWithClock(reader Reader, now Clock) *Adapter {
 
 func NewWithExecutor(reader Reader, executor DryRunExecutor) *Adapter {
 	return NewWithClockAndExecutor(reader, executor, time.Now)
+}
+
+func NewWithExperimentalMutations(reader Reader, executor DryRunExecutor) *Adapter {
+	return NewWithClockAndExperimentalMutations(reader, executor, time.Now)
+}
+
+func NewWithClockAndExperimentalMutations(reader Reader, executor DryRunExecutor, now Clock) *Adapter {
+	adapter := NewWithClockAndExecutor(reader, executor, now)
+	adapter.mutationsEnabled = true
+	return adapter
 }
 
 func NewWithClockAndExecutor(reader Reader, executor DryRunExecutor, now Clock) *Adapter {
