@@ -13,10 +13,15 @@ const (
 type ReasonCode string
 
 const (
-	EvidenceStale        ReasonCode = "EVIDENCE_STALE"
-	EvidenceContradicted ReasonCode = "EVIDENCE_CONTRADICTED"
-	InsufficientEvidence ReasonCode = "INSUFFICIENT_EVIDENCE"
-	BlastRadiusExceeded  ReasonCode = "BLAST_RADIUS_EXCEEDED"
+	EvidenceStale            ReasonCode = "EVIDENCE_STALE"
+	EvidenceContradicted     ReasonCode = "EVIDENCE_CONTRADICTED"
+	InsufficientEvidence     ReasonCode = "INSUFFICIENT_EVIDENCE"
+	BlastRadiusExceeded      ReasonCode = "BLAST_RADIUS_EXCEEDED"
+	InsufficientStateBinding ReasonCode = "INSUFFICIENT_STATE_BINDING"
+	AuthorizationExpired     ReasonCode = "AUTHORIZATION_EXPIRED"
+	ResourceVersionChanged   ReasonCode = "RESOURCE_VERSION_CHANGED"
+	ActionChanged            ReasonCode = "ACTION_CHANGED"
+	TargetChanged            ReasonCode = "TARGET_CHANGED"
 )
 
 type EvidenceObservation struct {
@@ -28,8 +33,11 @@ type EvidenceObservation struct {
 
 type Request struct {
 	ActionID            string
+	Action              string
 	Target              string
+	ResourceVersion     string
 	RequestedAt         time.Time
+	AuthorizationTTL    time.Duration
 	MaxEvidenceAge      time.Duration
 	RequiredSourceCount int
 	BlastRadius         int
@@ -37,7 +45,30 @@ type Request struct {
 	Evidence            []EvidenceObservation
 }
 
+type Authorization struct {
+	ActionID        string
+	Action          string
+	Target          string
+	ResourceVersion string
+	EvidenceDigest  string
+	ValidUntil      time.Time
+}
+
 type Result struct {
-	Decision    Decision
+	Decision      Decision
+	ReasonCodes   []ReasonCode
+	Authorization *Authorization
+}
+
+type ExecutionAttempt struct {
+	ActionID        string
+	Action          string
+	Target          string
+	ResourceVersion string
+	Now             time.Time
+}
+
+type AuthorizationValidation struct {
+	Valid       bool
 	ReasonCodes []ReasonCode
 }
