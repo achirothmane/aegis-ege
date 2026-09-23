@@ -59,17 +59,20 @@ func TestReliabilityLedgerDegradesAfterRepeatedDivergence(t *testing.T) {
 		ledger.Record(Record{
 			ActionID:     "match",
 			Verdict:      Match,
+			Attribution:  AttributionContributors,
 			Contributors: []Contributor{source, assumption},
 		})
 	}
 	ledger.Record(Record{
 		ActionID:     "divergence-1",
 		Verdict:      Diverged,
+		Attribution:  AttributionContributors,
 		Contributors: []Contributor{source, assumption},
 	})
 	ledger.Record(Record{
 		ActionID:     "divergence-2",
 		Verdict:      Diverged,
+		Attribution:  AttributionContributors,
 		Contributors: []Contributor{source, assumption},
 	})
 
@@ -117,10 +120,10 @@ func TestUnknownOutcomesDoNotImproveReliability(t *testing.T) {
 	})
 	source := Contributor{Kind: ContributorSource, ID: "prometheus-http"}
 
-	ledger.Record(Record{Verdict: Match, Contributors: []Contributor{source}})
-	ledger.Record(Record{Verdict: Diverged, Contributors: []Contributor{source}})
+	ledger.Record(Record{Verdict: Match, Attribution: AttributionContributors, Contributors: []Contributor{source}})
+	ledger.Record(Record{Verdict: Diverged, Attribution: AttributionContributors, Contributors: []Contributor{source}})
 	for i := 0; i < 20; i++ {
-		ledger.Record(Record{Verdict: Unknown, Contributors: []Contributor{source}})
+		ledger.Record(Record{Verdict: Unknown, Attribution: AttributionContributors, Contributors: []Contributor{source}})
 	}
 
 	got := ledger.Snapshot(source)
@@ -147,5 +150,27 @@ func TestDuplicateContributorInRecordCountsOnce(t *testing.T) {
 	got := ledger.Snapshot(source)
 	if got.Matches != 1 {
 		t.Fatalf("duplicate contributor should count once per outcome, got %+v", got)
+	}
+}
+
+func TestUnattributedDivergenceDoesNotDegradeContributor(t *testing.T) {
+	ledger := NewLedger(AdvisoryPolicy{
+		MinResolvedSamples: 1,
+		MaxDivergenceRate:  0,
+	})
+	source := Contributor{Kind: ContributorSource, ID: "kubernetes-api"}
+
+	ledger.Record(Record{
+		Verdict:      Diverged,
+		Attribution:  AttributionUnattributed,
+		Contributors: []Contributor{source},
+	})
+
+	got := ledger.Snapshot(source)
+	if got.Status != AdvisoryInsufficientHistory {
+		t.Fatalf("unattributed divergence must not calibrate reliability, got %+v", got)
+	}
+	if got.ResolvedSamples != 0 || got.Unattributed != 1 {
+		t.Fatalf("expected one unattributed outcome and zero resolved calibration samples, got %+v", got)
 	}
 }
