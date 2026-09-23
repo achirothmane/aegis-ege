@@ -43,6 +43,20 @@ node_health / prometheus-a = healthy
 node_health / prometheus-b = unhealthy
 ```
 
+## Blast radius model
+
+Blast radius is a hard action-risk bound, not a confidence score.
+
+For a Kubernetes node drain, the first concrete unit can be the number of affected pods:
+
+```text
+blast_radius     = 31
+max_blast_radius = 10
+→ BLOCK / BLAST_RADIUS_EXCEEDED
+```
+
+In the current decision kernel, the caller supplies the numeric blast radius. This is intentionally temporary. The Kubernetes adapter must eventually derive it independently from live cluster state rather than trusting a value proposed by an agent.
+
 ## Hard-gate rule
 
 A high aggregate score must never compensate for failure of a mandatory safety predicate.
@@ -51,13 +65,14 @@ For `v0.1`, these predicates begin with:
 
 1. required evidence is within its maximum allowed age;
 2. fresh observations of the same claim do not contradict one another;
-3. the configured minimum number of distinct evidence sources is present.
+3. action blast radius stays within its configured hard limit;
+4. the configured minimum number of distinct evidence sources is present.
 
 Duplicate observations from the same source count as one source.
 
 Current limitation: `RequiredSourceCount` is request-wide. A later step may make source requirements claim-specific when the action contract requires different evidence thresholds for different claims.
 
-Later gates may include blast-radius limits, Kubernetes server-side dry-run, invariants, and state-version binding.
+Later gates may include Kubernetes server-side dry-run, invariants, and state-version binding.
 
 ## Reason codes
 
@@ -67,6 +82,7 @@ Initial reason codes:
 EVIDENCE_STALE
 EVIDENCE_CONTRADICTED
 INSUFFICIENT_EVIDENCE
+BLAST_RADIUS_EXCEEDED
 ```
 
 Reason codes are machine-readable.
