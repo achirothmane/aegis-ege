@@ -123,7 +123,7 @@ func (a *Adapter) ResumeAuthorizedNodeDrain(
 	checkpoint.LastDecision = decision.Allow
 	checkpoint.LastReasonCodes = nil
 	checkpoint.UpdatedAt = a.now().UTC()
-	if err := store.Save(ctx, checkpoint); err != nil {
+	if err := saveDrainCheckpoint(ctx, store, &checkpoint); err != nil {
 		return GuardedDrainExecutionReport{
 			Decision:    decision.Escalate,
 			ReasonCodes: []decision.ReasonCode{ReasonExecutionCheckpointUnavailable},
@@ -242,7 +242,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 				UpdatedAt:          a.now().UTC(),
 			}
 			checkpoint = &copyValue
-			if err := store.Save(ctx, *checkpoint); err != nil {
+			if err := saveDrainCheckpoint(ctx, store, checkpoint); err != nil {
 				return GuardedDrainExecutionReport{
 					Decision:    decision.Escalate,
 					ReasonCodes: []decision.ReasonCode{ReasonExecutionCheckpointUnavailable},
@@ -283,7 +283,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 		if checkpoint != nil {
 			checkpoint.Cordoned = true
 			checkpoint.UpdatedAt = a.now().UTC()
-			if err := store.Save(ctx, *checkpoint); err != nil {
+			if err := saveDrainCheckpoint(ctx, store, checkpoint); err != nil {
 				report.Decision = decision.Escalate
 				report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCheckpointUnavailable}
 				return report, nil
@@ -374,7 +374,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			checkpoint.LastDecision = decision.Allow
 			checkpoint.LastReasonCodes = nil
 			checkpoint.UpdatedAt = a.now().UTC()
-			if err := store.Save(ctx, *checkpoint); err != nil {
+			if err := saveDrainCheckpoint(ctx, store, checkpoint); err != nil {
 				report.Decision = decision.Escalate
 				report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCheckpointUnavailable}
 				return report, nil
@@ -414,7 +414,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 		checkpoint.LastDecision = decision.Allow
 		checkpoint.LastReasonCodes = nil
 		checkpoint.UpdatedAt = a.now().UTC()
-		if err := store.Save(ctx, *checkpoint); err != nil {
+		if err := saveDrainCheckpoint(ctx, store, checkpoint); err != nil {
 			report.Decision = decision.Escalate
 			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCheckpointUnavailable}
 			return report, nil
@@ -555,5 +555,5 @@ func pauseCheckpointBestEffort(
 		return
 	}
 	markCheckpointPaused(checkpoint, decisionValue, reasons, now)
-	_ = store.Save(context.Background(), *checkpoint)
+	_ = saveDrainCheckpoint(context.Background(), store, checkpoint)
 }
