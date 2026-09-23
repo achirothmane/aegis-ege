@@ -14,6 +14,12 @@ import (
 	"github.com/achirothmane/state-latch/internal/kubeadapter"
 )
 
+type allowAuthorizer struct{}
+
+func (allowAuthorizer) Authorize(*http.Request, Permission) (Principal, error) {
+	return Principal{ID: "spiffe://test/operator"}, nil
+}
+
 type fakeController struct {
 	preparation  kubeadapter.NodeDrainPreparation
 	report       kubeadapter.GuardedDrainExecutionReport
@@ -112,7 +118,14 @@ func TestExecuteEnabledPassesBoundAuthorization(t *testing.T) {
 	controller := &fakeController{
 		report: kubeadapter.GuardedDrainExecutionReport{Decision: decision.Allow, PlanDigest: "sha256:plan"},
 	}
-	s, err := New(controller, store, Config{MutationsEnabled: true})
+	replay, err := NewFileReplayGuard(t.TempDir())
+	if err != nil { t.Fatal(err) }
+	s, err := New(controller, store, Config{
+		MutationsEnabled: true,
+		RequireAuthentication: true,
+		Authorizer: allowAuthorizer{},
+		ReplayGuard: replay,
+	})
 	if err != nil { t.Fatal(err) }
 
 	body := map[string]any{
@@ -157,5 +170,32 @@ func TestHealth(t *testing.T) {
 	s.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+}
+
+func TestMutationsCannotEnableWithoutAuthentication(t *testing.T) {
+	store := kubeadapter.NewMemoryDrainCheckpointStore()
+	replay, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(&fakeController{}, store, Config{
+		MutationsEnabled: true,
+		ReplayGuard: replay,
+	})
+	if err == nil || !strings.Contains(err.Error(), "authenticated authorization") {
+		t.Fatalf("expected authenticated authorization requirement, got %v", err)
+	}
+}
+
+func TestMutationsCannotEnableWithoutReplayGuard(t *testing.T) {
+	store := kubeadapter.NewMemoryDrainCheckpointStore()
+	_, err := New(&fakeController{}, store, Config{
+		MutationsEnabled: true,
+		RequireAuthentication: true,
+		Authorizer: allowAuthorizer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "replay guard") {
+		t.Fatalf("expected replay guard requirement, got %v", err)
 	}
 }

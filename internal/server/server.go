@@ -20,10 +20,15 @@ type NodeDrainController interface {
 }
 
 type Config struct {
-	Policy           kubeadapter.NodeDrainPolicy
-	MutationsEnabled bool
-	RequestTimeout   time.Duration
-	MaxBodyBytes     int64
+	Policy                kubeadapter.NodeDrainPolicy
+	MutationsEnabled      bool
+	RequestTimeout        time.Duration
+	MaxBodyBytes          int64
+	RequireAuthentication bool
+	Authorizer            Authorizer
+	ReplayGuard           ReplayGuard
+	AuditSink             AuditSink
+	Clock                 func() time.Time
 }
 
 type Server struct {
@@ -43,8 +48,20 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	if config.MaxBodyBytes <= 0 {
 		config.MaxBodyBytes = 1 << 20
 	}
+	if config.Clock == nil {
+		config.Clock = time.Now
+	}
+	if config.RequireAuthentication && config.Authorizer == nil {
+		return nil, fmt.Errorf("authorizer is required when authentication is enabled")
+	}
 	if config.MutationsEnabled && store == nil {
 		return nil, fmt.Errorf("checkpoint store is required when mutations are enabled")
+	}
+	if config.MutationsEnabled && (!config.RequireAuthentication || config.Authorizer == nil) {
+		return nil, fmt.Errorf("authenticated authorization is required when mutations are enabled")
+	}
+	if config.MutationsEnabled && config.ReplayGuard == nil {
+		return nil, fmt.Errorf("replay guard is required when mutations are enabled")
 	}
 	s := &Server{controller: controller, store: store, config: config, mux: http.NewServeMux()}
 	s.routes()
@@ -55,8 +72,15 @@ func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
-	s.mux.HandleFunc("POST /v1/node-drains/prepare", s.handlePrepare)
-	s.mux.HandleFunc("POST /v1/node-drains/execute", s.handleExecute)
+
+	prepare := http.Handler(http.HandlerFunc(s.handlePrepare))
+	execute := http.Handler(http.HandlerFunc(s.handleExecute))
+	if s.config.RequireAuthentication {
+		prepare = s.authenticated(PermissionPrepare, prepare)
+		execute = s.authenticated(PermissionExecute, execute)
+	}
+	s.mux.Handle("POST /v1/node-drains/prepare", prepare)
+	s.mux.Handle("POST /v1/node-drains/execute", execute)
 }
 
 type prepareRequest struct {
@@ -181,6 +205,7 @@ func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 	if preparation.Plan != nil {
 		response.Plan = planToDTO(*preparation.Plan)
 	}
+	s.auditDecision(r, PermissionPrepare, string(preparation.Decision), req.ActionID, req.NodeName, preparation.ReasonCodes)
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -208,6 +233,15 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.RequestTimeout)
 	defer cancel()
+	if err := s.config.ReplayGuard.Claim(ctx, auth); err != nil {
+		if errors.Is(err, ErrExecutionReplay) {
+			s.auditDecision(r, PermissionExecute, "", auth.ActionID, req.NodeName, []decision.ReasonCode{"EXECUTION_REPLAY_REJECTED"})
+			writeError(w, http.StatusConflict, "EXECUTION_REPLAY_REJECTED", err)
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, "REPLAY_GUARD_UNAVAILABLE", err)
+		return
+	}
 	report, err := s.controller.ExecuteAuthorizedNodeDrainWithCheckpointStore(ctx, auth, req.NodeName, s.config.Policy, s.store)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "EXECUTION_FAILED", err)
@@ -221,7 +255,81 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	for _, step := range report.Steps {
 		response.Steps = append(response.Steps, mutationStepDTO{Kind: step.Step.Kind, Applied: step.Applied, Error: step.Error})
 	}
+	s.auditDecision(r, PermissionExecute, string(report.Decision), auth.ActionID, req.NodeName, report.ReasonCodes)
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) authenticated(permission Permission, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, err := s.config.Authorizer.Authorize(r, permission)
+		if err != nil {
+			status := http.StatusForbidden
+			code := "FORBIDDEN"
+			if errors.Is(err, ErrUnauthenticated) {
+				status = http.StatusUnauthorized
+				code = "UNAUTHENTICATED"
+			}
+			s.auditSecurity(r.Context(), SecurityAuditRecord{
+				OccurredAt: s.config.Clock().UTC(),
+				Permission: permission,
+				Method: r.Method,
+				Path: r.URL.Path,
+				Allowed: false,
+				Reason: err.Error(),
+			})
+			writeError(w, status, code, err)
+			return
+		}
+		s.auditSecurity(r.Context(), SecurityAuditRecord{
+			OccurredAt: s.config.Clock().UTC(),
+			Principal: principal.ID,
+			Permission: permission,
+			Method: r.Method,
+			Path: r.URL.Path,
+			Allowed: true,
+		})
+		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+type principalContextKey struct{}
+
+func principalFromContext(ctx context.Context) Principal {
+	principal, _ := ctx.Value(principalContextKey{}).(Principal)
+	return principal
+}
+
+func (s *Server) auditDecision(
+	r *http.Request,
+	permission Permission,
+	decisionValue string,
+	actionID string,
+	nodeName string,
+	reasons []decision.ReasonCode,
+) {
+	reasonStrings := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		reasonStrings = append(reasonStrings, string(reason))
+	}
+	s.auditSecurity(r.Context(), SecurityAuditRecord{
+		OccurredAt: s.config.Clock().UTC(),
+		Principal: principalFromContext(r.Context()).ID,
+		Permission: permission,
+		Method: r.Method,
+		Path: r.URL.Path,
+		Allowed: true,
+		Decision: decisionValue,
+		ActionID: actionID,
+		NodeName: nodeName,
+		Reason: strings.Join(reasonStrings, ","),
+	})
+}
+
+func (s *Server) auditSecurity(ctx context.Context, record SecurityAuditRecord) {
+	if s.config.AuditSink != nil {
+		s.config.AuditSink.Record(ctx, record)
+	}
 }
 
 func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {

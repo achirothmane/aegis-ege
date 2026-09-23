@@ -22,9 +22,9 @@ It is not a multi-cloud automation gateway. AWS/GCP/SSH/database/PLC adapters do
 
 Long-running state-latchd, health endpoint, prepare endpoint, execution endpoint with mutations disabled by default, strict request parsing, bounded bodies, server timeouts, graceful shutdown, and KinD proof that default daemon mode cannot mutate.
 
-### M8 — caller authentication and authorization
+### M8 — caller authentication and authorization — IMPLEMENTED / pending CI merge
 
-TLS, production caller identity, separate PREPARE and EXECUTE permissions, default deny, identity in audit records, replay-resistant request binding, and no mutation enablement without authentication configured.
+mTLS URI-SAN identity, separate PREPARE and EXECUTE permissions, default deny, structured identity audit records, durable single-daemon replay protection, TLS 1.3, and no mutation enablement without authentication/replay/checkpoint configuration.
 
 ### M9 — shared durable state / HA recovery
 
