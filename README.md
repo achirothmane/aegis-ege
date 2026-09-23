@@ -75,11 +75,11 @@ No production action is executed.
 
 StateLatch v0.1 exposes three decisions:
 
-- `ALLOW` — required evidence gates passed.
+- `ALLOW` — required evidence gates passed and a short-lived state-bound authorization was minted.
 - `BLOCK` — a hard safety predicate failed.
-- `ESCALATE` — evidence is insufficient for autonomous execution but does not justify a hard block.
+- `ESCALATE` — evidence or binding information is insufficient for autonomous execution.
 
-An `ALLOW` must eventually be bound to the state that justified it, so a changed `resourceVersion`, expired evidence lease, or mutated action invalidates the authorization before execution.
+A successful `ALLOW` is bound to the exact action, target, resource version, evidence snapshot digest, and validity window. If the execution-time state no longer matches, the authorization becomes invalid.
 
 See [`docs/decision-contract.md`](docs/decision-contract.md).
 
@@ -89,13 +89,17 @@ In scope:
 
 - Kubernetes action requests
 - evidence freshness
-- evidence contradiction detection
-- hard safety predicates
+- claim-scoped contradiction detection
+- distinct-source requirements
+- blast-radius hard limits
 - explicit reason codes
-- state-bound authorization contract
+- state-bound authorization
+- first TOCTOU invalidation checks
 
 Not in scope yet:
 
+- live Kubernetes API integration
+- Prometheus adapter/cache
 - AWS/GCP
 - SSH or databases
 - PLC / OPC-UA / Modbus
@@ -105,15 +109,21 @@ Not in scope yet:
 - adaptive reliability scoring
 - multi-node consensus
 
-## Guarantee we want to prove
+## Current guarantees
 
-StateLatch should never convert stale or contradictory required evidence into an autonomous `ALLOW`.
+The current decision kernel does not autonomously allow an action when:
 
-That guarantee is more important than a single aggregate confidence score.
+- required evidence is stale;
+- evidence for the same claim contradicts;
+- blast radius exceeds the configured hard limit;
+- required independent sources are missing;
+- state-binding information is incomplete.
+
+A minted authorization is invalidated if it expires or if its action, target, or resource version changes before execution.
 
 ## Current status
 
-`v0.1-prealpha` — contract-first prototype.
+`v0.1-prealpha` — contract-first decision kernel. Live Kubernetes state collection and execution are not implemented yet.
 
 ## Design principle
 
