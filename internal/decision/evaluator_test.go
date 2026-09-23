@@ -16,6 +16,7 @@ func TestStaleEvidenceBlocks(t *testing.T) {
 		MaxEvidenceAge: 10 * time.Second,
 		Evidence: []EvidenceObservation{
 			{
+				Claim:      "node_health",
 				Source:     "prometheus-a",
 				Value:      "unhealthy",
 				ObservedAt: now.Add(-72 * time.Second),
@@ -33,7 +34,7 @@ func TestStaleEvidenceBlocks(t *testing.T) {
 	}
 }
 
-func TestContradictoryRequiredEvidenceBlocks(t *testing.T) {
+func TestContradictoryEvidenceWithinSameClaimBlocks(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
 	req := Request{
@@ -43,11 +44,13 @@ func TestContradictoryRequiredEvidenceBlocks(t *testing.T) {
 		MaxEvidenceAge: 10 * time.Second,
 		Evidence: []EvidenceObservation{
 			{
+				Claim:      "node_health",
 				Source:     "prometheus-a",
 				Value:      "unhealthy",
 				ObservedAt: now.Add(-2 * time.Second),
 			},
 			{
+				Claim:      "node_health",
 				Source:     "prometheus-b",
 				Value:      "healthy",
 				ObservedAt: now.Add(-2 * time.Second),
@@ -65,6 +68,37 @@ func TestContradictoryRequiredEvidenceBlocks(t *testing.T) {
 	}
 }
 
+func TestDifferentClaimsDoNotContradict(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+	req := Request{
+		ActionID:       "act-drain-node-7",
+		Target:         "node/node-7",
+		RequestedAt:    now,
+		MaxEvidenceAge: 10 * time.Second,
+		Evidence: []EvidenceObservation{
+			{
+				Claim:      "node_health",
+				Source:     "kubernetes-api",
+				Value:      "healthy",
+				ObservedAt: now.Add(-2 * time.Second),
+			},
+			{
+				Claim:      "cpu_pressure",
+				Source:     "prometheus-a",
+				Value:      "high",
+				ObservedAt: now.Add(-2 * time.Second),
+			},
+		},
+	}
+
+	got := Evaluate(req)
+
+	if got.Decision != Allow {
+		t.Fatalf("expected %s for different non-conflicting claims, got %s with reasons %v", Allow, got.Decision, got.ReasonCodes)
+	}
+}
+
 func TestInsufficientEvidenceEscalates(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
@@ -76,6 +110,7 @@ func TestInsufficientEvidenceEscalates(t *testing.T) {
 		RequiredSourceCount: 2,
 		Evidence: []EvidenceObservation{
 			{
+				Claim:      "node_health",
 				Source:     "prometheus-a",
 				Value:      "unhealthy",
 				ObservedAt: now.Add(-2 * time.Second),
@@ -104,11 +139,13 @@ func TestDuplicateSourceDoesNotSatisfyRequiredSourceCount(t *testing.T) {
 		RequiredSourceCount: 2,
 		Evidence: []EvidenceObservation{
 			{
+				Claim:      "node_health",
 				Source:     "prometheus-a",
 				Value:      "unhealthy",
 				ObservedAt: now.Add(-2 * time.Second),
 			},
 			{
+				Claim:      "node_health",
 				Source:     "prometheus-a",
 				Value:      "unhealthy",
 				ObservedAt: now.Add(-1 * time.Second),
