@@ -222,6 +222,40 @@ func TestPrepareNodeDrainExecutionBlocksWhenAnyEvictionDryRunIsRejected(t *testi
 }
 
 
+func TestExecuteAuthorizedNodeDrainIsDisabledByDefault(t *testing.T) {
+	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{}
+	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+
+	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-disabled", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("prepare returned error: %v", err)
+	}
+	if preparation.Authorization == nil {
+		t.Fatalf("expected authorization, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		context.Background(),
+		*preparation.Authorization,
+		"node-7",
+		defaultExecutionPolicy(),
+	)
+	if err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if report.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE with mutations disabled, got %s", report.Decision)
+	}
+	if !hasReason(report.ReasonCodes, ReasonRealExecutionUnavailable) {
+		t.Fatalf("expected %s, got %v", ReasonRealExecutionUnavailable, report.ReasonCodes)
+	}
+	if executor.realCordons != 0 || len(executor.realEvictedPods) != 0 {
+		t.Fatal("default adapter must not perform real mutations")
+	}
+}
+
 func TestExecuteAuthorizedNodeDrainAppliesCordonAndEvictionsAfterRevalidation(t *testing.T) {
 	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
 	reader := executionReaderFixture()
@@ -244,7 +278,7 @@ func TestExecuteAuthorizedNodeDrainAppliesCordonAndEvictionsAfterRevalidation(t 
 		return nil
 	}
 
-	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+	adapter := NewWithClockAndExperimentalMutations(&reader, executor, func() time.Time { return now })
 	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-real", "node-7", defaultExecutionPolicy())
 	if err != nil {
 		t.Fatalf("prepare returned error: %v", err)
@@ -283,7 +317,7 @@ func TestExecuteAuthorizedNodeDrainEscalatesWhenRealCordonHitsResourceVersionCon
 	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
 	reader := executionReaderFixture()
 	executor := &stubDryRunExecutor{}
-	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+	adapter := NewWithClockAndExperimentalMutations(&reader, executor, func() time.Time { return now })
 
 	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-conflict", "node-7", defaultExecutionPolicy())
 	if err != nil {
@@ -333,7 +367,7 @@ func TestExecuteAuthorizedNodeDrainStopsBeforeEvictionWhenStateDriftsAfterCordon
 		return nil
 	}
 
-	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+	adapter := NewWithClockAndExperimentalMutations(&reader, executor, func() time.Time { return now })
 	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-drift", "node-7", defaultExecutionPolicy())
 	if err != nil {
 		t.Fatalf("prepare returned error: %v", err)
