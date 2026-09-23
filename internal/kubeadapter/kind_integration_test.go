@@ -22,19 +22,20 @@ import (
 )
 
 func TestKindServerDryRunAcceptsPlanWithoutPersistingMutations(t *testing.T) {
-	env := newKindIntegrationEnv(t, "dryrun")
+	env := newKindUnmanagedIntegrationEnv(t, "dryrun")
+	policy := integrationExecutionPolicy()
 
 	preparation, err := env.adapter.PrepareNodeDrainExecution(
 		context.Background(),
 		"act-kind-dryrun",
 		env.nodeName,
-		integrationPolicy(),
+		policy,
 	)
 	if err != nil {
 		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
 	}
 	if preparation.Decision != decision.Allow {
-		t.Fatalf("expected ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+		t.Fatalf("expected ALLOW, got %s reasons=%v dryRun=%+v", preparation.Decision, preparation.ReasonCodes, preparation.DryRun)
 	}
 	if preparation.Authorization == nil || preparation.PlanDigest == "" {
 		t.Fatalf("expected plan-bound authorization, got auth=%v digest=%q", preparation.Authorization, preparation.PlanDigest)
