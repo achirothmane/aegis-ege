@@ -4,33 +4,9 @@
 
 StateLatch asks one extra question before automation changes production:
 
-> Is the world-state evidence that justified this action still fresh, consistent, and sufficient **right now**?
+> Is the world-state evidence that justified this action still fresh, consistent, sufficient, and still valid at execution time?
 
-It is not a general AI governance platform. `v0.1` focuses on one narrow primitive: deciding whether a proposed Kubernetes action should be **ALLOW**, **BLOCK**, or **ESCALATE** based on independently observed state.
-
-## Problem
-
-Identity and policy can say an action is permitted while the operational state behind that action is stale, contradictory, too risky, or no longer the state that was originally checked.
-
-```text
-Agent proposes action
-        |
-        v
-Observe current state
-        |
-        v
-Drain preflight
-        |
-        v
-Verify evidence + blast radius
-        |
-        v
-Bind ALLOW to exact state
-        |
-   +----+----+----------+
-   |         |          |
- ALLOW     BLOCK     ESCALATE
-```
+It is not a general AI governance platform. `v0.1` focuses on a narrow primitive for Kubernetes node-drain actions: **observe → preflight → verify → server dry-run → authorize**.
 
 ## 60-second quickstart
 
@@ -42,91 +18,107 @@ cd state-latch
 go test ./...
 ```
 
-CI runs the same suite on Go 1.25.
-
-## First live Kubernetes primitive
-
-StateLatch contains a read-only Kubernetes adapter for **node-drain assessment**.
-
-Using the official Go client, it reads live cluster state and derives:
+## Current node-drain path
 
 ```text
-Node metadata.resourceVersion
-Node Ready condition
-Pods scheduled on the node
-PodDisruptionBudgets
-Observed timestamp
+Agent proposes drain
+        ↓
+Read Kubernetes state
+        ↓
+Drain preflight
+        ↓
+Evidence + blast-radius gates
+        ↓
+Build state-bound execution plan
+        ↓
+Server-side dry-run
+  - cordon node
+  - evict each candidate pod
+        ↓
+ALLOW / BLOCK / ESCALATE
 ```
 
-Before the decision kernel can mint an `ALLOW`, the drain preflight checks for:
+The trusted `resourceVersion`, Pod UID/resourceVersion, blast radius, and PDB state come from Kubernetes — not from the agent.
+
+## Drain preflight
+
+Implemented checks include:
 
 ```text
-DaemonSet-managed pods
-unmanaged pods
-emptyDir data
-mirror/static pods
-PodDisruptionBudget capacity
-stale or unavailable PDB evidence
-```
-
-The agent does **not** supply the trusted `resourceVersion`, affected-pod count, or PDB state.
-
-See [`docs/kubernetes-node-drain.md`](docs/kubernetes-node-drain.md).
-
-## Preflight semantics
-
-Examples:
-
-```text
-DaemonSet pod + ignore-daemonsets=false
+DaemonSet pod
 → BLOCK / DAEMONSET_POD_REQUIRES_IGNORE
 
-Unmanaged pod + force=false
+Unmanaged pod
 → BLOCK / UNMANAGED_POD_REQUIRES_FORCE
 
-emptyDir + delete-emptydir-data=false
+emptyDir
 → BLOCK / EMPTYDIR_DATA_REQUIRES_DELETE
 
-matching PDB permits fewer disruptions than targeted pods
+PDB disruption capacity insufficient
 → BLOCK / PDB_DISRUPTION_BLOCKED
 
-matching PDB status is stale
+PDB status stale
 → ESCALATE / PDB_STATUS_STALE
 
-PDB state cannot be read
+PDB state unavailable
 → ESCALATE / PDB_EVIDENCE_UNAVAILABLE
 ```
 
-Mirror/static pods are recorded and skipped rather than treated as evictable workload pods.
+Mirror/static pods are recorded and skipped.
 
-## State-bound authorization
+## State-bound execution plan
 
-When preflight and all hard gates pass, `ALLOW` carries a short-lived authorization bound to:
+When preflight and the generic decision kernel pass, StateLatch builds a deterministic plan:
 
 ```text
-action_id
-action
-target
-resource_version
-evidence_digest
-valid_until
+1. CORDON_NODE
+   node=node-7
+   resourceVersion=928441
+
+2. EVICT_POD
+   pod=default/api-a
+   uid=<observed uid>
+   resourceVersion=<observed rv>
+
+3. EVICT_POD
+   pod=default/api-b
+   uid=<observed uid>
+   resourceVersion=<observed rv>
 ```
 
-A changed resource version, action, target, or expired authorization invalidates execution.
+The eviction dry-run uses Kubernetes delete preconditions for both Pod UID and `resourceVersion`.
 
-## Decision contract
+## Server-side dry-run gate
 
-StateLatch v0.1 exposes three decisions:
+`PrepareNodeDrainExecution` is the execution-readiness path.
 
-- `ALLOW` — required gates passed and a state-bound authorization was minted.
-- `BLOCK` — a hard safety predicate failed.
-- `ESCALATE` — evidence or binding information is insufficient for autonomous execution.
+It does not expose an execution authorization unless:
 
-See [`docs/decision-contract.md`](docs/decision-contract.md).
+1. preflight returns `ALLOW`;
+2. evidence/risk gates return `ALLOW`;
+3. Kubernetes accepts a server-side dry-run of the cordon;
+4. Kubernetes accepts server-side dry-run eviction for every planned Pod;
+5. the short-lived authorization has not expired during preparation.
 
-## v0.1 scope
+Failure semantics:
 
-Implemented:
+```text
+No server dry-run capability
+→ ESCALATE / SERVER_DRY_RUN_UNAVAILABLE
+
+Cordon dry-run rejected
+→ BLOCK / SERVER_DRY_RUN_CORDON_REJECTED
+
+Any eviction dry-run rejected
+→ BLOCK / SERVER_DRY_RUN_EVICTION_REJECTED
+```
+
+See:
+- [`docs/kubernetes-node-drain.md`](docs/kubernetes-node-drain.md)
+- [`docs/server-dry-run.md`](docs/server-dry-run.md)
+- [`docs/decision-contract.md`](docs/decision-contract.md)
+
+## Implemented
 
 - evidence freshness
 - claim-scoped contradiction detection
@@ -134,46 +126,34 @@ Implemented:
 - blast-radius hard limits
 - state-bound authorization
 - TOCTOU invalidation checks
-- live Kubernetes node read
-- live `resourceVersion` capture
-- Kubernetes-derived active-pod blast radius
-- drain preflight for DaemonSets, unmanaged pods, emptyDir, mirror pods, and PDBs
+- live Kubernetes Node / Pod / PDB reads
+- DaemonSet / unmanaged / emptyDir / mirror / PDB preflight
+- state-bound execution-plan generation
+- server-side dry-run cordon
+- server-side dry-run eviction
+- Pod UID + resourceVersion eviction preconditions
 - in-cluster and kubeconfig client construction
 
-Not implemented yet:
+## Not implemented yet
 
-- actually cordoning or draining a Kubernetes node
-- eviction execution
-- server-side dry-run of mutations
+- real node cordon
+- real Pod eviction
+- waiting for graceful termination
 - exact `kubectl drain` parity
 - Prometheus evidence adapter/cache
 - multi-source live evidence
+- production daemon / API surface
 - AWS/GCP, SSH, databases, PLC, or financial execution
-- dashboard / SaaS
 
-## Current guarantees
+## Important limit
 
-The current node-drain assessment path does not mint an autonomous authorization when:
+A passing server dry-run is stronger evidence than local simulation, but it is **not a guarantee that the later real drain will succeed**. Dry-run mutations are not persisted, cluster state can change immediately afterward, and individual dry-run evictions do not consume disruption budget.
 
-- required evidence is stale;
-- evidence for the same claim contradicts;
-- blast radius exceeds the configured hard limit;
-- required independent sources are missing;
-- state-binding information is incomplete;
-- drain preflight finds a configured hard blocker;
-- required PDB evidence is stale or unavailable.
-
-A minted authorization is invalidated if it expires or if its action, target, or resource version changes before execution.
-
-## Important limits
-
-The drain preflight is intentionally conservative. Its PDB check compares targeted matching pods against the PDB's current `disruptionsAllowed` and requires `observedGeneration == generation`.
-
-It does **not** yet reproduce every nuance of `kubectl drain` or the Eviction API, including all unhealthy-pod eviction-policy cases, orphaned-controller lookup, or exact eviction ordering.
+StateLatch therefore still requires state validation immediately before any future real execution.
 
 ## Current status
 
-`v0.1-prealpha` — tested decision kernel + read-only Kubernetes node-drain preflight. Production mutation is not implemented.
+`v0.1-prealpha` — tested decision kernel + Kubernetes node-drain preflight + server-side dry-run preparation. Production mutation is not implemented.
 
 ## Design principle
 
