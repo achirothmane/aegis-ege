@@ -18,6 +18,7 @@ const (
 type Reader interface {
 	GetNode(ctx context.Context, name string) (*corev1.Node, error)
 	ListPodsOnNode(ctx context.Context, nodeName string) ([]corev1.Pod, error)
+	ListPodDisruptionBudgets(ctx context.Context) ([]PodDisruptionBudgetView, error)
 }
 
 type Clock func() time.Time
@@ -32,6 +33,10 @@ type NodeDrainPolicy struct {
 	RequiredSourceCount int
 	MaxBlastRadius      int
 	AuthorizationTTL    time.Duration
+
+	IgnoreDaemonSets   bool
+	ForceUnmanagedPods bool
+	DeleteEmptyDirData bool
 }
 
 type NodeDrainSnapshot struct {
@@ -57,28 +62,31 @@ func NewWithClock(reader Reader, now Clock) *Adapter {
 }
 
 func (a *Adapter) InspectNodeDrain(ctx context.Context, nodeName string) (NodeDrainSnapshot, error) {
+	snapshot, _, err := a.inspectNodeDrainState(ctx, nodeName)
+	return snapshot, err
+}
+
+func (a *Adapter) inspectNodeDrainState(ctx context.Context, nodeName string) (NodeDrainSnapshot, []corev1.Pod, error) {
 	if nodeName == "" {
-		return NodeDrainSnapshot{}, fmt.Errorf("node name is required")
+		return NodeDrainSnapshot{}, nil, fmt.Errorf("node name is required")
 	}
 
 	node, err := a.reader.GetNode(ctx, nodeName)
 	if err != nil {
-		return NodeDrainSnapshot{}, fmt.Errorf("get node %q: %w", nodeName, err)
+		return NodeDrainSnapshot{}, nil, fmt.Errorf("get node %q: %w", nodeName, err)
 	}
 
 	pods, err := a.reader.ListPodsOnNode(ctx, nodeName)
 	if err != nil {
-		return NodeDrainSnapshot{}, fmt.Errorf("list pods on node %q: %w", nodeName, err)
+		return NodeDrainSnapshot{}, nil, fmt.Errorf("list pods on node %q: %w", nodeName, err)
 	}
 
 	activePods := 0
 	for _, pod := range pods {
-		switch pod.Status.Phase {
-		case corev1.PodSucceeded, corev1.PodFailed:
+		if isTerminalPod(pod) {
 			continue
-		default:
-			activePods++
 		}
+		activePods++
 	}
 
 	return NodeDrainSnapshot{
@@ -87,7 +95,7 @@ func (a *Adapter) InspectNodeDrain(ctx context.Context, nodeName string) (NodeDr
 		NodeHealth:      nodeHealth(node),
 		ActivePods:      activePods,
 		ObservedAt:      a.now().UTC(),
-	}, nil
+	}, pods, nil
 }
 
 func (a *Adapter) EvaluateNodeDrain(
@@ -96,9 +104,17 @@ func (a *Adapter) EvaluateNodeDrain(
 	nodeName string,
 	policy NodeDrainPolicy,
 ) (decision.Result, NodeDrainSnapshot, error) {
-	snapshot, err := a.InspectNodeDrain(ctx, nodeName)
+	snapshot, pods, err := a.inspectNodeDrainState(ctx, nodeName)
 	if err != nil {
 		return decision.Result{}, NodeDrainSnapshot{}, err
+	}
+
+	preflight := a.preflightNodeDrain(ctx, pods, policy)
+	if preflight.Decision != decision.Allow {
+		return decision.Result{
+			Decision:    preflight.Decision,
+			ReasonCodes: preflightDecisionReasons(preflight),
+		}, snapshot, nil
 	}
 
 	result := decision.Evaluate(decision.Request{
@@ -110,7 +126,7 @@ func (a *Adapter) EvaluateNodeDrain(
 		AuthorizationTTL:    policy.AuthorizationTTL,
 		MaxEvidenceAge:      policy.MaxEvidenceAge,
 		RequiredSourceCount: policy.RequiredSourceCount,
-		BlastRadius:         snapshot.ActivePods,
+		BlastRadius:         preflight.EvictablePods,
 		MaxBlastRadius:      policy.MaxBlastRadius,
 		Evidence: []decision.EvidenceObservation{
 			{
@@ -123,6 +139,22 @@ func (a *Adapter) EvaluateNodeDrain(
 	})
 
 	return result, snapshot, nil
+}
+
+func preflightDecisionReasons(report DrainPreflightReport) []decision.ReasonCode {
+	seen := make(map[DrainFindingCode]struct{})
+	reasons := make([]decision.ReasonCode, 0, len(report.Findings))
+	for _, finding := range report.Findings {
+		if finding.Severity == FindingInfo {
+			continue
+		}
+		if _, ok := seen[finding.Code]; ok {
+			continue
+		}
+		seen[finding.Code] = struct{}{}
+		reasons = append(reasons, decision.ReasonCode(finding.Code))
+	}
+	return reasons
 }
 
 func nodeHealth(node *corev1.Node) string {
@@ -142,4 +174,13 @@ func nodeHealth(node *corev1.Node) string {
 	}
 
 	return "unknown"
+}
+
+func isTerminalPod(pod corev1.Pod) bool {
+	switch pod.Status.Phase {
+	case corev1.PodSucceeded, corev1.PodFailed:
+		return true
+	default:
+		return false
+	}
 }
