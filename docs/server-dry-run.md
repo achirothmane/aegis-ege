@@ -2,50 +2,57 @@
 
 StateLatch uses Kubernetes server-side dry-run as a production-adjacent verification gate without persisting the proposed mutation.
 
-## Why server-side instead of local-only simulation
+## What is dry-run
 
-A server dry-run reaches Kubernetes validation and admission logic and is evaluated by the API server while avoiding persistence.
-
-For the node-drain path, StateLatch dry-runs:
+For a node drain StateLatch dry-runs:
 
 1. the Node cordon patch;
 2. every planned Pod eviction.
 
-## State binding
+The cordon is bound to the observed Node `resourceVersion`.
 
-The cordon request carries the observed Node `resourceVersion`.
-
-Each eviction carries preconditions for:
+Every eviction carries:
 
 ```text
 Pod UID
 Pod resourceVersion
 ```
 
-This protects against a same-name Pod being recreated or changed between observation and dry-run.
+as delete preconditions.
 
-## Decision semantics
+## What happens after dry-run
+
+A successful dry-run does not directly authorize a future mutation forever.
+
+StateLatch computes a deterministic digest of the full plan and embeds it in a short-lived authorization.
+
+Before any future real execution:
 
 ```text
-all dry-run operations accepted
-→ preparation may return ALLOW + authorization
-
-dry-run capability unavailable
-→ ESCALATE
-
-cordon dry-run rejected
-→ BLOCK
-
-one or more eviction dry-runs rejected
-→ BLOCK
+Re-read live cluster
+→ rerun preflight
+→ rebuild plan
+→ recompute plan digest
+→ validate TTL + resourceVersion + plan digest
 ```
 
-## What it proves
+Only an unchanged, still-valid plan can return `ALLOW`.
 
-A passing report proves that, at the time each request was evaluated, Kubernetes accepted the proposed operation under the state preconditions and server-side validation/admission rules reached by that request.
+## What server dry-run proves
+
+It proves that, at the moment each request was evaluated, Kubernetes accepted the proposed operation under the reached validation/admission path and supplied state preconditions.
 
 ## What it does not prove
 
-It does not prove that a later real drain will succeed.
+Dry-run requests are not persisted.
 
-Dry-run requests are not persisted. In particular, multiple independent dry-run evictions do not mutate PDB state between requests. StateLatch therefore keeps a separate aggregate PDB preflight and must still revalidate state immediately before future real execution.
+Therefore:
+
+- a dry-run cordon does not actually make the node unschedulable;
+- dry-run evictions do not consume PDB disruption budget;
+- multiple dry-run evictions are not a persisted sequential drain;
+- cluster state may change after the dry-run.
+
+StateLatch compensates with aggregate PDB preflight plus final live plan revalidation.
+
+The future real execution path must still use state preconditions on actual mutations.
