@@ -2,86 +2,43 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: "1.25.x"
           cache: true
+      - run: go mod download
+      - run: go mod verify
+      - run: go test ./...
 
-      - name: Download modules
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            if go mod download; then
-              exit 0
-            fi
-            if [[ "$attempt" -eq 3 ]]; then
-              echo "module download failed after 3 attempts" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-
-      - name: Verify modules
-        run: go mod verify
-
-      - name: Unit tests
-        run: go test ./...
-
-  kind-integration:
+  integration:
     runs-on: ubuntu-latest
-    needs: test
+    needs:
+      - unit
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: "1.25.x"
           cache: true
-
-      - name: Download modules
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            if go mod download; then
-              exit 0
-            fi
-            if [[ "$attempt" -eq 3 ]]; then
-              echo "module download failed after 3 attempts" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-
+      - run: go mod download
       - name: Install KinD
+        run: go install sigs.k8s.io/kind@v0.33.0
+      - name: Create KinD cluster
         run: |
-          go install sigs.k8s.io/kind@v0.33.0
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      - name: Create Kubernetes 1.35 cluster
-        run: |
-          "$(go env GOPATH)/bin/kind" create cluster             --name state-latch             --image kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95
+          "$(go env GOPATH)/bin/kind" create cluster --name state-latch --image "kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
           "$(go env GOPATH)/bin/kind" get kubeconfig --name state-latch > "$RUNNER_TEMP/state-latch-kubeconfig"
           echo "KUBECONFIG=$RUNNER_TEMP/state-latch-kubeconfig" >> "$GITHUB_ENV"
-
-      - name: KinD integration tests
-        run: go test -tags=integration -run '^TestKind' -v ./internal/kubeadapter
-
-      - name: Export KinD logs on failure
-        if: failure()
-        run: "$(go env GOPATH)/bin/kind" export logs "$RUNNER_TEMP/kind-logs" --name state-latch
+      - name: Run KinD integration tests
+        run: go test -tags=integration -run "^TestKind" -v ./internal/kubeadapter
