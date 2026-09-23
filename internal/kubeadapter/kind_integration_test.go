@@ -4,6 +4,7 @@ package kubeadapter
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -340,6 +341,188 @@ func (e *driftAfterCordonExecutor) CordonNode(ctx context.Context, nodeName, res
 
 func (e *driftAfterCordonExecutor) EvictPod(ctx context.Context, pod PodStateRef) error {
 	e.evictions++
+	return e.delegate.EvictPod(ctx, pod)
+}
+
+
+func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t *testing.T) {
+	env := newKindUnmanagedIntegrationEnv(t, "recovery")
+	ctx := context.Background()
+	policy := integrationExecutionPolicy()
+
+	zero := int64(0)
+	secondPod, err := env.client.CoreV1().Pods(env.namespace).Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "workload-z",
+			Namespace: env.namespace,
+			Labels:    map[string]string{"app": "state-latch-real-it"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:                      env.nodeName,
+			ServiceAccountName:            "default",
+			TerminationGracePeriodSeconds: &zero,
+			Containers: []corev1.Container{
+				{
+					Name:  "hold",
+					Image: "registry.k8s.io/pause:3.10",
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create second recovery pod: %v", err)
+	}
+	_ = markPodRunningAndReady(t, env.client, *secondPod)
+
+	store, err := NewFileDrainCheckpointStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewFileDrainCheckpointStore returned error: %v", err)
+	}
+
+	reader := NewClientGoReader(env.client)
+	failSecond := &failNthRealEvictionExecutor{
+		delegate: reader,
+		failAt:   2,
+	}
+	partialAdapter := NewWithExperimentalMutations(reader, failSecond)
+
+	preparation, err := partialAdapter.PrepareNodeDrainExecution(
+		ctx,
+		"act-kind-recovery",
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
+	}
+	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
+		t.Fatalf("expected initial ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	first, err := partialAdapter.ExecuteAuthorizedNodeDrainWithCheckpointStore(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("partial execution returned error: %v", err)
+	}
+	if first.Decision != decision.Escalate {
+		t.Fatalf("expected partial execution ESCALATE, got %s reasons=%v", first.Decision, first.ReasonCodes)
+	}
+
+	checkpoint, err := store.Load(ctx, "act-kind-recovery")
+	if err != nil {
+		t.Fatalf("load partial checkpoint: %v", err)
+	}
+	if checkpoint.Status != DrainExecutionPaused {
+		t.Fatalf("expected PAUSED checkpoint, got %s", checkpoint.Status)
+	}
+	if len(checkpoint.CompletedPodUIDs) != 1 {
+		t.Fatalf("expected one completed pod after injected failure, got %v", checkpoint.CompletedPodUIDs)
+	}
+
+	assessment, err := partialAdapter.InspectDrainRecovery(
+		ctx,
+		"act-kind-recovery",
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("InspectDrainRecovery returned error: %v", err)
+	}
+	if assessment.State != DrainRecoveryReauthorizationNeeded {
+		t.Fatalf("expected REAUTHORIZATION_REQUIRED, got %s reasons=%v", assessment.State, assessment.ReasonCodes)
+	}
+	if len(assessment.RemainingPods) != 1 || assessment.RemainingPods[0].Name != "workload-z" {
+		t.Fatalf("expected only workload-z to remain, got %+v", assessment.RemainingPods)
+	}
+
+	// The original authorization was bound to the two-Pod plan and must not be
+	// accepted after the first Pod has already been removed.
+	oldAuthResume, err := partialAdapter.ResumeAuthorizedNodeDrain(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("resume with old authorization returned error: %v", err)
+	}
+	if oldAuthResume.Decision == decision.Allow {
+		t.Fatal("old two-Pod authorization must not resume the one-Pod remainder")
+	}
+
+	freshPreparation, err := env.adapter.PrepareNodeDrainExecution(
+		ctx,
+		"act-kind-recovery",
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("fresh recovery preparation returned error: %v", err)
+	}
+	if freshPreparation.Decision != decision.Allow || freshPreparation.Authorization == nil {
+		t.Fatalf("expected fresh recovery ALLOW, got %s reasons=%v dryRun=%+v", freshPreparation.Decision, freshPreparation.ReasonCodes, freshPreparation.DryRun)
+	}
+
+	resumed, err := env.adapter.ResumeAuthorizedNodeDrain(
+		ctx,
+		*freshPreparation.Authorization,
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("ResumeAuthorizedNodeDrain returned error: %v", err)
+	}
+	if resumed.Decision != decision.Allow {
+		t.Fatalf("expected resumed ALLOW, got %s reasons=%v", resumed.Decision, resumed.ReasonCodes)
+	}
+
+	checkpoint, err = store.Load(ctx, "act-kind-recovery")
+	if err != nil {
+		t.Fatalf("load completed checkpoint: %v", err)
+	}
+	if checkpoint.Status != DrainExecutionCompleted {
+		t.Fatalf("expected COMPLETED checkpoint, got %s", checkpoint.Status)
+	}
+	if len(checkpoint.CompletedPodUIDs) != 2 {
+		t.Fatalf("expected both authorized Pod UIDs completed, got %v", checkpoint.CompletedPodUIDs)
+	}
+
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(ctx, "workload-z", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected remaining Pod to be evicted during resume, got err=%v", err)
+	}
+}
+
+type failNthRealEvictionExecutor struct {
+	delegate *ClientGoReader
+	failAt   int
+	count    int
+}
+
+func (e *failNthRealEvictionExecutor) DryRunCordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	return e.delegate.DryRunCordonNode(ctx, nodeName, resourceVersion)
+}
+
+func (e *failNthRealEvictionExecutor) DryRunEvictPod(ctx context.Context, pod PodStateRef) error {
+	return e.delegate.DryRunEvictPod(ctx, pod)
+}
+
+func (e *failNthRealEvictionExecutor) CordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	return e.delegate.CordonNode(ctx, nodeName, resourceVersion)
+}
+
+func (e *failNthRealEvictionExecutor) EvictPod(ctx context.Context, pod PodStateRef) error {
+	e.count++
+	if e.count == e.failAt {
+		return fmt.Errorf("injected real eviction failure at call %d", e.count)
+	}
 	return e.delegate.EvictPod(ctx, pod)
 }
 
