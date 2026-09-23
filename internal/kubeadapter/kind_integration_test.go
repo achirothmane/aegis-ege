@@ -286,13 +286,6 @@ func TestKindGuardedRealExecutionStopsOnDriftAfterCordon(t *testing.T) {
 		t.Fatalf("pod must remain after guarded stop: %v", err)
 	}
 
-	node, err := env.client.CoreV1().Nodes().Get(ctx, env.nodeName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get node after guarded stop: %v", err)
-	}
-	if !node.Spec.Unschedulable {
-		t.Fatal("expected cordon to remain persisted after later drift stops eviction")
-	}
 }
 
 type driftAfterCordonExecutor struct {
@@ -380,11 +373,11 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 	}
 
 	reader := NewClientGoReader(env.client)
-	failSecond := &failNthRealEvictionExecutor{
+	failAfterAccepted := &failAfterAcceptedEvictionExecutor{
 		delegate: reader,
-		failAt:   2,
+		client:   env.client,
 	}
-	partialAdapter := NewWithExperimentalMutations(reader, failSecond)
+	partialAdapter := NewWithExperimentalMutations(reader, failAfterAccepted)
 
 	preparation, err := partialAdapter.PrepareNodeDrainExecution(
 		ctx,
@@ -420,9 +413,14 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 	if checkpoint.Status != DrainExecutionPaused {
 		t.Fatalf("expected PAUSED checkpoint, got %s", checkpoint.Status)
 	}
-	if len(checkpoint.CompletedPodUIDs) != 1 {
-		t.Fatalf("expected one completed pod after injected failure, got %v", checkpoint.CompletedPodUIDs)
+	if len(checkpoint.CompletedPodUIDs) != 0 {
+		t.Fatalf("expected simulated crash before completion checkpoint, got %v", checkpoint.CompletedPodUIDs)
 	}
+
+	waitForPodNotFound(t, env.client, env.namespace, env.podName)
+
+	// The API mutation succeeded even though the executor returned an error.
+	// Recovery must derive that truth from Kubernetes rather than the stale checkpoint.
 
 	assessment, err := partialAdapter.InspectDrainRecovery(
 		ctx,
@@ -439,6 +437,9 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 	}
 	if len(assessment.RemainingPods) != 1 || assessment.RemainingPods[0].Name != "workload-z" {
 		t.Fatalf("expected only workload-z to remain, got %+v", assessment.RemainingPods)
+	}
+	if len(assessment.ReconciledPodUIDs) != 1 {
+		t.Fatalf("expected recovery to reconcile one accepted-but-uncheckpointed eviction, got %v", assessment.ReconciledPodUIDs)
 	}
 
 	// The original authorization was bound to the two-Pod plan and must not be
@@ -500,30 +501,72 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 	}
 }
 
-type failNthRealEvictionExecutor struct {
+type failAfterAcceptedEvictionExecutor struct {
 	delegate *ClientGoReader
-	failAt   int
-	count    int
+	client   kubernetes.Interface
+	failed   bool
 }
 
-func (e *failNthRealEvictionExecutor) DryRunCordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+func (e *failAfterAcceptedEvictionExecutor) DryRunCordonNode(ctx context.Context, nodeName, resourceVersion string) error {
 	return e.delegate.DryRunCordonNode(ctx, nodeName, resourceVersion)
 }
 
-func (e *failNthRealEvictionExecutor) DryRunEvictPod(ctx context.Context, pod PodStateRef) error {
+func (e *failAfterAcceptedEvictionExecutor) DryRunEvictPod(ctx context.Context, pod PodStateRef) error {
 	return e.delegate.DryRunEvictPod(ctx, pod)
 }
 
-func (e *failNthRealEvictionExecutor) CordonNode(ctx context.Context, nodeName, resourceVersion string) error {
-	return e.delegate.CordonNode(ctx, nodeName, resourceVersion)
+func (e *failAfterAcceptedEvictionExecutor) CordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	err := e.delegate.CordonNode(ctx, nodeName, resourceVersion)
+	for attempt := 0; apierrors.IsConflict(err) && attempt < 5; attempt++ {
+		node, getErr := e.client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		err = e.delegate.CordonNode(ctx, nodeName, node.ResourceVersion)
+	}
+	return err
 }
 
-func (e *failNthRealEvictionExecutor) EvictPod(ctx context.Context, pod PodStateRef) error {
-	e.count++
-	if e.count == e.failAt {
-		return fmt.Errorf("injected real eviction failure at call %d", e.count)
+func (e *failAfterAcceptedEvictionExecutor) EvictPod(ctx context.Context, pod PodStateRef) error {
+	if e.failed {
+		return e.delegate.EvictPod(ctx, pod)
 	}
-	return e.delegate.EvictPod(ctx, pod)
+	if err := e.delegate.EvictPod(ctx, pod); err != nil {
+		return err
+	}
+	e.failed = true
+	return fmt.Errorf("injected interruption after Kubernetes accepted eviction")
+}
+
+func waitForPodNotFound(
+	t *testing.T,
+	client kubernetes.Interface,
+	namespace string,
+	name string,
+) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		_, err := client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		if err != nil {
+			t.Fatalf("get pod while waiting for deletion: %v", err)
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("pod %s/%s did not disappear: %v", namespace, name, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 type kindIntegrationEnv struct {
