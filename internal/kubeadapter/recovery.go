@@ -15,7 +15,10 @@ import (
 	"github.com/achirothmane/state-latch/internal/decision"
 )
 
-var ErrDrainCheckpointNotFound = errors.New("drain execution checkpoint not found")
+var (
+	ErrDrainCheckpointNotFound = errors.New("drain execution checkpoint not found")
+	ErrDrainCheckpointConflict = errors.New("drain execution checkpoint write conflict")
+)
 
 const (
 	ReasonExecutionCheckpointUnavailable decision.ReasonCode = "EXECUTION_CHECKPOINT_UNAVAILABLE"
@@ -46,11 +49,36 @@ type DrainExecutionCheckpoint struct {
 	LastDecision       decision.Decision     `json:"last_decision"`
 	LastReasonCodes    []decision.ReasonCode `json:"last_reason_codes,omitempty"`
 	UpdatedAt          time.Time             `json:"updated_at"`
+	StoreVersion       string                `json:"-"`
 }
 
 type DrainCheckpointStore interface {
 	Load(ctx context.Context, actionID string) (DrainExecutionCheckpoint, error)
 	Save(ctx context.Context, checkpoint DrainExecutionCheckpoint) error
+}
+
+type VersionedDrainCheckpointStore interface {
+	DrainCheckpointStore
+	SaveVersioned(ctx context.Context, checkpoint DrainExecutionCheckpoint) (DrainExecutionCheckpoint, error)
+}
+
+func saveDrainCheckpoint(
+	ctx context.Context,
+	store DrainCheckpointStore,
+	checkpoint *DrainExecutionCheckpoint,
+) error {
+	if store == nil || checkpoint == nil {
+		return fmt.Errorf("checkpoint store and checkpoint are required")
+	}
+	if versioned, ok := store.(VersionedDrainCheckpointStore); ok {
+		saved, err := versioned.SaveVersioned(ctx, *checkpoint)
+		if err != nil {
+			return err
+		}
+		*checkpoint = saved
+		return nil
+	}
+	return store.Save(ctx, *checkpoint)
 }
 
 type MemoryDrainCheckpointStore struct {
@@ -285,7 +313,7 @@ func (a *Adapter) InspectDrainRecovery(
 		checkpoint.Status = DrainExecutionPaused
 		checkpoint.LastDecision = preflight.Decision
 		checkpoint.LastReasonCodes = preflightDecisionReasons(preflight)
-		_ = store.Save(ctx, checkpoint)
+		_ = saveDrainCheckpoint(ctx, store, &checkpoint)
 		state := DrainRecoveryDiverged
 		if preflight.Decision == decision.Block {
 			state = DrainRecoveryBlocked
@@ -304,7 +332,7 @@ func (a *Adapter) InspectDrainRecovery(
 		checkpoint.Status = DrainExecutionPaused
 		checkpoint.LastDecision = decision.Escalate
 		checkpoint.LastReasonCodes = []decision.ReasonCode{ReasonRecoveryStateDiverged}
-		_ = store.Save(ctx, checkpoint)
+		_ = saveDrainCheckpoint(ctx, store, &checkpoint)
 		return DrainRecoveryAssessment{
 			State:             DrainRecoveryDiverged,
 			Decision:          decision.Escalate,
@@ -319,7 +347,7 @@ func (a *Adapter) InspectDrainRecovery(
 		checkpoint.Status = DrainExecutionCompleted
 		checkpoint.LastDecision = decision.Allow
 		checkpoint.LastReasonCodes = nil
-		if err := store.Save(ctx, checkpoint); err != nil {
+		if err := saveDrainCheckpoint(ctx, store, &checkpoint); err != nil {
 			return DrainRecoveryAssessment{}, err
 		}
 		return DrainRecoveryAssessment{
@@ -333,7 +361,7 @@ func (a *Adapter) InspectDrainRecovery(
 	checkpoint.Status = DrainExecutionPaused
 	checkpoint.LastDecision = decision.Escalate
 	checkpoint.LastReasonCodes = []decision.ReasonCode{ReasonRecoveryReauthorizationRequired}
-	if err := store.Save(ctx, checkpoint); err != nil {
+	if err := saveDrainCheckpoint(ctx, store, &checkpoint); err != nil {
 		return DrainRecoveryAssessment{}, err
 	}
 
