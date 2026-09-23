@@ -97,6 +97,9 @@ func NewFileDrainCheckpointStore(dir string) (*FileDrainCheckpointStore, error) 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create checkpoint directory: %w", err)
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("secure checkpoint directory: %w", err)
+	}
 	return &FileDrainCheckpointStore{dir: dir}, nil
 }
 
