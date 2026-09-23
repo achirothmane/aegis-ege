@@ -2,9 +2,10 @@ package decision
 
 // Evaluate applies hard evidence gates before any aggregate scoring.
 //
-// v0.1 currently enforces two non-compensable predicates:
+// v0.1 currently enforces:
 //  1. required evidence must still be fresh;
-//  2. fresh observations about the same operational fact must not contradict.
+//  2. fresh observations about the same operational fact must not contradict;
+//  3. the configured number of distinct evidence sources must be present.
 //
 // Later versions will make the observed claim explicit. In the current v0.1
 // contract, all observations in Request.Evidence are treated as observations
@@ -29,6 +30,21 @@ func Evaluate(req Request) Result {
 					ReasonCodes: []ReasonCode{EvidenceContradicted},
 				}
 			}
+	}
+
+	if req.RequiredSourceCount > 0 {
+		sources := make(map[string]struct{}, len(req.Evidence))
+		for _, observation := range req.Evidence {
+			if observation.Source != "" {
+				sources[observation.Source] = struct{}{}
+			}
+		}
+		if len(sources) < req.RequiredSourceCount {
+			return Result{
+				Decision:    Escalate,
+				ReasonCodes: []ReasonCode{InsufficientEvidence},
+			}
+		}
 	}
 
 	return Result{Decision: Allow}
