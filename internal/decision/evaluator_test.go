@@ -159,3 +159,60 @@ func TestDuplicateSourceDoesNotSatisfyRequiredSourceCount(t *testing.T) {
 		t.Fatalf("expected %s when duplicate observations come from one source, got %s", Escalate, got.Decision)
 	}
 }
+
+func TestBlastRadiusExceededBlocks(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+	req := Request{
+		ActionID:       "act-drain-node-7",
+		Target:         "node/node-7",
+		RequestedAt:    now,
+		MaxEvidenceAge: 10 * time.Second,
+		BlastRadius:    31,
+		MaxBlastRadius: 10,
+		Evidence: []EvidenceObservation{
+			{
+				Claim:      "node_health",
+				Source:     "kubernetes-api",
+				Value:      "unhealthy",
+				ObservedAt: now.Add(-2 * time.Second),
+			},
+		},
+	}
+
+	got := Evaluate(req)
+
+	if got.Decision != Block {
+		t.Fatalf("expected %s when blast radius exceeds limit, got %s", Block, got.Decision)
+	}
+	if !slices.Contains(got.ReasonCodes, BlastRadiusExceeded) {
+		t.Fatalf("expected reason code %s, got %v", BlastRadiusExceeded, got.ReasonCodes)
+	}
+}
+
+func TestBlastRadiusWithinLimitDoesNotBlock(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+	req := Request{
+		ActionID:       "act-drain-node-7",
+		Target:         "node/node-7",
+		RequestedAt:    now,
+		MaxEvidenceAge: 10 * time.Second,
+		BlastRadius:    5,
+		MaxBlastRadius: 10,
+		Evidence: []EvidenceObservation{
+			{
+				Claim:      "node_health",
+				Source:     "kubernetes-api",
+				Value:      "unhealthy",
+				ObservedAt: now.Add(-2 * time.Second),
+			},
+		},
+	}
+
+	got := Evaluate(req)
+
+	if got.Decision != Allow {
+		t.Fatalf("expected %s when blast radius is within limit, got %s with reasons %v", Allow, got.Decision, got.ReasonCodes)
+	}
+}
