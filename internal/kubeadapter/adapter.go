@@ -29,18 +29,21 @@ type DryRunExecutor interface {
 type Clock func() time.Time
 
 type Adapter struct {
-	reader            Reader
-	executor          DryRunExecutor
-	now               Clock
-	mutationsEnabled  bool
+	reader           Reader
+	executor         DryRunExecutor
+	lockManager      ExecutionLockManager
+	now              Clock
+	mutationsEnabled bool
 }
 
 type NodeDrainPolicy struct {
-	MaxEvidenceAge      time.Duration
-	RequiredSourceCount int
-	MaxBlastRadius      int
-	AuthorizationTTL          time.Duration
+	MaxEvidenceAge             time.Duration
+	RequiredSourceCount        int
+	MaxBlastRadius             int
+	AuthorizationTTL           time.Duration
 	EvictionObservationTimeout time.Duration
+	ExecutionLockNamespace     string
+	ExecutionLockDuration      time.Duration
 
 	IgnoreDaemonSets   bool
 	ForceUnmanagedPods bool
@@ -76,6 +79,22 @@ func NewWithExperimentalMutations(reader Reader, executor DryRunExecutor) *Adapt
 func NewWithClockAndExperimentalMutations(reader Reader, executor DryRunExecutor, now Clock) *Adapter {
 	adapter := NewWithClockAndExecutor(reader, executor, now)
 	adapter.mutationsEnabled = true
+	if locker, ok := reader.(ExecutionLockManager); ok {
+		adapter.lockManager = locker
+	} else if locker, ok := executor.(ExecutionLockManager); ok {
+		adapter.lockManager = locker
+	}
+	return adapter
+}
+
+func NewWithClockAndExperimentalMutationsAndLockManager(
+	reader Reader,
+	executor DryRunExecutor,
+	lockManager ExecutionLockManager,
+	now Clock,
+) *Adapter {
+	adapter := NewWithClockAndExperimentalMutations(reader, executor, now)
+	adapter.lockManager = lockManager
 	return adapter
 }
 
