@@ -15,6 +15,7 @@ type ReasonCode string
 const (
 	EvidenceStale        ReasonCode = "EVIDENCE_STALE"
 	EvidenceContradicted ReasonCode = "EVIDENCE_CONTRADICTED"
+	InsufficientEvidence ReasonCode = "INSUFFICIENT_EVIDENCE"
 )
 
 type EvidenceObservation struct {
@@ -24,11 +25,12 @@ type EvidenceObservation struct {
 }
 
 type Request struct {
-	ActionID       string
-	Target         string
-	RequestedAt    time.Time
-	MaxEvidenceAge time.Duration
-	Evidence       []EvidenceObservation
+	ActionID              string
+	Target                string
+	RequestedAt           time.Time
+	MaxEvidenceAge        time.Duration
+	RequiredEvidenceCount int
+	Evidence              []EvidenceObservation
 }
 
 type Result struct {
