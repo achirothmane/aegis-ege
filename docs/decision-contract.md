@@ -10,6 +10,12 @@ The engine returns one of:
 - `BLOCK`
 - `ESCALATE`
 
+## Decision semantics
+
+- `BLOCK` means a hard safety predicate is known to have failed.
+- `ESCALATE` means the system does not have enough independent evidence to authorize the action autonomously.
+- `ALLOW` means the currently implemented hard gates passed.
+
 ## Hard-gate rule
 
 A high aggregate score must never compensate for failure of a mandatory safety predicate.
@@ -17,7 +23,10 @@ A high aggregate score must never compensate for failure of a mandatory safety p
 For `v0.1`, these predicates begin with:
 
 1. required evidence is within its maximum allowed age;
-2. required independent sources do not contradict one another.
+2. fresh observations about the same operational fact do not contradict one another;
+3. the configured minimum number of distinct evidence sources is present.
+
+Duplicate observations from the same source count as one source.
 
 Later gates may include blast-radius limits, Kubernetes server-side dry-run, invariants, and state-version binding.
 
@@ -28,9 +37,10 @@ Initial reason codes:
 ```text
 EVIDENCE_STALE
 EVIDENCE_CONTRADICTED
+INSUFFICIENT_EVIDENCE
 ```
 
-Reason codes are machine-readable and may be combined.
+Reason codes are machine-readable.
 
 ## State-bound authorization
 
