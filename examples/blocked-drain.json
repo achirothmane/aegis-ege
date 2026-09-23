@@ -4,13 +4,34 @@
     "action": "drain",
     "target": "node/node-7"
   },
-  "evidence": {
-    "kubernetes_node_state": "Ready",
-    "prometheus_a": "unhealthy",
-    "prometheus_b": "healthy",
-    "evidence_age_seconds": 72,
-    "max_evidence_age_seconds": 10,
-    "affected_pods": 31
+  "evidence": [
+    {
+      "claim": "node_health",
+      "source": "kubernetes-api",
+      "value": "healthy",
+      "age_seconds": 2
+    },
+    {
+      "claim": "node_health",
+      "source": "prometheus-a",
+      "value": "unhealthy",
+      "age_seconds": 72
+    },
+    {
+      "claim": "node_health",
+      "source": "prometheus-b",
+      "value": "healthy",
+      "age_seconds": 2
+    },
+    {
+      "claim": "affected_pods",
+      "source": "kubernetes-api",
+      "value": "31",
+      "age_seconds": 2
+    }
+  ],
+  "policy": {
+    "max_evidence_age_seconds": 10
   },
   "expected": {
     "decision": "BLOCK",
