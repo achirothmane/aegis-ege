@@ -38,7 +38,8 @@ type NodeDrainPolicy struct {
 	MaxEvidenceAge      time.Duration
 	RequiredSourceCount int
 	MaxBlastRadius      int
-	AuthorizationTTL    time.Duration
+	AuthorizationTTL          time.Duration
+	EvictionObservationTimeout time.Duration
 
 	IgnoreDaemonSets   bool
 	ForceUnmanagedPods bool
