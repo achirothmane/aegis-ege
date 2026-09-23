@@ -109,7 +109,7 @@ func (a *Adapter) ResumeAuthorizedNodeDrain(
 			[]decision.ReasonCode{ReasonRecoveryStateDiverged},
 			a.now().UTC(),
 		)
-		_ = store.Save(ctx, checkpoint)
+		_ = saveDrainCheckpoint(ctx, store, &checkpoint)
 		return GuardedDrainExecutionReport{
 			Decision:    decision.Escalate,
 			ReasonCodes: []decision.ReasonCode{ReasonRecoveryStateDiverged},
