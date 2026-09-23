@@ -311,12 +311,24 @@ func (e *driftAfterCordonExecutor) DryRunEvictPod(ctx context.Context, pod PodSt
 }
 
 func (e *driftAfterCordonExecutor) CordonNode(ctx context.Context, nodeName, resourceVersion string) error {
-	if err := e.delegate.CordonNode(ctx, nodeName, resourceVersion); err != nil {
+	err := e.delegate.CordonNode(ctx, nodeName, resourceVersion)
+
+	// This retry exists only in the test injector so the scenario deterministically
+	// reaches the post-cordon revalidation boundary. Production StateLatch never
+	// retries a resourceVersion conflict without a fresh authorization path.
+	for attempt := 0; apierrors.IsConflict(err) && attempt < 5; attempt++ {
+		node, getErr := e.client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		err = e.delegate.CordonNode(ctx, nodeName, node.ResourceVersion)
+	}
+	if err != nil {
 		return err
 	}
 
 	patch := []byte(`{"metadata":{"labels":{"state-latch.dev/in-flight-drift":"changed"}}}`)
-	_, err := e.client.CoreV1().Pods(e.namespace).Patch(
+	_, err = e.client.CoreV1().Pods(e.namespace).Patch(
 		ctx,
 		e.podName,
 		types.MergePatchType,
