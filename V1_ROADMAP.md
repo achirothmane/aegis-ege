@@ -30,9 +30,9 @@ mTLS URI-SAN identity, separate PREPARE and EXECUTE permissions, default deny, s
 
 Kubernetes-backed shared checkpoint storage, resourceVersion optimistic concurrency, cluster-wide replay claims, cross-replica recovery proof, and Kubernetes shared state as the production daemon default.
 
-### M10 — external anti-rollback anchor and key custody
+### M10 — external anti-rollback anchor and key custody — IMPLEMENTED / pending CI merge
 
-Signer interface, KMS/HSM-compatible production boundary, external latest-head or monotonic anchor, rollback detection against external state, key rotation, and historical verification.
+Signer/verifier separation, HTTPS remote signer boundary for KMS/HSM custody, KeyID-based rotation with historical verification, ExternalHeadStore abstraction, Kubernetes resourceVersion-backed external head, and full-local-snapshot rollback detection.
 
 ### M11 — compensation and recovery semantics
 
