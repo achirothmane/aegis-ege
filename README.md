@@ -407,6 +407,8 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 - synchronous lock verification before each real mutation;
 - live lock contention protection on KinD;
 - signed hash-chained execution journal with Ed25519 head anchor;
+- read-only-by-default HTTP daemon/API for node-drain preparation;
+- strict server-owned policy boundary and disabled-by-default mutation endpoint;
 - live authorization → execution → outcome journal binding in KinD;
 - postflight expected-vs-observed comparison;
 - advisory reliability ledger;
@@ -415,7 +417,7 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 ## What is not implemented
 
 - production mutation enablement;
-- production daemon/API surface;
+- authenticated/authorized production mutation API;
 - HA/shared checkpoint storage;
 - external fencing token enforced by mutation targets;
 - external WORM/KMS/transparency anti-rollback anchor for the journal;
@@ -445,6 +447,8 @@ The next BUILD gate requires external usage evidence. See [ADOPTION.md](ADOPTION
 - [Partial failure and recovery](docs/partial-failure-recovery.md)
 - [Execution locking](docs/execution-locking.md)
 - [Tamper-evident execution journal](docs/tamper-evident-journal.md)
+- [Daemon API](docs/daemon-api.md)
+- [v1.0 completion roadmap](V1_ROADMAP.md)
 - [Decision contract](docs/decision-contract.md)
 
 ## Current status

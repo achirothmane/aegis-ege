@@ -44,4 +44,4 @@ jobs:
           "$(go env GOPATH)/bin/kind" get kubeconfig --name state-latch > "$RUNNER_TEMP/state-latch-kubeconfig"
           echo "KUBECONFIG=$RUNNER_TEMP/state-latch-kubeconfig" >> "$GITHUB_ENV"
       - name: Run KinD integration tests
-        run: go test -tags=integration -run "^TestKind" -v ./internal/kubeadapter
+        run: go test -tags=integration -run "^TestKind" -v ./internal/kubeadapter ./internal/server

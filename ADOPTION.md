@@ -160,3 +160,10 @@ Until the BUILD gate passes:
 - major new capability work is paused.
 
 **Evidence before action applies to product development too.**
+
+
+## v1 completion exception
+
+The repository owner has explicitly chosen to finish the bounded Kubernetes node-drain product through the production-hardening milestones defined in V1_ROADMAP.md.
+
+This exception covers M7-M14 only. The adoption gate continues to block broad product-surface expansion such as new cloud, SSH, database, PLC, or generic arbitrary-mutation adapters.
