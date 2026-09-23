@@ -11,8 +11,9 @@ type canonicalDrainPlan struct {
 	NodeName            string               `json:"node_name"`
 	NodeUID             string               `json:"node_uid"`
 	NodeHealth          string               `json:"node_health"`
-	NodeResourceVersion string               `json:"node_resource_version"`
-	Steps               []canonicalDrainStep `json:"steps"`
+	NodeResourceVersion        string               `json:"node_resource_version"`
+	NodeInitiallyUnschedulable bool                 `json:"node_initially_unschedulable"`
+	Steps                      []canonicalDrainStep `json:"steps"`
 }
 
 type canonicalDrainStep struct {
@@ -31,8 +32,9 @@ func DigestDrainExecutionPlan(plan DrainExecutionPlan) string {
 		NodeName:            plan.NodeName,
 		NodeUID:             plan.NodeUID,
 		NodeHealth:          plan.NodeHealth,
-		NodeResourceVersion: plan.NodeResourceVersion,
-		Steps:               make([]canonicalDrainStep, 0, len(plan.Steps)),
+		NodeResourceVersion:        plan.NodeResourceVersion,
+		NodeInitiallyUnschedulable: plan.NodeInitiallyUnschedulable,
+		Steps:                      make([]canonicalDrainStep, 0, len(plan.Steps)),
 	}
 
 	for _, step := range plan.Steps {
