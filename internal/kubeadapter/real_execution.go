@@ -2,6 +2,7 @@ package kubeadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -162,6 +163,42 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			ReasonCodes: []decision.ReasonCode{ReasonRealExecutionUnavailable},
 		}, nil
 	}
+	if a.lockManager == nil {
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{ReasonExecutionLockUnavailable},
+		}, nil
+	}
+
+	lockGuard, err := acquireExecutionLeaseGuard(
+		ctx,
+		a.lockManager,
+		executionLockNamespace(policy),
+		"node/"+nodeName,
+		executionLockDuration(policy),
+	)
+	if err != nil {
+		reason := ReasonExecutionLockUnavailable
+		if errors.Is(err, ErrExecutionLockHeld) {
+			reason = ReasonExecutionLockHeld
+		}
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{reason},
+		}, nil
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = lockGuard.Close(releaseCtx)
+	}()
+
+	if err := lockGuard.EnsureHeld(); err != nil {
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{ReasonExecutionLockLost},
+		}, nil
+	}
 
 	initial, err := a.RevalidateNodeDrainAuthorization(ctx, auth, nodeName, policy)
 	if err != nil {
@@ -218,6 +255,12 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 	cordonStep := plan.Steps[0]
 	alreadyCordoned := checkpoint != nil && checkpoint.Cordoned
 	if !alreadyCordoned {
+		if err := lockGuard.EnsureHeld(); err != nil {
+			report.Decision = decision.Escalate
+			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
+		}
 		if err := mutator.CordonNode(ctx, cordonStep.NodeName, cordonStep.ResourceVersion); err != nil {
 			reason := ReasonExecutionCordonRejected
 			if apierrors.IsConflict(err) {
@@ -250,6 +293,13 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 
 	remaining := evictionCandidatesFromPlan(plan)
 	for len(remaining) > 0 {
+		if err := lockGuard.EnsureHeld(); err != nil {
+			report.Decision = decision.Escalate
+			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
+		}
+
 		currentDecision, currentReasons, err := a.revalidateRemainingDrainExecution(
 			ctx,
 			auth,
@@ -271,6 +321,12 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 		step := DrainExecutionStep{
 			Kind: DrainStepEvictPod,
 			Pod:  &target,
+		}
+		if err := lockGuard.EnsureHeld(); err != nil {
+			report.Decision = decision.Escalate
+			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
 		}
 		if err := mutator.EvictPod(ctx, target); err != nil {
 			mutationDecision := decision.Escalate
@@ -302,6 +358,12 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
 		}
+		if err := lockGuard.EnsureHeld(); err != nil {
+			report.Decision = decision.Escalate
+			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
+		}
 
 		if checkpoint != nil {
 			checkpoint.CompletedPodUIDs = appendCompletedUID(
@@ -320,6 +382,13 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 		}
 
 		remaining = remaining[1:]
+	}
+
+	if err := lockGuard.EnsureHeld(); err != nil {
+		report.Decision = decision.Escalate
+		report.ReasonCodes = []decision.ReasonCode{ReasonExecutionLockLost}
+		pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+		return report, nil
 	}
 
 	finalDecision, finalReasons, err := a.revalidateRemainingDrainExecution(
