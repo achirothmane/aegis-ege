@@ -23,6 +23,9 @@ const (
 	ExecutionPlanChanged     ReasonCode = "EXECUTION_PLAN_CHANGED"
 	ActionChanged            ReasonCode = "ACTION_CHANGED"
 	TargetChanged            ReasonCode = "TARGET_CHANGED"
+	AssumptionExpired        ReasonCode = "ASSUMPTION_EXPIRED"
+	AssumptionInvalidated    ReasonCode = "ASSUMPTION_INVALIDATED"
+	AssumptionValidityUnknown ReasonCode = "ASSUMPTION_VALIDITY_UNKNOWN"
 )
 
 type EvidenceObservation struct {
