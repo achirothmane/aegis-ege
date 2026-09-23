@@ -25,12 +25,12 @@ type EvidenceObservation struct {
 }
 
 type Request struct {
-	ActionID              string
-	Target                string
-	RequestedAt           time.Time
-	MaxEvidenceAge        time.Duration
-	RequiredEvidenceCount int
-	Evidence              []EvidenceObservation
+	ActionID            string
+	Target              string
+	RequestedAt         time.Time
+	MaxEvidenceAge      time.Duration
+	RequiredSourceCount int
+	Evidence            []EvidenceObservation
 }
 
 type Result struct {
