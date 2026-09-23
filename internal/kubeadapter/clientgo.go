@@ -57,3 +57,23 @@ func (r *ClientGoReader) ListPodsOnNode(ctx context.Context, nodeName string) ([
 	}
 	return pods.Items, nil
 }
+
+func (r *ClientGoReader) ListPodDisruptionBudgets(ctx context.Context) ([]PodDisruptionBudgetView, error) {
+	pdbs, err := r.client.PolicyV1().PodDisruptionBudgets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]PodDisruptionBudgetView, 0, len(pdbs.Items))
+	for _, pdb := range pdbs.Items {
+		out = append(out, PodDisruptionBudgetView{
+			Namespace:          pdb.Namespace,
+			Name:               pdb.Name,
+			Generation:         pdb.Generation,
+			ObservedGeneration: pdb.Status.ObservedGeneration,
+			DisruptionsAllowed: pdb.Status.DisruptionsAllowed,
+			Selector:           pdb.Spec.Selector,
+		})
+	}
+	return out, nil
+}
