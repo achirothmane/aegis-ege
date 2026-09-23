@@ -191,28 +191,13 @@ func TestKindGuardedRealExecutionCordonsAndEvictsAuthorizedPod(t *testing.T) {
 	ctx := context.Background()
 	policy := integrationExecutionPolicy()
 
-	preparation, err := env.adapter.PrepareNodeDrainExecution(
-		ctx,
+	preparation, report := executeKindDrainWithFreshAuthorizationRetry(
+		t,
+		env.adapter,
 		"act-kind-real",
 		env.nodeName,
 		policy,
 	)
-	if err != nil {
-		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
-	}
-	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
-		t.Fatalf("expected prepared ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
-	}
-
-	report, err := env.adapter.ExecuteAuthorizedNodeDrain(
-		ctx,
-		*preparation.Authorization,
-		env.nodeName,
-		policy,
-	)
-	if err != nil {
-		t.Fatalf("ExecuteAuthorizedNodeDrain returned error: %v", err)
-	}
 	if report.Decision != decision.Allow {
 		t.Fatalf("expected execution ALLOW, got %s reasons=%v", report.Decision, report.ReasonCodes)
 	}
@@ -379,31 +364,19 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 	}
 	partialAdapter := NewWithExperimentalMutations(reader, failAfterAccepted)
 
-	preparation, err := partialAdapter.PrepareNodeDrainExecution(
-		ctx,
+	preparation, first := executeCheckpointedKindDrainPastPreMutationDrift(
+		t,
+		partialAdapter,
 		"act-kind-recovery",
-		env.nodeName,
-		policy,
-	)
-	if err != nil {
-		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
-	}
-	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
-		t.Fatalf("expected initial ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
-	}
-
-	first, err := partialAdapter.ExecuteAuthorizedNodeDrainWithCheckpointStore(
-		ctx,
-		*preparation.Authorization,
 		env.nodeName,
 		policy,
 		store,
 	)
-	if err != nil {
-		t.Fatalf("partial execution returned error: %v", err)
-	}
 	if first.Decision != decision.Escalate {
 		t.Fatalf("expected partial execution ESCALATE, got %s reasons=%v", first.Decision, first.ReasonCodes)
+	}
+	if hasReason(first.ReasonCodes, decision.ResourceVersionChanged) {
+		t.Fatalf("expected injected post-eviction interruption, got pre-mutation drift: %v", first.ReasonCodes)
 	}
 
 	checkpoint, err := store.Load(ctx, "act-kind-recovery")
@@ -414,13 +387,10 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 		t.Fatalf("expected PAUSED checkpoint, got %s", checkpoint.Status)
 	}
 	if len(checkpoint.CompletedPodUIDs) != 0 {
-		t.Fatalf("expected simulated crash before completion checkpoint, got %v", checkpoint.CompletedPodUIDs)
+		t.Fatalf("expected simulated interruption before completion checkpoint, got %v", checkpoint.CompletedPodUIDs)
 	}
 
 	waitForPodNotFound(t, env.client, env.namespace, env.podName)
-
-	// The API mutation succeeded even though the executor returned an error.
-	// Recovery must derive that truth from Kubernetes rather than the stale checkpoint.
 
 	assessment, err := partialAdapter.InspectDrainRecovery(
 		ctx,
@@ -439,11 +409,9 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 		t.Fatalf("expected only workload-z to remain, got %+v", assessment.RemainingPods)
 	}
 	if len(assessment.ReconciledPodUIDs) != 1 {
-		t.Fatalf("expected recovery to reconcile one accepted-but-uncheckpointed eviction, got %v", assessment.ReconciledPodUIDs)
+		t.Fatalf("expected one reconciled accepted eviction, got %v", assessment.ReconciledPodUIDs)
 	}
 
-	// The original authorization was bound to the two-Pod plan and must not be
-	// accepted after the first Pod has already been removed.
 	oldAuthResume, err := partialAdapter.ResumeAuthorizedNodeDrain(
 		ctx,
 		*preparation.Authorization,
@@ -458,18 +426,13 @@ func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t 
 		t.Fatal("old two-Pod authorization must not resume the one-Pod remainder")
 	}
 
-	freshPreparation, err := env.adapter.PrepareNodeDrainExecution(
-		ctx,
+	freshPreparation := prepareKindDrainWithFreshAuthorization(
+		t,
+		env.adapter,
 		"act-kind-recovery",
 		env.nodeName,
 		policy,
 	)
-	if err != nil {
-		t.Fatalf("fresh recovery preparation returned error: %v", err)
-	}
-	if freshPreparation.Decision != decision.Allow || freshPreparation.Authorization == nil {
-		t.Fatalf("expected fresh recovery ALLOW, got %s reasons=%v dryRun=%+v", freshPreparation.Decision, freshPreparation.ReasonCodes, freshPreparation.DryRun)
-	}
 
 	resumed, err := env.adapter.ResumeAuthorizedNodeDrain(
 		ctx,
@@ -567,6 +530,111 @@ func waitForPodNotFound(
 		case <-ticker.C:
 		}
 	}
+}
+
+func prepareKindDrainWithFreshAuthorization(
+	t *testing.T,
+	adapter *Adapter,
+	actionID string,
+	nodeName string,
+	policy NodeDrainPolicy,
+) NodeDrainPreparation {
+	t.Helper()
+
+	for attempt := 0; attempt < 12; attempt++ {
+		preparation, err := adapter.PrepareNodeDrainExecution(
+			context.Background(),
+			actionID,
+			nodeName,
+			policy,
+		)
+		if err != nil {
+			t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
+		}
+		if preparation.Decision == decision.Allow && preparation.Authorization != nil {
+			return preparation
+		}
+		if preparation.Decision == decision.Escalate &&
+			hasReason(preparation.ReasonCodes, decision.ResourceVersionChanged) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		t.Fatalf(
+			"expected ALLOW or retryable pre-mutation drift, got %s reasons=%v dryRun=%+v",
+			preparation.Decision,
+			preparation.ReasonCodes,
+			preparation.DryRun,
+		)
+	}
+
+	t.Fatal("could not obtain stable fresh authorization")
+	return NodeDrainPreparation{}
+}
+
+func executeKindDrainWithFreshAuthorizationRetry(
+	t *testing.T,
+	adapter *Adapter,
+	actionID string,
+	nodeName string,
+	policy NodeDrainPolicy,
+) (NodeDrainPreparation, GuardedDrainExecutionReport) {
+	t.Helper()
+
+	for attempt := 0; attempt < 12; attempt++ {
+		preparation := prepareKindDrainWithFreshAuthorization(t, adapter, actionID, nodeName, policy)
+		report, err := adapter.ExecuteAuthorizedNodeDrain(
+			context.Background(),
+			*preparation.Authorization,
+			nodeName,
+			policy,
+		)
+		if err != nil {
+			t.Fatalf("ExecuteAuthorizedNodeDrain returned error: %v", err)
+		}
+		if report.Decision == decision.Escalate &&
+			hasReason(report.ReasonCodes, decision.ResourceVersionChanged) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		return preparation, report
+	}
+
+	t.Fatal("execution never passed pre-mutation Node drift")
+	return NodeDrainPreparation{}, GuardedDrainExecutionReport{}
+}
+
+func executeCheckpointedKindDrainPastPreMutationDrift(
+	t *testing.T,
+	adapter *Adapter,
+	actionID string,
+	nodeName string,
+	policy NodeDrainPolicy,
+	store DrainCheckpointStore,
+) (NodeDrainPreparation, GuardedDrainExecutionReport) {
+	t.Helper()
+
+	for attempt := 0; attempt < 12; attempt++ {
+		preparation := prepareKindDrainWithFreshAuthorization(t, adapter, actionID, nodeName, policy)
+		report, err := adapter.ExecuteAuthorizedNodeDrainWithCheckpointStore(
+			context.Background(),
+			*preparation.Authorization,
+			nodeName,
+			policy,
+			store,
+		)
+		if err != nil {
+			t.Fatalf("ExecuteAuthorizedNodeDrainWithCheckpointStore returned error: %v", err)
+		}
+		if report.Decision == decision.Escalate &&
+			hasReason(report.ReasonCodes, decision.ResourceVersionChanged) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		return preparation, report
+	}
+
+	t.Fatal("checkpointed execution never passed pre-mutation Node drift")
+	return NodeDrainPreparation{}, GuardedDrainExecutionReport{}
 }
 
 type kindIntegrationEnv struct {
