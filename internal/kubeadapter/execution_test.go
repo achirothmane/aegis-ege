@@ -7,7 +7,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/achirothmane/state-latch/internal/decision"
@@ -134,6 +136,34 @@ func TestPrepareNodeDrainExecutionAllowsOnlyAfterAllDryRunsPass(t *testing.T) {
 	}
 	if executor.evictedPods[0].Name != "api-a" || executor.evictedPods[0].UID != "uid-api-a" || executor.evictedPods[0].ResourceVersion != "rv-api-a" {
 		t.Fatalf("unexpected first eviction binding: %+v", executor.evictedPods[0])
+	}
+}
+
+func TestPrepareNodeDrainExecutionEscalatesWhenCordonDryRunDetectsResourceVersionDrift(t *testing.T) {
+	now := time.Date(2026, 9, 23, 14, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{
+		cordonErr: apierrors.NewConflict(
+			schema.GroupResource{Resource: "nodes"},
+			"node-7",
+			errors.New("resourceVersion changed"),
+		),
+	}
+	adapter := NewWithClockAndExecutor(reader, executor, func() time.Time { return now })
+
+	got, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-1", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
+	}
+
+	if got.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE for optimistic concurrency drift, got %s reasons=%v", got.Decision, got.ReasonCodes)
+	}
+	if !hasReason(got.ReasonCodes, decision.ResourceVersionChanged) {
+		t.Fatalf("expected %s, got %v", decision.ResourceVersionChanged, got.ReasonCodes)
+	}
+	if got.Authorization != nil {
+		t.Fatal("resourceVersion drift must not expose authorization")
 	}
 }
 
