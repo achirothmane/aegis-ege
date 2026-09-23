@@ -4,12 +4,8 @@ package decision
 //
 // v0.1 currently enforces:
 //  1. required evidence must still be fresh;
-//  2. fresh observations about the same operational fact must not contradict;
+//  2. fresh observations of the same claim must not contradict;
 //  3. the configured number of distinct evidence sources must be present.
-//
-// Later versions will make the observed claim explicit. In the current v0.1
-// contract, all observations in Request.Evidence are treated as observations
-// of the same required fact.
 func Evaluate(req Request) Result {
 	for _, observation := range req.Evidence {
 		age := req.RequestedAt.Sub(observation.ObservedAt)
@@ -21,15 +17,19 @@ func Evaluate(req Request) Result {
 		}
 	}
 
-	if len(req.Evidence) > 1 {
-		expected := req.Evidence[0].Value
-		for _, observation := range req.Evidence[1:] {
-			if observation.Value != expected {
-				return Result{
-					Decision:    Block,
-					ReasonCodes: []ReasonCode{EvidenceContradicted},
-				}
+	valuesByClaim := make(map[string]string)
+	for _, observation := range req.Evidence {
+		expected, seen := valuesByClaim[observation.Claim]
+		if !seen {
+			valuesByClaim[observation.Claim] = observation.Value
+			continue
+		}
+		if observation.Value != expected {
+			return Result{
+				Decision:    Block,
+				ReasonCodes: []ReasonCode{EvidenceContradicted},
 			}
+		}
 	}
 
 	if req.RequiredSourceCount > 0 {
