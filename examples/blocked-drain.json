@@ -1,0 +1,22 @@
+{
+  "request": {
+    "action_id": "act-drain-node-7",
+    "action": "drain",
+    "target": "node/node-7"
+  },
+  "evidence": {
+    "kubernetes_node_state": "Ready",
+    "prometheus_a": "unhealthy",
+    "prometheus_b": "healthy",
+    "evidence_age_seconds": 72,
+    "max_evidence_age_seconds": 10,
+    "affected_pods": 31
+  },
+  "expected": {
+    "decision": "BLOCK",
+    "reason_codes": [
+      "EVIDENCE_STALE",
+      "EVIDENCE_CONTRADICTED"
+    ]
+  }
+}
