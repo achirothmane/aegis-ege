@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -22,11 +22,18 @@ jobs:
           cache: false
 
       - name: Resolve modules
-        run: |
-          go mod tidy
-          echo "=== GO_SUM_BEGIN ==="
-          cat go.sum
-          echo "=== GO_SUM_END ==="
+        run: go mod tidy
 
       - name: Test
         run: go test ./...
+
+      - name: Persist module metadata
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if [[ -n "$(git status --porcelain -- go.mod go.sum)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add go.mod go.sum
+            git commit -m "build: tidy Kubernetes dependencies"
+            git push
+          fi
