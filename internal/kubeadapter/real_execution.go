@@ -42,6 +42,13 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 	nodeName string,
 	policy NodeDrainPolicy,
 ) (GuardedDrainExecutionReport, error) {
+	if !a.mutationsEnabled {
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{ReasonRealExecutionUnavailable},
+		}, nil
+	}
+
 	mutator, ok := a.executor.(MutationExecutor)
 	if !ok {
 		return GuardedDrainExecutionReport{
