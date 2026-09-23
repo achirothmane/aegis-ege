@@ -129,3 +129,49 @@ func (r *ClientGoReader) DryRunEvictPod(ctx context.Context, pod PodStateRef) er
 	}
 	return nil
 }
+
+func (r *ClientGoReader) CordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]string{
+			"resourceVersion": resourceVersion,
+		},
+		"spec": map[string]bool{
+			"unschedulable": true,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal cordon patch: %w", err)
+	}
+
+	if _, err := r.client.CoreV1().Nodes().Patch(
+		ctx,
+		nodeName,
+		types.MergePatchType,
+		patch,
+		metav1.PatchOptions{},
+	); err != nil {
+		return fmt.Errorf("cordon node %q: %w", nodeName, err)
+	}
+	return nil
+}
+
+func (r *ClientGoReader) EvictPod(ctx context.Context, pod PodStateRef) error {
+	uid := types.UID(pod.UID)
+
+	eviction := &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pod.Name,
+			Namespace: pod.Namespace,
+		},
+		DeleteOptions: &metav1.DeleteOptions{
+			Preconditions: &metav1.Preconditions{
+				UID: &uid,
+			},
+		},
+	}
+
+	if err := r.client.PolicyV1().Evictions(pod.Namespace).Evict(ctx, eviction); err != nil {
+		return fmt.Errorf("evict pod %s/%s: %w", pod.Namespace, pod.Name, err)
+	}
+	return nil
+}
