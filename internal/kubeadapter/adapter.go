@@ -21,11 +21,17 @@ type Reader interface {
 	ListPodDisruptionBudgets(ctx context.Context) ([]PodDisruptionBudgetView, error)
 }
 
+type DryRunExecutor interface {
+	DryRunCordonNode(ctx context.Context, nodeName, resourceVersion string) error
+	DryRunEvictPod(ctx context.Context, pod PodStateRef) error
+}
+
 type Clock func() time.Time
 
 type Adapter struct {
-	reader Reader
-	now    Clock
+	reader   Reader
+	executor DryRunExecutor
+	now      Clock
 }
 
 type NodeDrainPolicy struct {
@@ -52,12 +58,21 @@ func New(reader Reader) *Adapter {
 }
 
 func NewWithClock(reader Reader, now Clock) *Adapter {
+	return NewWithClockAndExecutor(reader, nil, now)
+}
+
+func NewWithExecutor(reader Reader, executor DryRunExecutor) *Adapter {
+	return NewWithClockAndExecutor(reader, executor, time.Now)
+}
+
+func NewWithClockAndExecutor(reader Reader, executor DryRunExecutor, now Clock) *Adapter {
 	if now == nil {
 		now = time.Now
 	}
 	return &Adapter{
-		reader: reader,
-		now:    now,
+		reader:   reader,
+		executor: executor,
+		now:      now,
 	}
 }
 
@@ -117,7 +132,17 @@ func (a *Adapter) EvaluateNodeDrain(
 		}, snapshot, nil
 	}
 
-	result := decision.Evaluate(decision.Request{
+	result := evaluateNodeDrainKernel(actionID, snapshot, preflight, policy)
+	return result, snapshot, nil
+}
+
+func evaluateNodeDrainKernel(
+	actionID string,
+	snapshot NodeDrainSnapshot,
+	preflight DrainPreflightReport,
+	policy NodeDrainPolicy,
+) decision.Result {
+	return decision.Evaluate(decision.Request{
 		ActionID:            actionID,
 		Action:              "drain",
 		Target:              "node/" + snapshot.NodeName,
@@ -137,8 +162,6 @@ func (a *Adapter) EvaluateNodeDrain(
 			},
 		},
 	})
-
-	return result, snapshot, nil
 }
 
 func preflightDecisionReasons(report DrainPreflightReport) []decision.ReasonCode {
