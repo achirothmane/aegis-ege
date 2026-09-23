@@ -49,6 +49,7 @@ type PodStateRef struct {
 	Name            string
 	UID             string
 	ResourceVersion string
+	StateDigest     string
 }
 
 type DrainPreflightReport struct {
@@ -151,6 +152,7 @@ func (a *Adapter) preflightNodeDrain(
 			Name:            pod.Name,
 			UID:             string(pod.UID),
 			ResourceVersion: pod.ResourceVersion,
+			StateDigest:     DigestDrainRelevantPodState(pod),
 		})
 	}
 	sort.Slice(report.EvictionCandidates, func(i, j int) bool {
