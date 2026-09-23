@@ -345,7 +345,7 @@ func TestKindMoatFalsificationBenchmarkV2(t *testing.T) {
 			)
 		}
 
-		_, err = env.client.CoreV1().Pods(env.namespace).Patch(
+		_, err := env.client.CoreV1().Pods(env.namespace).Patch(
 			ctx,
 			env.podName,
 			types.MergePatchType,
