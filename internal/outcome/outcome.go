@@ -26,6 +26,13 @@ type Contributor struct {
 	ID   string
 }
 
+type Attribution string
+
+const (
+	AttributionUnattributed          Attribution = "UNATTRIBUTED"
+	AttributionContributors          Attribution = "CONTRIBUTOR_ATTRIBUTABLE"
+)
+
 func (c Contributor) Key() string {
 	return string(c.Kind) + "/" + c.ID
 }
@@ -38,6 +45,7 @@ type Record struct {
 	Observed       map[string]string
 	Verdict        Verdict
 	Contributors   []Contributor
+	Attribution    Attribution
 	ObservedAt     time.Time
 	Detail         string
 }
@@ -115,6 +123,7 @@ type ReliabilitySnapshot struct {
 	Matches         int
 	Divergences     int
 	Unknowns        int
+	Unattributed    int
 	ResolvedSamples int
 	DivergenceRate  float64
 	Reliability     float64
@@ -122,9 +131,10 @@ type ReliabilitySnapshot struct {
 }
 
 type counters struct {
-	matches     int
-	divergences int
-	unknowns    int
+	matches      int
+	divergences  int
+	unknowns     int
+	unattributed int
 }
 
 type Ledger struct {
@@ -165,6 +175,11 @@ func (l *Ledger) Record(record Record) {
 		l.refs[key] = contributor
 
 		count := l.counts[key]
+		if record.Attribution != AttributionContributors {
+			count.unattributed++
+			l.counts[key] = count
+			continue
+		}
 		switch record.Verdict {
 		case Match:
 			count.matches++
@@ -188,6 +203,7 @@ func (l *Ledger) Snapshot(contributor Contributor) ReliabilitySnapshot {
 		Matches:         count.matches,
 		Divergences:     count.divergences,
 		Unknowns:        count.unknowns,
+		Unattributed:    count.unattributed,
 		ResolvedSamples: resolved,
 		Status:          AdvisoryInsufficientHistory,
 	}
