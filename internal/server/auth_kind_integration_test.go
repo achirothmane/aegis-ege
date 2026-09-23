@@ -121,38 +121,55 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 	clientHTTP.Transport = transport
 
 	preparePayload := []byte("{\"action_id\":\"m8-kind\",\"node_name\":\"" + nodeName + "\"}")
-	preparation := prepareUntilStable(
-		t,
-		clientHTTP,
-		testServer.URL,
-		preparePayload,
-	)
-
-	executePayload, err := json.Marshal(executeRequest{
-		NodeName:       nodeName,
-		Authorization: *preparation.Authorization,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	executeResp, err := clientHTTP.Post(
-		testServer.URL+"/v1/node-drains/execute",
-		"application/json",
-		bytes.NewReader(executePayload),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer executeResp.Body.Close()
-	if executeResp.StatusCode != http.StatusOK {
-		t.Fatalf("execute status=%d", executeResp.StatusCode)
-	}
+	var executePayload []byte
 	var execution executeResponse
-	if err := json.NewDecoder(executeResp.Body).Decode(&execution); err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 12; attempt++ {
+		preparation := prepareUntilStable(
+			t,
+			clientHTTP,
+			testServer.URL,
+			preparePayload,
+		)
+
+		executePayload, err = json.Marshal(executeRequest{
+			NodeName:       nodeName,
+			Authorization: *preparation.Authorization,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		executeResp, err := clientHTTP.Post(
+			testServer.URL+"/v1/node-drains/execute",
+			"application/json",
+			bytes.NewReader(executePayload),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if executeResp.StatusCode != http.StatusOK {
+			_ = executeResp.Body.Close()
+			t.Fatalf("execute status=%d", executeResp.StatusCode)
+		}
+		execution = executeResponse{}
+		if err := json.NewDecoder(executeResp.Body).Decode(&execution); err != nil {
+			_ = executeResp.Body.Close()
+			t.Fatal(err)
+		}
+		_ = executeResp.Body.Close()
+
+		if execution.Decision == decision.Allow {
+			break
+		}
+		if execution.Decision == decision.Escalate &&
+			(hasServerReason(execution.ReasonCodes, decision.ResourceVersionChanged) ||
+				hasServerReason(execution.ReasonCodes, decision.ExecutionPlanChanged)) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		t.Fatalf("unexpected authenticated execution result: %+v", execution)
 	}
 	if execution.Decision != decision.Allow {
-		t.Fatalf("expected authenticated execution ALLOW, got %+v", execution)
+		t.Fatalf("authenticated execution did not stabilize to ALLOW: %+v", execution)
 	}
 
 	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
