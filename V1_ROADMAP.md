@@ -26,9 +26,9 @@ Long-running state-latchd, health endpoint, prepare endpoint, execution endpoint
 
 mTLS URI-SAN identity, separate PREPARE and EXECUTE permissions, default deny, structured identity audit records, durable single-daemon replay protection, TLS 1.3, and no mutation enablement without authentication/replay/checkpoint configuration.
 
-### M9 — shared durable state / HA recovery
+### M9 — shared durable state / HA recovery — IMPLEMENTED / pending CI merge
 
-Shared checkpoint storage, optimistic concurrency/versioning, multi-replica safe reads/writes, restart recovery proof, corruption/conflict fail-closed behavior, and no local-file dependency for production execution.
+Kubernetes-backed shared checkpoint storage, resourceVersion optimistic concurrency, cluster-wide replay claims, cross-replica recovery proof, and Kubernetes shared state as the production daemon default.
 
 ### M10 — external anti-rollback anchor and key custody
 

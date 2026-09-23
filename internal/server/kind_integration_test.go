@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/achirothmane/state-latch/internal/decision"
 	"github.com/achirothmane/state-latch/internal/kubeadapter"
 )
 
@@ -76,26 +75,12 @@ func TestKindM7DaemonPreparesButCannotMutateByDefault(t *testing.T) {
 	defer httpServer.Close()
 
 	preparePayload := []byte(`{"action_id":"m7-kind","node_name":"state-latch-m7-api-node"}`)
-	resp, err := http.Post(
-		httpServer.URL+"/v1/node-drains/prepare",
-		"application/json",
-		bytes.NewReader(preparePayload),
+	preparation := prepareUntilStable(
+		t,
+		http.DefaultClient,
+		httpServer.URL,
+		preparePayload,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("prepare status=%d", resp.StatusCode)
-	}
-	var preparation prepareResponse
-	if err := json.NewDecoder(resp.Body).Decode(&preparation); err != nil {
-		t.Fatal(err)
-	}
-	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
-		t.Fatalf("expected ALLOW preparation with authorization, got %+v", preparation)
-	}
 
 	executePayload, err := json.Marshal(executeRequest{
 		NodeName:       nodeName,

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -27,7 +28,9 @@ func main() {
 		tlsKeyFile      = flag.String("tls-key-file", "", "server TLS private key")
 		clientCAFile    = flag.String("client-ca-file", "", "CA used to verify mTLS client certificates")
 		authzFile       = flag.String("authz-file", "", "JSON principal/permission configuration")
-		dataDir         = flag.String("data-dir", "/var/lib/state-latch", "durable local data directory")
+		dataDir         = flag.String("data-dir", "/var/lib/state-latch", "durable local data directory for file backend")
+		stateBackend    = flag.String("state-backend", "kubernetes", "shared state backend: kubernetes or file")
+		stateNamespace  = flag.String("state-namespace", "kube-system", "namespace for shared Kubernetes state")
 		enableMutations = flag.Bool("enable-mutations", false, "enable authenticated real node-drain execution")
 		insecureReadOnly = flag.Bool("insecure-read-only", false, "allow HTTP without mTLS; mutations are forbidden")
 	)
@@ -54,16 +57,39 @@ func main() {
 		if err != nil {
 			fatal("create mutation-enabled Kubernetes adapter", err)
 		}
-		checkpointStore, err := kubeadapter.NewFileDrainCheckpointStore(filepath.Join(*dataDir, "checkpoints"))
-		if err != nil {
-			fatal("create checkpoint store", err)
+
+		switch *stateBackend {
+		case "kubernetes":
+			client, err := kubernetes.NewForConfig(kubeConfig)
+			if err != nil {
+				fatal("create Kubernetes state client", err)
+			}
+			checkpointStore, err := kubeadapter.NewKubernetesDrainCheckpointStore(client, *stateNamespace)
+			if err != nil {
+				fatal("create shared checkpoint store", err)
+			}
+			replayGuard, err := server.NewKubernetesReplayGuard(client, *stateNamespace)
+			if err != nil {
+				fatal("create shared replay guard", err)
+			}
+			store = checkpointStore
+			replay = replayGuard
+
+		case "file":
+			checkpointStore, err := kubeadapter.NewFileDrainCheckpointStore(filepath.Join(*dataDir, "checkpoints"))
+			if err != nil {
+				fatal("create checkpoint store", err)
+			}
+			replayGuard, err := server.NewFileReplayGuard(filepath.Join(*dataDir, "replay"))
+			if err != nil {
+				fatal("create replay guard", err)
+			}
+			store = checkpointStore
+			replay = replayGuard
+
+		default:
+			fatal("invalid configuration", fmt.Errorf("unsupported state-backend %q", *stateBackend))
 		}
-		store = checkpointStore
-		replayGuard, err := server.NewFileReplayGuard(filepath.Join(*dataDir, "replay"))
-		if err != nil {
-			fatal("create replay guard", err)
-		}
-		replay = replayGuard
 	} else {
 		adapter, err = kubeadapter.NewForConfig(kubeConfig)
 		if err != nil {
