@@ -51,6 +51,7 @@ type NodeDrainPreparation struct {
 	Snapshot      NodeDrainSnapshot
 	Preflight     DrainPreflightReport
 	Plan          *DrainExecutionPlan
+	PlanDigest    string
 	DryRun        *DrainDryRunReport
 	Authorization *decision.Authorization
 }
@@ -160,7 +161,12 @@ func (a *Adapter) PrepareNodeDrainExecution(
 	}
 
 	plan := BuildDrainExecutionPlan(actionID, snapshot, preflight)
+	planDigest := DigestDrainExecutionPlan(plan)
 	preparation.Plan = &plan
+	preparation.PlanDigest = planDigest
+
+	auth := *kernelResult.Authorization
+	auth.PlanDigest = planDigest
 
 	if a.executor == nil {
 		preparation.Decision = decision.Escalate
@@ -180,11 +186,12 @@ func (a *Adapter) PrepareNodeDrainExecution(
 		return preparation, nil
 	}
 
-	validation := decision.ValidateAuthorization(*kernelResult.Authorization, decision.ExecutionAttempt{
+	validation := decision.ValidateAuthorization(auth, decision.ExecutionAttempt{
 		ActionID:        actionID,
 		Action:          "drain",
 		Target:          "node/" + snapshot.NodeName,
 		ResourceVersion: snapshot.ResourceVersion,
+		PlanDigest:      planDigest,
 		Now:             a.now().UTC(),
 	})
 	if !validation.Valid {
@@ -194,7 +201,7 @@ func (a *Adapter) PrepareNodeDrainExecution(
 	}
 
 	preparation.Decision = decision.Allow
-	preparation.Authorization = kernelResult.Authorization
+	preparation.Authorization = &auth
 	return preparation, nil
 }
 
