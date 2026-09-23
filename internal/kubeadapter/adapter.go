@@ -50,6 +50,7 @@ type NodeDrainSnapshot struct {
 	NodeUID         string
 	ResourceVersion string
 	NodeHealth      string
+	Unschedulable   bool
 	ActivePods      int
 	ObservedAt      time.Time
 }
@@ -110,6 +111,7 @@ func (a *Adapter) inspectNodeDrainState(ctx context.Context, nodeName string) (N
 		NodeUID:         string(node.UID),
 		ResourceVersion: node.ResourceVersion,
 		NodeHealth:      nodeHealth(node),
+		Unschedulable:   node.Spec.Unschedulable,
 		ActivePods:      activePods,
 		ObservedAt:      a.now().UTC(),
 	}, pods, nil
