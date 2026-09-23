@@ -30,9 +30,10 @@ const (
 type DrainExecutionStatus string
 
 const (
-	DrainExecutionRunning   DrainExecutionStatus = "RUNNING"
-	DrainExecutionPaused    DrainExecutionStatus = "PAUSED"
-	DrainExecutionCompleted DrainExecutionStatus = "COMPLETED"
+	DrainExecutionRunning     DrainExecutionStatus = "RUNNING"
+	DrainExecutionPaused      DrainExecutionStatus = "PAUSED"
+	DrainExecutionCompleted   DrainExecutionStatus = "COMPLETED"
+	DrainExecutionCompensated DrainExecutionStatus = "COMPENSATED"
 )
 
 type DrainExecutionCheckpoint struct {
@@ -43,9 +44,11 @@ type DrainExecutionCheckpoint struct {
 	OriginalPlanDigest string                `json:"original_plan_digest"`
 	ActivePlanDigest   string                `json:"active_plan_digest"`
 	AuthorizedPods     []PodStateRef         `json:"authorized_pods"`
-	CompletedPodUIDs   []string              `json:"completed_pod_uids"`
-	Cordoned           bool                  `json:"cordoned"`
-	Status             DrainExecutionStatus  `json:"status"`
+	CompletedPodUIDs         []string              `json:"completed_pod_uids"`
+	OriginallyUnschedulable  bool                  `json:"originally_unschedulable"`
+	CordonOwned              bool                  `json:"cordon_owned"`
+	Cordoned                 bool                  `json:"cordoned"`
+	Status                   DrainExecutionStatus  `json:"status"`
 	LastDecision       decision.Decision     `json:"last_decision"`
 	LastReasonCodes    []decision.ReasonCode `json:"last_reason_codes,omitempty"`
 	UpdatedAt          time.Time             `json:"updated_at"`
