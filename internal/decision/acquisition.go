@@ -93,6 +93,11 @@ func ResolveUnknown(
 			}
 			continue
 		}
+		if err := validateProbeOutcome(outcome); err != nil {
+			attempt.Error = err.Error()
+			result.Attempts = append(result.Attempts, attempt)
+			continue
+		}
 
 		attempt.ObservationCount = len(outcome.Evidence)
 		attempt.ResourceVersion = outcome.ResourceVersion
