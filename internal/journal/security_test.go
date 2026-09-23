@@ -63,8 +63,19 @@ func TestExternalHeadDetectsFullLocalSnapshotRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The old journal + matching old local anchor is internally valid.
-	localOnly := VerifyFiles(path, anchorPath, signer.PublicKey())
+	// The old journal + matching old local anchor is internally valid when
+	// checked without the external anti-rollback reference.
+	localJournal, err := NewFileJournalWithSecurity(
+		path,
+		anchorPath,
+		signer,
+		keyring,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("local-only restored pair should reopen: %v", err)
+	}
+	localOnly := localJournal.Verify(context.Background())
 	if !localOnly.Valid || localOnly.EntryCount != 2 {
 		t.Fatalf("local-only verification should accept restored valid pair, got %+v", localOnly)
 	}
