@@ -31,6 +31,8 @@ Given a previously prepared, plan-bound authorization:
 ```text
 ExecuteAuthorizedNodeDrain
   ↓
+Acquire target Kubernetes Lease
+  ↓
 RevalidateNodeDrainAuthorization
   ↓
 real CORDON_NODE using observed Node resourceVersion
@@ -80,6 +82,12 @@ authorization expires mid-execution
 
 accepted eviction is not observed before timeout
 → ESCALATE / EXECUTION_EVICTION_NOT_OBSERVED
+
+another StateLatch executor owns the target Lease
+→ ESCALATE / EXECUTION_LOCK_HELD
+
+Lease ownership is lost during execution
+→ ESCALATE / EXECUTION_LOCK_LOST
 ```
 
 StateLatch does not automatically retry a Node resourceVersion conflict with a newer version. Doing so would bypass the state version that was actually revalidated.
@@ -133,6 +141,12 @@ It verifies:
 4. a semantic Pod-label change injected after the real cordon is detected before the eviction and the Pod remains;
 5. mutation execution is disabled on the default adapter.
 
+## Single-writer execution lock
+
+Every experimental real execution requires a Kubernetes Lease for the target Node. Ownership is renewed in the background and synchronously rechecked before every real mutation.
+
+A competing StateLatch executor fails before cordon/eviction. See [Execution locking](execution-locking.md).
+
 ## Partial failure recovery
 
 Checkpointed execution is available through `ExecuteAuthorizedNodeDrainWithCheckpointStore(...)`.
@@ -150,7 +164,8 @@ Missing areas include:
 - mature termination and retry handling;
 - production-grade rollback/compensation after partial execution;
 - exact `kubectl drain` behavior across all workload edge cases;
-- distributed execution locking and HA checkpoint storage;
+- HA/shared checkpoint storage;
+- external fencing tokens enforced by mutation targets;
 - tamper-evident append-only execution journaling;
 - production observability and audit persistence;
 - explicit production enablement and operational controls;
