@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	ReasonRealExecutionUnavailable       decision.ReasonCode = "REAL_EXECUTION_UNAVAILABLE"
-	ReasonExecutionCordonRejected        decision.ReasonCode = "EXECUTION_CORDON_REJECTED"
-	ReasonExecutionEvictionRejected      decision.ReasonCode = "EXECUTION_EVICTION_REJECTED"
-	ReasonExecutionEvictionNotObserved   decision.ReasonCode = "EXECUTION_EVICTION_NOT_OBSERVED"
-	ReasonExecutionCordonStateChanged    decision.ReasonCode = "EXECUTION_CORDON_STATE_CHANGED"
+	ReasonRealExecutionUnavailable     decision.ReasonCode = "REAL_EXECUTION_UNAVAILABLE"
+	ReasonExecutionCordonRejected      decision.ReasonCode = "EXECUTION_CORDON_REJECTED"
+	ReasonExecutionEvictionRejected    decision.ReasonCode = "EXECUTION_EVICTION_REJECTED"
+	ReasonExecutionEvictionNotObserved decision.ReasonCode = "EXECUTION_EVICTION_NOT_OBSERVED"
+	ReasonExecutionCordonStateChanged  decision.ReasonCode = "EXECUTION_CORDON_STATE_CHANGED"
 )
 
 type MutationExecutor interface {
@@ -41,6 +41,112 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 	auth decision.Authorization,
 	nodeName string,
 	policy NodeDrainPolicy,
+) (GuardedDrainExecutionReport, error) {
+	return a.executeAuthorizedNodeDrain(ctx, auth, nodeName, policy, nil, nil)
+}
+
+func (a *Adapter) ExecuteAuthorizedNodeDrainWithCheckpointStore(
+	ctx context.Context,
+	auth decision.Authorization,
+	nodeName string,
+	policy NodeDrainPolicy,
+	store DrainCheckpointStore,
+) (GuardedDrainExecutionReport, error) {
+	if store == nil {
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{ReasonExecutionCheckpointUnavailable},
+		}, nil
+	}
+	return a.executeAuthorizedNodeDrain(ctx, auth, nodeName, policy, store, nil)
+}
+
+func (a *Adapter) ResumeAuthorizedNodeDrain(
+	ctx context.Context,
+	auth decision.Authorization,
+	nodeName string,
+	policy NodeDrainPolicy,
+	store DrainCheckpointStore,
+) (GuardedDrainExecutionReport, error) {
+	assessment, err := a.InspectDrainRecovery(ctx, auth.ActionID, nodeName, policy, store)
+	if err != nil {
+		return GuardedDrainExecutionReport{}, err
+	}
+
+	switch assessment.State {
+	case DrainRecoveryCompleted:
+		return GuardedDrainExecutionReport{
+			Decision:   decision.Allow,
+			PlanDigest: assessment.Checkpoint.ActivePlanDigest,
+		}, nil
+	case DrainRecoveryReauthorizationNeeded:
+		// Continue below with a fresh authorization.
+	default:
+		return GuardedDrainExecutionReport{
+			Decision:    assessment.Decision,
+			ReasonCodes: append([]decision.ReasonCode(nil), assessment.ReasonCodes...),
+			PlanDigest:  assessment.Checkpoint.ActivePlanDigest,
+		}, nil
+	}
+
+	initial, err := a.RevalidateNodeDrainAuthorization(ctx, auth, nodeName, policy)
+	if err != nil {
+		return GuardedDrainExecutionReport{}, err
+	}
+	if initial.Decision != decision.Allow || initial.CurrentPlan == nil {
+		return GuardedDrainExecutionReport{
+			Decision:    initial.Decision,
+			ReasonCodes: append([]decision.ReasonCode(nil), initial.ReasonCodes...),
+		}, nil
+	}
+
+	if !samePodExecutionSet(initial.Preflight.EvictionCandidates, assessment.RemainingPods) {
+		checkpoint := assessment.Checkpoint
+		markCheckpointPaused(
+			&checkpoint,
+			decision.Escalate,
+			[]decision.ReasonCode{ReasonRecoveryStateDiverged},
+			a.now().UTC(),
+		)
+		_ = store.Save(ctx, checkpoint)
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{ReasonRecoveryStateDiverged},
+			PlanDigest:  initial.CurrentPlanDigest,
+		}, nil
+	}
+
+	checkpoint := assessment.Checkpoint
+	checkpoint.ActivePlanDigest = initial.CurrentPlanDigest
+	checkpoint.Status = DrainExecutionRunning
+	checkpoint.LastDecision = decision.Allow
+	checkpoint.LastReasonCodes = nil
+	checkpoint.UpdatedAt = a.now().UTC()
+	if err := store.Save(ctx, checkpoint); err != nil {
+		return GuardedDrainExecutionReport{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{ReasonExecutionCheckpointUnavailable},
+			PlanDigest:  initial.CurrentPlanDigest,
+		}, nil
+	}
+
+	return a.executeAuthorizedNodeDrain(
+		ctx,
+		auth,
+		nodeName,
+		policy,
+		store,
+		&checkpoint,
+	)
+}
+
+func (a *Adapter) executeAuthorizedNodeDrain(
+	ctx context.Context,
+	auth decision.Authorization,
+	nodeName string,
+	policy NodeDrainPolicy,
+	store DrainCheckpointStore,
+	resumeCheckpoint *DrainExecutionCheckpoint,
 ) (GuardedDrainExecutionReport, error) {
 	if !a.mutationsEnabled {
 		return GuardedDrainExecutionReport{
@@ -79,24 +185,68 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 		return GuardedDrainExecutionReport{}, fmt.Errorf("drain execution plan is missing initial cordon step")
 	}
 
-	cordonStep := plan.Steps[0]
-	if err := mutator.CordonNode(ctx, cordonStep.NodeName, cordonStep.ResourceVersion); err != nil {
-		reason := ReasonExecutionCordonRejected
-		if apierrors.IsConflict(err) {
-			reason = decision.ResourceVersionChanged
+	var checkpoint *DrainExecutionCheckpoint
+	if store != nil {
+		if resumeCheckpoint != nil {
+			copyValue := cloneDrainCheckpoint(*resumeCheckpoint)
+			copyValue.ActivePlanDigest = initial.CurrentPlanDigest
+			checkpoint = &copyValue
+		} else {
+			copyValue := DrainExecutionCheckpoint{
+				ActionID:           auth.ActionID,
+				NodeName:           plan.NodeName,
+				NodeUID:            plan.NodeUID,
+				NodeHealth:         plan.NodeHealth,
+				OriginalPlanDigest: initial.CurrentPlanDigest,
+				ActivePlanDigest:   initial.CurrentPlanDigest,
+				AuthorizedPods:     append([]PodStateRef(nil), evictionCandidatesFromPlan(plan)...),
+				Status:             DrainExecutionRunning,
+				LastDecision:       decision.Allow,
+				UpdatedAt:          a.now().UTC(),
+			}
+			checkpoint = &copyValue
+			if err := store.Save(ctx, *checkpoint); err != nil {
+				return GuardedDrainExecutionReport{
+					Decision:    decision.Escalate,
+					ReasonCodes: []decision.ReasonCode{ReasonExecutionCheckpointUnavailable},
+					PlanDigest:  initial.CurrentPlanDigest,
+				}, nil
+			}
 		}
-		report.Decision = decision.Escalate
-		report.ReasonCodes = []decision.ReasonCode{reason}
-		report.Steps = append(report.Steps, DrainMutationStepResult{
-			Step:  cordonStep,
-			Error: err.Error(),
-		})
-		return report, nil
 	}
-	report.Steps = append(report.Steps, DrainMutationStepResult{
-		Step:    cordonStep,
-		Applied: true,
-	})
+
+	cordonStep := plan.Steps[0]
+	alreadyCordoned := checkpoint != nil && checkpoint.Cordoned
+	if !alreadyCordoned {
+		if err := mutator.CordonNode(ctx, cordonStep.NodeName, cordonStep.ResourceVersion); err != nil {
+			reason := ReasonExecutionCordonRejected
+			if apierrors.IsConflict(err) {
+				reason = decision.ResourceVersionChanged
+			}
+			report.Decision = decision.Escalate
+			report.ReasonCodes = []decision.ReasonCode{reason}
+			report.Steps = append(report.Steps, DrainMutationStepResult{
+				Step:  cordonStep,
+				Error: err.Error(),
+			})
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
+		}
+		report.Steps = append(report.Steps, DrainMutationStepResult{
+			Step:    cordonStep,
+			Applied: true,
+		})
+
+		if checkpoint != nil {
+			checkpoint.Cordoned = true
+			checkpoint.UpdatedAt = a.now().UTC()
+			if err := store.Save(ctx, *checkpoint); err != nil {
+				report.Decision = decision.Escalate
+				report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCheckpointUnavailable}
+				return report, nil
+			}
+		}
+	}
 
 	remaining := evictionCandidatesFromPlan(plan)
 	for len(remaining) > 0 {
@@ -113,6 +263,7 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 		if currentDecision != decision.Allow {
 			report.Decision = currentDecision
 			report.ReasonCodes = currentReasons
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
 		}
 
@@ -137,6 +288,7 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 				Step:  step,
 				Error: err.Error(),
 			})
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
 		}
 		report.Steps = append(report.Steps, DrainMutationStepResult{
@@ -147,7 +299,24 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 		if err := a.waitForPodUIDAbsent(ctx, plan.NodeName, target.UID, evictionObservationTimeout(policy)); err != nil {
 			report.Decision = decision.Escalate
 			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionEvictionNotObserved}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
+		}
+
+		if checkpoint != nil {
+			checkpoint.CompletedPodUIDs = appendCompletedUID(
+				checkpoint.CompletedPodUIDs,
+				target.UID,
+			)
+			checkpoint.Status = DrainExecutionRunning
+			checkpoint.LastDecision = decision.Allow
+			checkpoint.LastReasonCodes = nil
+			checkpoint.UpdatedAt = a.now().UTC()
+			if err := store.Save(ctx, *checkpoint); err != nil {
+				report.Decision = decision.Escalate
+				report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCheckpointUnavailable}
+				return report, nil
+			}
 		}
 
 		remaining = remaining[1:]
@@ -166,10 +335,22 @@ func (a *Adapter) ExecuteAuthorizedNodeDrain(
 	if finalDecision != decision.Allow {
 		report.Decision = finalDecision
 		report.ReasonCodes = finalReasons
+		pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 		return report, nil
 	}
 
 	report.Decision = decision.Allow
+	if checkpoint != nil {
+		checkpoint.Status = DrainExecutionCompleted
+		checkpoint.LastDecision = decision.Allow
+		checkpoint.LastReasonCodes = nil
+		checkpoint.UpdatedAt = a.now().UTC()
+		if err := store.Save(ctx, *checkpoint); err != nil {
+			report.Decision = decision.Escalate
+			report.ReasonCodes = []decision.ReasonCode{ReasonExecutionCheckpointUnavailable}
+			return report, nil
+		}
+	}
 	return report, nil
 }
 
@@ -283,4 +464,27 @@ func (a *Adapter) waitForPodUIDAbsent(
 		case <-ticker.C:
 		}
 	}
+}
+
+func appendCompletedUID(completed []string, uid string) []string {
+	for _, existing := range completed {
+		if existing == uid {
+			return completed
+		}
+	}
+	return append(completed, uid)
+}
+
+func pauseCheckpointBestEffort(
+	store DrainCheckpointStore,
+	checkpoint *DrainExecutionCheckpoint,
+	decisionValue decision.Decision,
+	reasons []decision.ReasonCode,
+	now time.Time,
+) {
+	if store == nil || checkpoint == nil {
+		return
+	}
+	markCheckpointPaused(checkpoint, decisionValue, reasons, now)
+	_ = store.Save(context.Background(), *checkpoint)
 }
