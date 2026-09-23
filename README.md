@@ -10,7 +10,7 @@ StateLatch asks one extra question before automation changes production:
 
 Identity and policy may permit an action even when the operational state that justified it has changed between observation, dry-run, and execution.
 
-StateLatch v0.1 focuses on one narrow path for Kubernetes node drains:
+StateLatch v0.1 focuses on one narrow Kubernetes node-drain path:
 
 ```text
 Observe
@@ -40,6 +40,8 @@ cd state-latch
 go test ./...
 ```
 
+The main CI also creates a temporary KinD cluster and runs live Kubernetes integration tests.
+
 ## State-bound execution plan
 
 The plan is built from Kubernetes-observed state, not agent-supplied state:
@@ -52,12 +54,24 @@ CORDON_NODE
 EVICT_POD
   pod=default/api-a
   uid=<observed uid>
-  resourceVersion=<observed rv>
+  stateDigest=<drain-relevant semantic digest>
 ```
 
-StateLatch computes a deterministic SHA-256 `plan_digest` across the complete ordered plan and binds that digest into the authorization.
+StateLatch computes a deterministic SHA-256 `plan_digest` over the complete ordered plan and binds it into the authorization.
 
-Changing any bound execution input — including a Pod UID/resourceVersion, Node resourceVersion, target set, or step ordering — changes the digest.
+For Pods, the plan digest intentionally does **not** bind to raw `resourceVersion`. A live KinD test showed that Kubernetes can change Pod `resourceVersion` because of status/controller churn between observation and dry-run even when drain-relevant state has not changed.
+
+Instead, StateLatch binds to a semantic Pod state digest covering drain-relevant inputs:
+
+- UID and node assignment
+- labels
+- controlling workload identity
+- mirror/static-pod marker
+- `emptyDir` presence
+- phase and Ready state
+- deletion state
+
+Raw Pod `resourceVersion` is retained for observation/audit, but resourceVersion-only churn does not invalidate an otherwise unchanged drain plan.
 
 ## Server-side dry-run
 
@@ -66,9 +80,11 @@ Changing any bound execution input — including a Pod UID/resourceVersion, Node
 1. a server-side dry-run cordon;
 2. a server-side dry-run eviction for every planned Pod.
 
-Evictions carry UID and `resourceVersion` delete preconditions.
+The Node cordon remains bound to the observed Node `resourceVersion`.
 
-A preparation authorization is exposed only after all current gates and dry-runs pass.
+Pod eviction uses a UID delete precondition, preventing a same-name replacement Pod from being treated as the original object.
+
+No execution authorization is exposed until all current gates and dry-runs pass.
 
 ## Final live revalidation
 
@@ -78,20 +94,20 @@ Immediately before any future real mutation, callers must use:
 RevalidateNodeDrainAuthorization(...)
 ```
 
-This path re-reads live Kubernetes state, reruns drain preflight, rebuilds the execution plan, recomputes its digest, and validates the short-lived authorization.
-
-Examples:
+This re-reads live Kubernetes state, reruns drain preflight, rebuilds the execution plan, recomputes its digest, and validates the short-lived authorization.
 
 ```text
-same live state + same plan digest + valid TTL
+same drain-relevant state + same plan digest + valid TTL
 → ALLOW
 
-Pod resourceVersion / UID / target set changed
+Pod labels / owner / UID / readiness / phase / node assignment changed
 → ESCALATE / EXECUTION_PLAN_CHANGED
+
+raw Pod resourceVersion changed but semantic state did not
+→ plan remains valid
 
 Node resourceVersion changed
 → ESCALATE / RESOURCE_VERSION_CHANGED
-  (+ EXECUTION_PLAN_CHANGED because the plan changed)
 
 PDB now blocks the drain
 → BLOCK / PDB_DISRUPTION_BLOCKED
@@ -126,6 +142,18 @@ PDB state unavailable
 
 Mirror/static pods are recorded and skipped.
 
+## Live integration evidence
+
+GitHub Actions now runs both unit tests and live KinD integration tests.
+
+The current live scenarios prove that:
+
+- server-side cordon + eviction dry-runs can pass without persisting either mutation;
+- a healthy Pod protected by a zero-disruption PDB is rejected by the Kubernetes Eviction API, and StateLatch returns `BLOCK`;
+- a drain-relevant live Pod change after authorization causes final revalidation to return `ESCALATE / EXECUTION_PLAN_CHANGED`.
+
+These are integration tests against a real temporary Kubernetes API server, not mocked client behavior.
+
 ## Implemented
 
 - evidence freshness and contradiction gates
@@ -134,12 +162,13 @@ Mirror/static pods are recorded and skipped.
 - live Node / Pod / PDB reads
 - drain preflight
 - deterministic execution-plan generation
+- drain-relevant semantic Pod state digest
 - deterministic plan digest
 - state-bound authorization
 - server-side dry-run cordon and eviction
-- Pod UID + resourceVersion eviction preconditions
+- Pod UID eviction precondition
 - final live revalidation
-- TOCTOU invalidation for Node and complete drain plan
+- unit + KinD live integration CI
 
 ## Not implemented yet
 
@@ -154,9 +183,9 @@ Mirror/static pods are recorded and skipped.
 
 ## Guarantees and limits
 
-A passing dry-run plus passing live revalidation is stronger than local simulation, but it is still not a mathematical guarantee that a later mutation will succeed.
+A passing dry-run plus passing live revalidation is stronger than local simulation, but it is not a guarantee that a later mutation will succeed.
 
-Cluster state can change after revalidation. A future real execution path must therefore keep the same Node and Pod preconditions on the actual mutation requests so state drift fails closed at the API server too.
+Cluster state can change after revalidation. A future real execution path must therefore keep server-enforced identity/state preconditions on the actual mutation requests and fail closed if the world changes again.
 
 StateLatch does not execute production mutations yet.
 
@@ -168,7 +197,7 @@ StateLatch does not execute production mutations yet.
 
 ## Current status
 
-`v0.1-prealpha` — tested decision kernel + Kubernetes drain preflight + server-side dry-run preparation + final live plan revalidation.
+`v0.1-prealpha` — tested decision kernel + Kubernetes drain preflight + server-side dry-run + final live plan revalidation, with KinD integration coverage. Production mutation is not implemented.
 
 ## Design principle
 
