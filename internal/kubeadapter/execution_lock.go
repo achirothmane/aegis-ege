@@ -121,11 +121,22 @@ func (g *executionLeaseGuard) renewLoop(ctx context.Context) {
 	}
 }
 
-func (g *executionLeaseGuard) EnsureHeld() error {
+func (g *executionLeaseGuard) EnsureHeld(ctx context.Context) error {
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if g.lostErr != nil {
-		return fmt.Errorf("%w: %v", ErrExecutionLockLost, g.lostErr)
+		err := g.lostErr
+		g.mu.Unlock()
+		return fmt.Errorf("%w: %v", ErrExecutionLockLost, err)
+	}
+	g.mu.Unlock()
+
+	if err := g.manager.RenewExecutionLock(ctx, g.lease, g.duration); err != nil {
+		g.mu.Lock()
+		if g.lostErr == nil {
+			g.lostErr = err
+		}
+		g.mu.Unlock()
+		return fmt.Errorf("%w: %v", ErrExecutionLockLost, err)
 	}
 	return nil
 }
@@ -134,8 +145,11 @@ func (g *executionLeaseGuard) Close(ctx context.Context) error {
 	g.cancel()
 	<-g.done
 
-	if err := g.EnsureHeld(); err != nil {
-		return err
+	g.mu.Lock()
+	lostErr := g.lostErr
+	g.mu.Unlock()
+	if lostErr != nil {
+		return fmt.Errorf("%w: %v", ErrExecutionLockLost, lostErr)
 	}
 	return g.manager.ReleaseExecutionLock(ctx, g.lease)
 }
