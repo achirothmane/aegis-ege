@@ -30,6 +30,8 @@ type DrainExecutionStep struct {
 type DrainExecutionPlan struct {
 	ActionID            string
 	NodeName            string
+	NodeUID             string
+	NodeHealth          string
 	NodeResourceVersion string
 	Steps               []DrainExecutionStep
 }
@@ -79,6 +81,8 @@ func BuildDrainExecutionPlan(
 	return DrainExecutionPlan{
 		ActionID:            actionID,
 		NodeName:            snapshot.NodeName,
+		NodeUID:             snapshot.NodeUID,
+		NodeHealth:          snapshot.NodeHealth,
 		NodeResourceVersion: snapshot.ResourceVersion,
 		Steps:               steps,
 	}
