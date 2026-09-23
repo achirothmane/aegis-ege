@@ -11,38 +11,53 @@ For a node drain StateLatch dry-runs:
 
 The cordon is bound to the observed Node `resourceVersion`.
 
-Every eviction carries:
+Every eviction carries the observed Pod UID as a delete precondition.
+
+## Why Pod resourceVersion is not a hard eviction precondition
+
+Live KinD integration exposed a real race: Kubernetes can update a Pod's raw `resourceVersion` between observation and dry-run due to status/controller activity even when nothing relevant to drain safety changed.
+
+Hard-binding eviction to that raw version produced false rejection.
+
+StateLatch therefore separates:
 
 ```text
-Pod UID
-Pod resourceVersion
+object identity → Pod UID precondition at Kubernetes API
+drain semantics → semantic Pod state digest inside plan_digest
+raw resourceVersion → audit/observation metadata
 ```
 
-as delete preconditions.
+The semantic digest covers labels, owner identity, node assignment, mirror status, `emptyDir`, phase, readiness, deletion state, and UID.
 
 ## What happens after dry-run
 
-A successful dry-run does not directly authorize a future mutation forever.
+A successful dry-run does not authorize a future mutation indefinitely.
 
-StateLatch computes a deterministic digest of the full plan and embeds it in a short-lived authorization.
+StateLatch embeds the deterministic plan digest in a short-lived authorization.
 
-Before any future real execution:
+Before future real execution:
 
 ```text
-Re-read live cluster
+re-read live cluster
 → rerun preflight
-→ rebuild plan
+→ rebuild semantic plan
 → recompute plan digest
-→ validate TTL + resourceVersion + plan digest
+→ validate TTL + node resourceVersion + plan digest
 ```
 
-Only an unchanged, still-valid plan can return `ALLOW`.
+Only a still-valid plan can return `ALLOW`.
 
-## What server dry-run proves
+## What live CI now verifies
 
-It proves that, at the moment each request was evaluated, Kubernetes accepted the proposed operation under the reached validation/admission path and supplied state preconditions.
+Against a temporary KinD Kubernetes cluster:
 
-## What it does not prove
+- server dry-run cordon is accepted and does not persist `spec.unschedulable=true`;
+- server dry-run eviction is accepted and the Pod remains present;
+- a healthy Pod protected by a zero-disruption PDB is rejected by the Eviction API;
+- StateLatch blocks the same PDB-protected preparation;
+- a drain-relevant live label change invalidates the authorized plan during revalidation.
+
+## What dry-run does not prove
 
 Dry-run requests are not persisted.
 
@@ -55,4 +70,4 @@ Therefore:
 
 StateLatch compensates with aggregate PDB preflight plus final live plan revalidation.
 
-The future real execution path must still use state preconditions on actual mutations.
+The future real execution path must still use server-enforced preconditions on actual mutations.
