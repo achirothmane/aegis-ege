@@ -144,6 +144,7 @@ func TestDuplicateContributorInRecordCountsOnce(t *testing.T) {
 
 	ledger.Record(Record{
 		Verdict:      Match,
+		Attribution:  AttributionContributors,
 		Contributors: []Contributor{source, source},
 	})
 
