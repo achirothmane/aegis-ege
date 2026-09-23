@@ -72,10 +72,13 @@ func TestDifferentClaimsDoNotContradict(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
 	req := Request{
-		ActionID:       "act-drain-node-7",
-		Target:         "node/node-7",
-		RequestedAt:    now,
-		MaxEvidenceAge: 10 * time.Second,
+		ActionID:         "act-drain-node-7",
+		Action:           "drain",
+		Target:           "node/node-7",
+		ResourceVersion:  "928441",
+		RequestedAt:      now,
+		AuthorizationTTL: 5 * time.Second,
+		MaxEvidenceAge:   10 * time.Second,
 		Evidence: []EvidenceObservation{
 			{
 				Claim:      "node_health",
@@ -194,12 +197,15 @@ func TestBlastRadiusWithinLimitDoesNotBlock(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
 	req := Request{
-		ActionID:       "act-drain-node-7",
-		Target:         "node/node-7",
-		RequestedAt:    now,
-		MaxEvidenceAge: 10 * time.Second,
-		BlastRadius:    5,
-		MaxBlastRadius: 10,
+		ActionID:         "act-drain-node-7",
+		Action:           "drain",
+		Target:           "node/node-7",
+		ResourceVersion:  "928441",
+		RequestedAt:      now,
+		AuthorizationTTL: 5 * time.Second,
+		MaxEvidenceAge:   10 * time.Second,
+		BlastRadius:      5,
+		MaxBlastRadius:   10,
 		Evidence: []EvidenceObservation{
 			{
 				Claim:      "node_health",
@@ -214,5 +220,33 @@ func TestBlastRadiusWithinLimitDoesNotBlock(t *testing.T) {
 
 	if got.Decision != Allow {
 		t.Fatalf("expected %s when blast radius is within limit, got %s with reasons %v", Allow, got.Decision, got.ReasonCodes)
+	}
+}
+
+func TestMissingStateBindingEscalates(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+	req := Request{
+		ActionID:       "act-drain-node-7",
+		Target:         "node/node-7",
+		RequestedAt:    now,
+		MaxEvidenceAge: 10 * time.Second,
+		Evidence: []EvidenceObservation{
+			{
+				Claim:      "node_health",
+				Source:     "kubernetes-api",
+				Value:      "unhealthy",
+				ObservedAt: now.Add(-2 * time.Second),
+			},
+		},
+	}
+
+	got := Evaluate(req)
+
+	if got.Decision != Escalate {
+		t.Fatalf("expected %s when state binding is incomplete, got %s", Escalate, got.Decision)
+	}
+	if !slices.Contains(got.ReasonCodes, InsufficientStateBinding) {
+		t.Fatalf("expected reason code %s, got %v", InsufficientStateBinding, got.ReasonCodes)
 	}
 }
