@@ -16,6 +16,7 @@ const (
 	EvidenceStale        ReasonCode = "EVIDENCE_STALE"
 	EvidenceContradicted ReasonCode = "EVIDENCE_CONTRADICTED"
 	InsufficientEvidence ReasonCode = "INSUFFICIENT_EVIDENCE"
+	BlastRadiusExceeded  ReasonCode = "BLAST_RADIUS_EXCEEDED"
 )
 
 type EvidenceObservation struct {
@@ -31,6 +32,8 @@ type Request struct {
 	RequestedAt         time.Time
 	MaxEvidenceAge      time.Duration
 	RequiredSourceCount int
+	BlastRadius         int
+	MaxBlastRadius      int
 	Evidence            []EvidenceObservation
 }
 
