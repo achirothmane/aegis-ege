@@ -164,8 +164,11 @@ InspectDrainRecovery
 → REAUTHORIZATION_REQUIRED
 → PrepareNodeDrainExecution again on current live state
 → obtain new authorization for remaining plan
+→ acquire current target Lease
 → ResumeAuthorizedNodeDrain
 ```
+
+After a crash, an old execution Lease may remain active until its TTL expires. A replacement executor must not bypass it; it can resume only after it acquires the target Lease.
 
 `ResumeAuthorizedNodeDrain(...)` revalidates that the fresh authorization's live Pod set exactly equals the checkpoint's remaining authorized set before any mutation.
 
@@ -208,8 +211,8 @@ The checkpoint mechanism is intentionally narrow.
 It does not yet provide:
 
 - rollback or compensation for already-applied mutations;
-- distributed locking against two StateLatch executors using the same action ID;
 - an HA/shared checkpoint backend;
+- external fencing against non-StateLatch writers;
 - a cryptographically tamper-evident append-only event log;
 - retention, compaction, or operator tooling;
 - automatic policy for a Pod that remains terminating after an accepted eviction.
