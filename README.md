@@ -273,7 +273,27 @@ and no later mutation is attempted.
 
 See [Execution locking](docs/execution-locking.md).
 
-### 9. Postflight outcome verification
+### 9. Tamper-evident execution journal
+
+M6 adds a signed append-only journal for the authorization → execution → outcome lifecycle.
+
+```text
+authorization
+→ execution
+→ postflight outcome
+→ hash-chained JSONL
+→ Ed25519-signed head anchor
+```
+
+Verification detects entry modification, reordering, middle deletion, tail truncation against the current signed anchor, anchor tampering, and missing anchors.
+
+The journal is audit evidence only; it does not participate in ALLOW/BLOCK/ESCALATE authority.
+
+A full rollback of both the journal and a matching older valid signed anchor requires an external monotonic/WORM reference to detect and remains outside M6.
+
+See [Tamper-evident execution journal](docs/tamper-evident-journal.md).
+
+### 10. Postflight outcome verification
 
 StateLatch compares expected and observed outcome:
 
@@ -386,6 +406,8 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 - Kubernetes Lease-based single-writer execution locking;
 - synchronous lock verification before each real mutation;
 - live lock contention protection on KinD;
+- signed hash-chained execution journal with Ed25519 head anchor;
+- live authorization → execution → outcome journal binding in KinD;
 - postflight expected-vs-observed comparison;
 - advisory reliability ledger;
 - synthetic, live KinD, and source-backed incident falsification suites.
@@ -396,7 +418,8 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 - production daemon/API surface;
 - HA/shared checkpoint storage;
 - external fencing token enforced by mutation targets;
-- tamper-evident/WORM execution journal;
+- external WORM/KMS/transparency anti-rollback anchor for the journal;
+- production signing-key custody / HSM integration;
 - mature rollback/compensation semantics;
 - full `kubectl drain` parity;
 - AWS/GCP/SSH/database/PLC adapters;
@@ -421,6 +444,7 @@ The next BUILD gate requires external usage evidence. See [ADOPTION.md](ADOPTION
 - [Guarded experimental execution](docs/guarded-real-execution.md)
 - [Partial failure and recovery](docs/partial-failure-recovery.md)
 - [Execution locking](docs/execution-locking.md)
+- [Tamper-evident execution journal](docs/tamper-evident-journal.md)
 - [Decision contract](docs/decision-contract.md)
 
 ## Current status
