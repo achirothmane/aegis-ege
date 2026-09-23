@@ -244,7 +244,36 @@ final live revalidation
 
 The execution loop does not blindly consume a previously authorized plan.
 
-### 8. Postflight outcome verification
+### 8. Single-writer execution lease
+
+Real mutation execution now requires a Kubernetes `coordination.k8s.io/v1 Lease` for the target Node.
+
+```text
+acquire target Lease
+→ revalidate
+→ checkpoint
+→ mutate
+→ renew/verify ownership before each mutation
+→ release
+```
+
+A second StateLatch executor targeting the same Node receives:
+
+```text
+ESCALATE / EXECUTION_LOCK_HELD
+```
+
+If the holder loses the Lease during execution:
+
+```text
+ESCALATE / EXECUTION_LOCK_LOST
+```
+
+and no later mutation is attempted.
+
+See [Execution locking](docs/execution-locking.md).
+
+### 9. Postflight outcome verification
 
 StateLatch compares expected and observed outcome:
 
@@ -354,6 +383,9 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 - real guarded cordon + eviction behind explicit experimental opt-in;
 - Pod UID and semantic-state protection;
 - persistent partial-failure checkpoints and recovery;
+- Kubernetes Lease-based single-writer execution locking;
+- synchronous lock verification before each real mutation;
+- live lock contention protection on KinD;
 - postflight expected-vs-observed comparison;
 - advisory reliability ledger;
 - synthetic, live KinD, and source-backed incident falsification suites.
@@ -362,8 +394,8 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 
 - production mutation enablement;
 - production daemon/API surface;
-- distributed execution locking;
-- HA checkpoint storage;
+- HA/shared checkpoint storage;
+- external fencing token enforced by mutation targets;
 - tamper-evident/WORM execution journal;
 - mature rollback/compensation semantics;
 - full `kubectl drain` parity;
@@ -388,6 +420,7 @@ The next BUILD gate requires external usage evidence. See [ADOPTION.md](ADOPTION
 - [Server-side dry-run](docs/server-dry-run.md)
 - [Guarded experimental execution](docs/guarded-real-execution.md)
 - [Partial failure and recovery](docs/partial-failure-recovery.md)
+- [Execution locking](docs/execution-locking.md)
 - [Decision contract](docs/decision-contract.md)
 
 ## Current status
