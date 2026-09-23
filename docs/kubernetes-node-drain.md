@@ -1,6 +1,6 @@
 # Kubernetes node-drain adapter
 
-StateLatch v0.1 implements a read-only preparation and revalidation path for a proposed Kubernetes node drain.
+StateLatch v0.1 implements preparation, revalidation, and an explicitly opt-in guarded real-execution path for a proposed Kubernetes node drain. Real mutations are disabled by default.
 
 ## Trusted live inputs
 
@@ -88,7 +88,7 @@ live read
 
 ## Final live revalidation
 
-Use immediately before future real execution:
+Use immediately before guarded execution:
 
 ```go
 RevalidateNodeDrainAuthorization(...)
@@ -136,18 +136,41 @@ Preconditions.UID = observed Pod UID
 
 UID prevents a replacement Pod with the same namespace/name from being mistaken for the authorized object.
 
+## Guarded experimental execution
+
+The default adapter cannot perform real mutations.
+
+For KinD integration work only, the explicit experimental constructor enables `ExecuteAuthorizedNodeDrain(...)`.
+
+The execution path:
+
+```text
+final revalidation
+→ real cordon with Node resourceVersion precondition
+→ verify Node UID + health + cordon state
+→ rerun Pod/PDB preflight
+→ compare remaining semantic Pod set
+→ real eviction with Pod UID precondition
+→ wait for that UID to disappear
+→ revalidate before the next eviction
+```
+
+Node resourceVersion conflicts are not retried blindly. They return `ESCALATE / RESOURCE_VERSION_CHANGED`.
+
 ## Live integration tests
 
-The KinD CI exercises three live Kubernetes scenarios:
+The KinD CI now exercises five live Kubernetes scenarios:
 
 1. dry-run cordon and eviction are accepted but not persisted;
 2. a healthy ReplicaSet Pod protected by a zero-disruption PDB is rejected by the Eviction API and by StateLatch;
-3. a label change after preparation changes the semantic plan digest and causes final revalidation to escalate.
+3. a label change after preparation changes the semantic plan digest and causes final revalidation to escalate;
+4. guarded experimental execution persists a real cordon and real eviction;
+5. a semantic change injected after cordon stops execution before eviction.
 
 The PDB fixture explicitly marks the synthetic test Pod `Running` and `Ready=True`, because Kubernetes treats `Pending` Pods differently for eviction.
 
 ## Limits
 
-StateLatch still does not execute a real drain.
+The real execution path is experimental and default-disabled.
 
-Final live revalidation narrows state drift between preparation and execution, but future production mutation must retain server-side identity/state preconditions because state can still change after revalidation.
+StateLatch does not yet provide production-grade drain retry, rollback, observability, or exact `kubectl drain` parity. State can still change inside the final userspace-to-API race window, so production semantics require additional server-enforced constraints and recovery work.
