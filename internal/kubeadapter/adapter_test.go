@@ -15,8 +15,10 @@ import (
 type stubReader struct {
 	node    *corev1.Node
 	pods    []corev1.Pod
+	pdbs    []PodDisruptionBudgetView
 	nodeErr error
 	podsErr error
+	pdbErr  error
 }
 
 func (s stubReader) GetNode(context.Context, string) (*corev1.Node, error) {
@@ -33,15 +35,22 @@ func (s stubReader) ListPodsOnNode(context.Context, string) ([]corev1.Pod, error
 	return s.pods, nil
 }
 
+func (s stubReader) ListPodDisruptionBudgets(context.Context) ([]PodDisruptionBudgetView, error) {
+	if s.pdbErr != nil {
+		return nil, s.pdbErr
+	}
+	return s.pdbs, nil
+}
+
 func TestInspectNodeDrainDerivesResourceVersionHealthAndActivePods(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	reader := stubReader{
 		node: readyNode("node-7", "928441", corev1.ConditionTrue),
 		pods: []corev1.Pod{
-			pod("running", corev1.PodRunning),
-			pod("pending", corev1.PodPending),
-			pod("done", corev1.PodSucceeded),
-			pod("failed", corev1.PodFailed),
+			managedPod("running", corev1.PodRunning),
+			managedPod("pending", corev1.PodPending),
+			managedPod("done", corev1.PodSucceeded),
+			managedPod("failed", corev1.PodFailed),
 		},
 	}
 
@@ -65,14 +74,14 @@ func TestInspectNodeDrainDerivesResourceVersionHealthAndActivePods(t *testing.T)
 	}
 }
 
-func TestEvaluateNodeDrainUsesObservedBlastRadiusAndBlocks(t *testing.T) {
+func TestEvaluateNodeDrainUsesPreflightEvictableBlastRadiusAndBlocks(t *testing.T) {
 	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	reader := stubReader{
 		node: readyNode("node-7", "928441", corev1.ConditionFalse),
 		pods: []corev1.Pod{
-			pod("api-1", corev1.PodRunning),
-			pod("api-2", corev1.PodRunning),
-			pod("api-3", corev1.PodPending),
+			managedPod("api-1", corev1.PodRunning),
+			managedPod("api-2", corev1.PodRunning),
+			managedPod("api-3", corev1.PodPending),
 		},
 	}
 
@@ -93,7 +102,7 @@ func TestEvaluateNodeDrainUsesObservedBlastRadiusAndBlocks(t *testing.T) {
 	}
 
 	if snapshot.ActivePods != 3 {
-		t.Fatalf("expected adapter-derived blast radius 3, got %d", snapshot.ActivePods)
+		t.Fatalf("expected observed active pods 3, got %d", snapshot.ActivePods)
 	}
 	if result.Decision != decision.Block {
 		t.Fatalf("expected BLOCK, got %s", result.Decision)
@@ -108,7 +117,7 @@ func TestEvaluateNodeDrainMintsAuthorizationBoundToObservedResourceVersion(t *te
 	reader := stubReader{
 		node: readyNode("node-7", "928441", corev1.ConditionFalse),
 		pods: []corev1.Pod{
-			pod("api-1", corev1.PodRunning),
+			managedPod("api-1", corev1.PodRunning),
 		},
 	}
 
@@ -142,6 +151,42 @@ func TestEvaluateNodeDrainMintsAuthorizationBoundToObservedResourceVersion(t *te
 	}
 }
 
+func TestEvaluateNodeDrainStopsAtPreflightBlocker(t *testing.T) {
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	reader := stubReader{
+		node: readyNode("node-7", "928441", corev1.ConditionTrue),
+		pods: []corev1.Pod{
+			daemonSetPod("agent"),
+		},
+	}
+
+	adapter := NewWithClock(reader, func() time.Time { return now })
+	result, _, err := adapter.EvaluateNodeDrain(
+		context.Background(),
+		"act-drain-node-7",
+		"node-7",
+		NodeDrainPolicy{
+			MaxEvidenceAge:      10 * time.Second,
+			RequiredSourceCount: 1,
+			MaxBlastRadius:      100,
+			AuthorizationTTL:    5 * time.Second,
+		},
+	)
+	if err != nil {
+		t.Fatalf("EvaluateNodeDrain returned error: %v", err)
+	}
+
+	if result.Decision != decision.Block {
+		t.Fatalf("expected preflight BLOCK, got %s", result.Decision)
+	}
+	if !hasReason(result.ReasonCodes, decision.ReasonCode(FindingDaemonSetRequiresIgnore)) {
+		t.Fatalf("expected %s, got %v", FindingDaemonSetRequiresIgnore, result.ReasonCodes)
+	}
+	if result.Authorization != nil {
+		t.Fatal("preflight blocker must not mint authorization")
+	}
+}
+
 func TestInspectNodeDrainPropagatesNodeReadFailure(t *testing.T) {
 	adapter := New(stubReader{nodeErr: errors.New("forbidden")})
 
@@ -168,10 +213,39 @@ func readyNode(name, resourceVersion string, ready corev1.ConditionStatus) *core
 	}
 }
 
-func pod(name string, phase corev1.PodPhase) corev1.Pod {
+func managedPod(name string, phase corev1.PodPhase) corev1.Pod {
+	controller := true
 	return corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Status:     corev1.PodStatus{Phase: phase},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Kind:       "ReplicaSet",
+					Name:       "api",
+					Controller: &controller,
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: phase},
+	}
+}
+
+func daemonSetPod(name string) corev1.Pod {
+	controller := true
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "kube-system",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Kind:       "DaemonSet",
+					Name:       "node-agent",
+					Controller: &controller,
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 }
 
