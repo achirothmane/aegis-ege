@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -19,21 +19,24 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
-          cache: false
+          cache: true
 
-      - name: Resolve modules
-        run: go mod tidy
+      - name: Download modules
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if go mod download; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "module download failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Verify modules
+        run: go mod verify
 
       - name: Test
         run: go test ./...
-
-      - name: Persist module metadata
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          if [[ -n "$(git status --porcelain -- go.mod go.sum)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add go.mod go.sum
-            git commit -m "build: tidy Kubernetes dependencies"
-            git push
-          fi
