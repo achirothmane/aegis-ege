@@ -29,6 +29,7 @@ func TestDigestDrainExecutionPlanIsDeterministic(t *testing.T) {
 					Name:            "api-a",
 					UID:             "uid-a",
 					ResourceVersion: "rv-a",
+					StateDigest:     "sha256:state-a",
 				},
 			},
 		},
@@ -63,6 +64,41 @@ func TestDigestDrainExecutionPlanChangesWhenPodStateChanges(t *testing.T) {
 					Name:            "api-a",
 					UID:             "uid-a",
 					ResourceVersion: "rv-a",
+					StateDigest:     "sha256:state-a",
+				},
+			},
+		},
+	}
+	planB := planA
+	planB.Steps = append([]DrainExecutionStep(nil), planA.Steps...)
+	pod := *planA.Steps[1].Pod
+	pod.StateDigest = "sha256:state-b"
+	planB.Steps[1].Pod = &pod
+
+	if DigestDrainExecutionPlan(planA) == DigestDrainExecutionPlan(planB) {
+		t.Fatal("expected semantic pod state change to alter plan digest")
+	}
+}
+
+func TestDigestDrainExecutionPlanIgnoresPodResourceVersionChurn(t *testing.T) {
+	planA := DrainExecutionPlan{
+		ActionID:            "act-1",
+		NodeName:            "node-7",
+		NodeResourceVersion: "928441",
+		Steps: []DrainExecutionStep{
+			{
+				Kind:            DrainStepCordonNode,
+				NodeName:        "node-7",
+				ResourceVersion: "928441",
+			},
+			{
+				Kind: DrainStepEvictPod,
+				Pod: &PodStateRef{
+					Namespace:       "default",
+					Name:            "api-a",
+					UID:             "uid-a",
+					ResourceVersion: "rv-a",
+					StateDigest:     "sha256:state-a",
 				},
 			},
 		},
@@ -73,8 +109,8 @@ func TestDigestDrainExecutionPlanChangesWhenPodStateChanges(t *testing.T) {
 	pod.ResourceVersion = "rv-b"
 	planB.Steps[1].Pod = &pod
 
-	if DigestDrainExecutionPlan(planA) == DigestDrainExecutionPlan(planB) {
-		t.Fatal("expected pod resourceVersion change to alter plan digest")
+	if DigestDrainExecutionPlan(planA) != DigestDrainExecutionPlan(planB) {
+		t.Fatal("expected resourceVersion-only churn to leave semantic plan digest unchanged")
 	}
 }
 
