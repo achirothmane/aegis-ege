@@ -16,6 +16,33 @@ The engine returns one of:
 - `ESCALATE` means the system does not have enough independent evidence to authorize the action autonomously.
 - `ALLOW` means the currently implemented hard gates passed.
 
+## Evidence model
+
+Every observation is attached to an explicit claim:
+
+```text
+Claim:      node_health
+Source:     prometheus-a
+Value:      unhealthy
+ObservedAt: ...
+```
+
+Contradiction is evaluated **within a claim**, not across unrelated facts.
+
+For example, these observations do not contradict one another:
+
+```text
+node_health = healthy
+cpu_pressure = high
+```
+
+But these do:
+
+```text
+node_health / prometheus-a = healthy
+node_health / prometheus-b = unhealthy
+```
+
 ## Hard-gate rule
 
 A high aggregate score must never compensate for failure of a mandatory safety predicate.
@@ -23,10 +50,12 @@ A high aggregate score must never compensate for failure of a mandatory safety p
 For `v0.1`, these predicates begin with:
 
 1. required evidence is within its maximum allowed age;
-2. fresh observations about the same operational fact do not contradict one another;
+2. fresh observations of the same claim do not contradict one another;
 3. the configured minimum number of distinct evidence sources is present.
 
 Duplicate observations from the same source count as one source.
+
+Current limitation: `RequiredSourceCount` is request-wide. A later step may make source requirements claim-specific when the action contract requires different evidence thresholds for different claims.
 
 Later gates may include blast-radius limits, Kubernetes server-side dry-run, invariants, and state-version binding.
 
