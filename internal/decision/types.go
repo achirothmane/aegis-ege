@@ -19,6 +19,7 @@ const (
 )
 
 type EvidenceObservation struct {
+	Claim      string
 	Source     string
 	Value      string
 	ObservedAt time.Time
