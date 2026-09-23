@@ -24,13 +24,16 @@ func DigestEvidence(evidence []EvidenceObservation) string {
 }
 
 func ValidateAuthorization(auth Authorization, attempt ExecutionAttempt) AuthorizationValidation {
-	reasons := make([]ReasonCode, 0, 4)
+	reasons := make([]ReasonCode, 0, 5)
 
 	if !attempt.Now.Before(auth.ValidUntil) {
 		reasons = append(reasons, AuthorizationExpired)
 	}
 	if attempt.ResourceVersion != auth.ResourceVersion {
 		reasons = append(reasons, ResourceVersionChanged)
+	}
+	if auth.PlanDigest != "" && attempt.PlanDigest != auth.PlanDigest {
+		reasons = append(reasons, ExecutionPlanChanged)
 	}
 	if attempt.Action != auth.Action || attempt.ActionID != auth.ActionID {
 		reasons = append(reasons, ActionChanged)
