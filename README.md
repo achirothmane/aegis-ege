@@ -19,6 +19,9 @@ Agent proposes action
 Observe current state
         |
         v
+Drain preflight
+        |
+        v
 Verify evidence + blast radius
         |
         v
@@ -43,51 +46,62 @@ CI runs the same suite on Go 1.25.
 
 ## First live Kubernetes primitive
 
-StateLatch now contains a read-only Kubernetes adapter for **node-drain assessment**.
+StateLatch contains a read-only Kubernetes adapter for **node-drain assessment**.
 
 Using the official Go client, it reads live cluster state and derives:
 
 ```text
 Node metadata.resourceVersion
 Node Ready condition
-Active pods scheduled on the node
+Pods scheduled on the node
+PodDisruptionBudgets
 Observed timestamp
 ```
 
-That state is translated into the decision kernel:
+Before the decision kernel can mint an `ALLOW`, the drain preflight checks for:
 
 ```text
-Kubernetes API
-     |
-     +--> node_health evidence
-     +--> resourceVersion
-     +--> active-pod blast radius
-               |
-               v
-        StateLatch decision
-               |
-      ALLOW / BLOCK / ESCALATE
+DaemonSet-managed pods
+unmanaged pods
+emptyDir data
+mirror/static pods
+PodDisruptionBudget capacity
+stale or unavailable PDB evidence
 ```
 
-The agent does **not** supply the trusted `resourceVersion` or blast-radius count.
+The agent does **not** supply the trusted `resourceVersion`, affected-pod count, or PDB state.
 
 See [`docs/kubernetes-node-drain.md`](docs/kubernetes-node-drain.md).
 
-## Example
+## Preflight semantics
 
-If Kubernetes reports three active pods on `node-7` while policy allows at most two:
+Examples:
 
 ```text
-Action:          drain node-7
-resourceVersion: 928441
-Active pods:     3
-Maximum allowed: 2
+DaemonSet pod + ignore-daemonsets=false
+→ BLOCK / DAEMONSET_POD_REQUIRES_IGNORE
 
-→ BLOCK
-→ BLAST_RADIUS_EXCEEDED
+Unmanaged pod + force=false
+→ BLOCK / UNMANAGED_POD_REQUIRES_FORCE
+
+emptyDir + delete-emptydir-data=false
+→ BLOCK / EMPTYDIR_DATA_REQUIRES_DELETE
+
+matching PDB permits fewer disruptions than targeted pods
+→ BLOCK / PDB_DISRUPTION_BLOCKED
+
+matching PDB status is stale
+→ ESCALATE / PDB_STATUS_STALE
+
+PDB state cannot be read
+→ ESCALATE / PDB_EVIDENCE_UNAVAILABLE
 ```
 
-When all hard gates pass, `ALLOW` carries a short-lived authorization bound to:
+Mirror/static pods are recorded and skipped rather than treated as evictable workload pods.
+
+## State-bound authorization
+
+When preflight and all hard gates pass, `ALLOW` carries a short-lived authorization bound to:
 
 ```text
 action_id
@@ -123,13 +137,15 @@ Implemented:
 - live Kubernetes node read
 - live `resourceVersion` capture
 - Kubernetes-derived active-pod blast radius
+- drain preflight for DaemonSets, unmanaged pods, emptyDir, mirror pods, and PDBs
 - in-cluster and kubeconfig client construction
 
 Not implemented yet:
 
-- actually draining or mutating a Kubernetes node
-- Kubernetes server-side dry-run
-- eviction/PDB/DaemonSet-aware drain simulation
+- actually cordoning or draining a Kubernetes node
+- eviction execution
+- server-side dry-run of mutations
+- exact `kubectl drain` parity
 - Prometheus evidence adapter/cache
 - multi-source live evidence
 - AWS/GCP, SSH, databases, PLC, or financial execution
@@ -137,23 +153,27 @@ Not implemented yet:
 
 ## Current guarantees
 
-The current decision kernel does not autonomously allow an action when:
+The current node-drain assessment path does not mint an autonomous authorization when:
 
 - required evidence is stale;
 - evidence for the same claim contradicts;
 - blast radius exceeds the configured hard limit;
 - required independent sources are missing;
-- state-binding information is incomplete.
+- state-binding information is incomplete;
+- drain preflight finds a configured hard blocker;
+- required PDB evidence is stale or unavailable.
 
 A minted authorization is invalidated if it expires or if its action, target, or resource version changes before execution.
 
-## Important limit
+## Important limits
 
-The first Kubernetes blast-radius metric is intentionally conservative: it counts non-terminal pods scheduled on the target node. It does **not** yet claim to reproduce the exact set of pods that `kubectl drain` would evict.
+The drain preflight is intentionally conservative. Its PDB check compares targeted matching pods against the PDB's current `disruptionsAllowed` and requires `observedGeneration == generation`.
+
+It does **not** yet reproduce every nuance of `kubectl drain` or the Eviction API, including all unhealthy-pod eviction-policy cases, orphaned-controller lookup, or exact eviction ordering.
 
 ## Current status
 
-`v0.1-prealpha` — tested decision kernel + read-only Kubernetes node-drain adapter. Production mutation is not implemented.
+`v0.1-prealpha` — tested decision kernel + read-only Kubernetes node-drain preflight. Production mutation is not implemented.
 
 ## Design principle
 
