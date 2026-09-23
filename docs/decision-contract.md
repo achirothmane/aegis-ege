@@ -1,4 +1,4 @@
-# StateLatch v0.1 decision contract
+# StateLatch v0.2 decision contract
 
 ## Purpose
 
@@ -26,7 +26,9 @@ For v0.1 these include:
 4. required distinct evidence sources present;
 5. action / target / resource-version state binding;
 6. short authorization TTL;
-7. for prepared Kubernetes drains, a bound execution-plan digest.
+7. for prepared Kubernetes drains, a bound execution-plan digest;
+8. for real mutations, exclusive Kubernetes Lease ownership for the target;
+9. during multi-step execution, in-flight revalidation before every subsequent mutation.
 
 For the Kubernetes drain adapter, blast radius is derived from live preflight eviction candidates rather than supplied by the agent.
 
@@ -43,9 +45,16 @@ RESOURCE_VERSION_CHANGED
 EXECUTION_PLAN_CHANGED
 ACTION_CHANGED
 TARGET_CHANGED
+EXECUTION_LOCK_UNAVAILABLE
+EXECUTION_LOCK_HELD
+EXECUTION_LOCK_LOST
+EXECUTION_CHECKPOINT_UNAVAILABLE
+RECOVERY_REAUTHORIZATION_REQUIRED
+RECOVERY_STATE_DIVERGED
+RECOVERY_CHECKPOINT_NOT_FOUND
 ```
 
-Kubernetes-specific preflight and dry-run reason codes are added by the adapter layer.
+Kubernetes-specific preflight, dry-run, execution, recovery, and postflight reason codes are added by the adapter layer.
 
 ## Authorization
 
@@ -107,6 +116,33 @@ State drift such as an expired authorization or changed execution plan returns `
 
 A mismatched action or target is treated as `BLOCK`.
 
+## Mutation-time execution contract
+
+Experimental real mutation requires all of the following:
+
+```text
+valid plan-bound authorization
++ current Kubernetes target Lease ownership
++ current Node identity/health
++ current remaining semantic Pod set
++ current PDB/preflight state
++ server-enforced mutation preconditions
+```
+
+The target Lease is renewed in the background and synchronously verified before each real mutation.
+
+```text
+another StateLatch holder owns Lease
+→ ESCALATE / EXECUTION_LOCK_HELD
+
+Lease ownership cannot be proven during execution
+→ ESCALATE / EXECUTION_LOCK_LOST
+```
+
+For checkpointed partial execution, work that remains requires a newly prepared authorization for the current remaining plan before resume.
+
 ## Remaining boundary
 
-Final revalidation narrows the TOCTOU window but cannot remove it by itself. Future real mutation requests must retain Kubernetes state preconditions so a change after revalidation is rejected by the API server.
+Revalidation plus Kubernetes Lease coordination narrows concurrency and TOCTOU risk but does not create an externally enforced fencing token.
+
+The current Lease coordinates cooperating StateLatch executors. Non-StateLatch writers can still change Kubernetes objects, so real mutations retain Node resourceVersion and Pod UID preconditions, live PDB enforcement, in-flight semantic revalidation, and postflight verification.
