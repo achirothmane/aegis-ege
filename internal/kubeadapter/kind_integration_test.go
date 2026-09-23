@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -128,7 +129,7 @@ func TestKindPDBBlocksRealServerDryRunEvictionAndStateLatchPreparation(t *testin
 	}
 }
 
-func TestKindLiveRevalidationDetectsPodResourceVersionDrift(t *testing.T) {
+func TestKindLiveRevalidationDetectsPodSemanticDrift(t *testing.T) {
 	env := newKindIntegrationEnv(t, "drift")
 	ctx := context.Background()
 
@@ -150,7 +151,7 @@ func TestKindLiveRevalidationDetectsPodResourceVersionDrift(t *testing.T) {
 		t.Fatalf("get pod before drift: %v", err)
 	}
 
-	patch := []byte(`{"metadata":{"annotations":{"state-latch.dev/drift":"changed"}}}`)
+	patch := []byte(`{"metadata":{"labels":{"state-latch.dev/drift":"changed"}}}`)
 	after, err := env.client.CoreV1().Pods(env.namespace).Patch(
 		ctx,
 		env.podName,
@@ -214,7 +215,6 @@ func newKindIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
 
 	namespace := "sl-it-" + suffix
 	nodeName := "sl-it-node-" + suffix
-	podName := "workload"
 
 	ctx := context.Background()
 	if _, err := client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
@@ -235,34 +235,39 @@ func newKindIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
 		t.Fatalf("create default service account: %v", err)
 	}
 
-	controller := true
-	if _, err := client.CoreV1().Pods(namespace).Create(ctx, &corev1.Pod{
+	replicas := int32(1)
+	rs, err := client.AppsV1().ReplicaSets(namespace).Create(ctx, &appsv1.ReplicaSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
+			Name:      "workload-owner",
 			Namespace: namespace,
-			Labels:    map[string]string{"app": "state-latch-it"},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: "apps/v1",
-					Kind:       "ReplicaSet",
-					Name:       "synthetic-owner",
-					UID:        types.UID("synthetic-owner-" + suffix),
-					Controller: &controller,
+		},
+		Spec: appsv1.ReplicaSetSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "state-latch-it"},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": "state-latch-it"},
+				},
+				Spec: corev1.PodSpec{
+					NodeName:           nodeName,
+					ServiceAccountName: "default",
+					Containers: []corev1.Container{
+						{
+							Name:  "hold",
+							Image: "registry.k8s.io/pause:3.10",
+						},
+					},
 				},
 			},
 		},
-		Spec: corev1.PodSpec{
-			NodeName: nodeName,
-			Containers: []corev1.Container{
-				{
-					Name:  "hold",
-					Image: "registry.k8s.io/pause:3.10",
-				},
-			},
-		},
-	}, metav1.CreateOptions{}); err != nil {
-		t.Fatalf("create test pod: %v", err)
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create ReplicaSet: %v", err)
 	}
+
+	pod := waitForReplicaSetPod(t, client, namespace, rs.UID)
 
 	t.Cleanup(func() {
 		_ = client.CoreV1().Namespaces().Delete(context.Background(), namespace, metav1.DeleteOptions{})
@@ -274,7 +279,43 @@ func newKindIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
 		adapter:   adapter,
 		namespace: namespace,
 		nodeName:  nodeName,
-		podName:   podName,
+		podName:   pod.Name,
+	}
+}
+
+func waitForReplicaSetPod(
+	t *testing.T,
+	client kubernetes.Interface,
+	namespace string,
+	ownerUID types.UID,
+) corev1.Pod {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		pods, err := client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: "app=state-latch-it",
+		})
+		if err == nil {
+			for _, pod := range pods.Items {
+				for _, owner := range pod.OwnerReferences {
+					if owner.UID == ownerUID && owner.Controller != nil && *owner.Controller {
+						return pod
+					}
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("ReplicaSet did not create test pod: %v", ctx.Err())
+		case <-ticker.C:
+		}
 	}
 }
 
