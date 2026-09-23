@@ -35,7 +35,7 @@ A successful dry-run does not authorize a future mutation indefinitely.
 
 StateLatch embeds the deterministic plan digest in a short-lived authorization.
 
-Before future real execution:
+Before guarded experimental execution:
 
 ```text
 re-read live cluster
@@ -45,7 +45,7 @@ re-read live cluster
 → validate TTL + node resourceVersion + plan digest
 ```
 
-Only a still-valid plan can return `ALLOW`.
+Only a still-valid plan can proceed to the real cordon. The experimental executor then revalidates the remaining Pod/PDB state before every real eviction.
 
 ## What live CI now verifies
 
@@ -70,4 +70,6 @@ Therefore:
 
 StateLatch compensates with aggregate PDB preflight plus final live plan revalidation.
 
-The future real execution path must still use server-enforced preconditions on actual mutations.
+The current experimental execution path uses a Node `resourceVersion` precondition for the real cordon and a Pod UID precondition for each real eviction. It also relies on the Eviction API to re-evaluate live PDB policy at mutation time.
+
+Real mutations remain disabled by default and are enabled only through the explicitly experimental constructor.
