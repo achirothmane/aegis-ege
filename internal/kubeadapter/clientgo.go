@@ -169,6 +169,31 @@ func (r *ClientGoReader) CordonNode(ctx context.Context, nodeName, resourceVersi
 	return nil
 }
 
+func (r *ClientGoReader) UncordonNode(ctx context.Context, nodeName, resourceVersion string) error {
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]string{
+			"resourceVersion": resourceVersion,
+		},
+		"spec": map[string]bool{
+			"unschedulable": false,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("marshal uncordon patch: %w", err)
+	}
+
+	if _, err := r.client.CoreV1().Nodes().Patch(
+		ctx,
+		nodeName,
+		types.MergePatchType,
+		patch,
+		metav1.PatchOptions{},
+	); err != nil {
+		return fmt.Errorf("uncordon node %q: %w", nodeName, err)
+	}
+	return nil
+}
+
 func (r *ClientGoReader) EvictPod(ctx context.Context, pod PodStateRef) error {
 	uid := types.UID(pod.UID)
 
