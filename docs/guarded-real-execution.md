@@ -133,6 +133,14 @@ It verifies:
 4. a semantic Pod-label change injected after the real cordon is detected before the eviction and the Pod remains;
 5. mutation execution is disabled on the default adapter.
 
+## Partial failure recovery
+
+Checkpointed execution is available through `ExecuteAuthorizedNodeDrainWithCheckpointStore(...)`.
+
+If execution pauses after one or more mutations, `InspectDrainRecovery(...)` reconciles the stored checkpoint with live Kubernetes state. Work that remains requires a fresh plan-bound authorization before `ResumeAuthorizedNodeDrain(...)` can continue.
+
+Recovery never blindly replays previously authorized steps. See [Partial failure and recovery](partial-failure-recovery.md).
+
 ## Current limitations
 
 This is not yet a production drain implementation.
@@ -140,8 +148,10 @@ This is not yet a production drain implementation.
 Missing areas include:
 
 - mature termination and retry handling;
-- rollback/recovery after partial execution;
+- production-grade rollback/compensation after partial execution;
 - exact `kubectl drain` behavior across all workload edge cases;
+- distributed execution locking and HA checkpoint storage;
+- tamper-evident append-only execution journaling;
 - production observability and audit persistence;
 - explicit production enablement and operational controls;
 - stronger server-side enforcement for semantic conditions that cannot be represented as Kubernetes preconditions.
