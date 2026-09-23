@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/achirothmane/state-latch/internal/decision"
 	"github.com/achirothmane/state-latch/internal/outcome"
 )
@@ -14,8 +16,9 @@ func (a *Adapter) ObserveDrainOutcome(
 	plan DrainExecutionPlan,
 	contributors []outcome.Contributor,
 ) (outcome.Record, error) {
-	expected := make(map[string]string, len(plan.Steps)+1)
+	expected := make(map[string]string, len(plan.Steps)+2)
 	expected["node_unschedulable"] = "true"
+	expected["unexpected_workload_pods"] = "0"
 
 	evictedUIDs := make(map[string]struct{})
 	for _, step := range plan.Steps {
@@ -68,6 +71,9 @@ func (a *Adapter) ObserveDrainOutcome(
 
 	observed := make(map[string]string, len(expected))
 	observed["node_unschedulable"] = strconv.FormatBool(node.Spec.Unschedulable)
+	observed["unexpected_workload_pods"] = strconv.Itoa(
+		countUnexpectedDrainWorkloads(pods, evictedUIDs),
+	)
 	for uid := range evictedUIDs {
 		_, exists := present[uid]
 		observed["pod_uid/"+uid+"_absent"] = strconv.FormatBool(!exists)
@@ -82,4 +88,22 @@ func (a *Adapter) ObserveDrainOutcome(
 		contributors,
 		observedAt,
 	), nil
+}
+
+
+func countUnexpectedDrainWorkloads(
+	pods []corev1.Pod,
+	authorizedEvictionUIDs map[string]struct{},
+) int {
+	count := 0
+	for _, pod := range pods {
+		if isTerminalPod(pod) || isMirrorPod(pod) || isDaemonSetPod(pod) {
+			continue
+		}
+		if _, authorized := authorizedEvictionUIDs[string(pod.UID)]; authorized {
+			continue
+		}
+		count++
+	}
+	return count
 }
