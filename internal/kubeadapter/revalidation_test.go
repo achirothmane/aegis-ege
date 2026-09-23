@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/achirothmane/state-latch/internal/decision"
@@ -246,4 +245,3 @@ func TestRevalidateNodeDrainAuthorizationEscalatesWhenAuthorizationExpires(t *te
 	}
 }
 
-var _ = policyv1.Eviction{}
