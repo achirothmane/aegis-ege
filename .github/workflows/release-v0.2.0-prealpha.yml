@@ -1,0 +1,36 @@
+name: Release v0.2.0-prealpha
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-v0.2.0-prealpha.yml"
+      - ".release/v0.2.0-prealpha.md"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build source release asset
+        run: |
+          git archive             --format=tar.gz             --prefix=state-latch-v0.2.0-prealpha/             --output=state-latch-v0.2.0-prealpha-source.tar.gz             "$GITHUB_SHA"
+          sha256sum state-latch-v0.2.0-prealpha-source.tar.gz             > state-latch-v0.2.0-prealpha-source.tar.gz.sha256
+
+      - name: Create GitHub release once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.2.0-prealpha >/dev/null 2>&1; then
+            echo "v0.2.0-prealpha already exists"
+            exit 0
+          fi
+
+          gh release create v0.2.0-prealpha             state-latch-v0.2.0-prealpha-source.tar.gz             state-latch-v0.2.0-prealpha-source.tar.gz.sha256             --target "$GITHUB_SHA"             --title "StateLatch v0.2.0-prealpha"             --notes-file .release/v0.2.0-prealpha.md             --prerelease
