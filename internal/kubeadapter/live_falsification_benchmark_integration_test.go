@@ -43,15 +43,13 @@ func TestKindMoatFalsificationBenchmarkV2(t *testing.T) {
 		policy := integrationPolicy()
 
 		baseline := liveBaselineRequestTimeDecision(ctx, env, policy)
-		preparation, err := env.adapter.PrepareNodeDrainExecution(
-			ctx,
+		preparation := prepareKindDrainWithFreshAuthorization(
+			t,
+			env.adapter,
 			"v2-safe",
 			env.nodeName,
 			policy,
 		)
-		if err != nil {
-			t.Fatalf("PrepareNodeDrainExecution: %v", err)
-		}
 		if baseline != decision.Allow || preparation.Decision != decision.Allow {
 			t.Fatalf(
 				"safe control must ALLOW in both systems: baseline=%s StateLatch=%s reasons=%v",
@@ -332,15 +330,13 @@ func TestKindMoatFalsificationBenchmarkV2(t *testing.T) {
 			t.Fatalf("request-time baseline must initially ALLOW, got %s", baseline)
 		}
 
-		preparation, err := env.adapter.PrepareNodeDrainExecution(
-			ctx,
+		preparation := prepareKindDrainWithFreshAuthorization(
+			t,
+			env.adapter,
 			"v2-pod-drift",
 			env.nodeName,
 			policy,
 		)
-		if err != nil {
-			t.Fatalf("PrepareNodeDrainExecution: %v", err)
-		}
 		if preparation.Decision != decision.Allow || preparation.Authorization == nil {
 			t.Fatalf(
 				"expected StateLatch initial ALLOW, got %s reasons=%v",
