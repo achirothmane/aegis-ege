@@ -20,7 +20,7 @@ type canonicalDrainStep struct {
 	PodNamespace       string                 `json:"pod_namespace,omitempty"`
 	PodName            string                 `json:"pod_name,omitempty"`
 	PodUID             string                 `json:"pod_uid,omitempty"`
-	PodResourceVersion string                 `json:"pod_resource_version,omitempty"`
+	PodStateDigest     string                 `json:"pod_state_digest,omitempty"`
 }
 
 func DigestDrainExecutionPlan(plan DrainExecutionPlan) string {
@@ -41,7 +41,7 @@ func DigestDrainExecutionPlan(plan DrainExecutionPlan) string {
 			item.PodNamespace = step.Pod.Namespace
 			item.PodName = step.Pod.Name
 			item.PodUID = step.Pod.UID
-			item.PodResourceVersion = step.Pod.ResourceVersion
+			item.PodStateDigest = step.Pod.StateDigest
 		}
 		canonical.Steps = append(canonical.Steps, item)
 	}
