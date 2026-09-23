@@ -30,12 +30,13 @@ type DrainExecutionStep struct {
 }
 
 type DrainExecutionPlan struct {
-	ActionID            string
-	NodeName            string
-	NodeUID             string
-	NodeHealth          string
-	NodeResourceVersion string
-	Steps               []DrainExecutionStep
+	ActionID                   string
+	NodeName                   string
+	NodeUID                    string
+	NodeHealth                 string
+	NodeResourceVersion        string
+	NodeInitiallyUnschedulable bool
+	Steps                      []DrainExecutionStep
 }
 
 type DrainDryRunStepResult struct {
@@ -82,12 +83,13 @@ func BuildDrainExecutionPlan(
 	}
 
 	return DrainExecutionPlan{
-		ActionID:            actionID,
-		NodeName:            snapshot.NodeName,
-		NodeUID:             snapshot.NodeUID,
-		NodeHealth:          snapshot.NodeHealth,
-		NodeResourceVersion: snapshot.ResourceVersion,
-		Steps:               steps,
+		ActionID:                   actionID,
+		NodeName:                   snapshot.NodeName,
+		NodeUID:                    snapshot.NodeUID,
+		NodeHealth:                 snapshot.NodeHealth,
+		NodeResourceVersion:        snapshot.ResourceVersion,
+		NodeInitiallyUnschedulable: snapshot.Unschedulable,
+		Steps:                      steps,
 	}
 }
 
