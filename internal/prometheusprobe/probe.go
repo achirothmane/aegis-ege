@@ -45,14 +45,17 @@ func (p *BinaryNodeHealthProbe) SafetyClass() decision.ProbeSafetyClass {
 }
 
 func (p *BinaryNodeHealthProbe) Supports(req decision.Request, result decision.Result) bool {
-	if p == nil || p.BaseURL == "" || p.Client == nil || result.Decision != decision.Escalate {
+	if p == nil || p.BaseURL == "" || p.Client == nil {
 		return false
 	}
 	if !strings.HasPrefix(req.Target, "node/") {
 		return false
 	}
 	for _, reason := range result.ReasonCodes {
-		if reason == decision.InsufficientEvidence {
+		if result.Decision == decision.Escalate && reason == decision.InsufficientEvidence {
+			return true
+		}
+		if result.Decision == decision.Block && reason == decision.EvidenceContradicted {
 			return true
 		}
 	}
