@@ -25,6 +25,14 @@ type stubDryRunExecutor struct {
 	evictApply            func(pod PodStateRef) error
 	realCordons           int
 	realEvictedPods       []PodStateRef
+	lockAcquireErr        error
+	lockRenewErr          error
+	lockReleaseErr        error
+	lockHeld              bool
+	lockHolder            string
+	lockAcquireCount      int
+	lockRenewCount        int
+	lockReleaseCount      int
 }
 
 func (s *stubDryRunExecutor) DryRunCordonNode(_ context.Context, nodeName, resourceVersion string) error {
@@ -54,6 +62,61 @@ func (s *stubDryRunExecutor) EvictPod(_ context.Context, pod PodStateRef) error 
 	if s.evictApply != nil {
 		return s.evictApply(pod)
 	}
+	return nil
+}
+
+func (s *stubDryRunExecutor) AcquireExecutionLock(
+	_ context.Context,
+	namespace string,
+	target string,
+	holder string,
+	_ time.Duration,
+) (ExecutionLease, error) {
+	s.lockAcquireCount++
+	if s.lockAcquireErr != nil {
+		return ExecutionLease{}, s.lockAcquireErr
+	}
+	if s.lockHeld && s.lockHolder != holder {
+		return ExecutionLease{}, ErrExecutionLockHeld
+	}
+	s.lockHeld = true
+	s.lockHolder = holder
+	return ExecutionLease{
+		Namespace: namespace,
+		Name:      "stub-lock",
+		Target:    target,
+		Holder:    holder,
+	}, nil
+}
+
+func (s *stubDryRunExecutor) RenewExecutionLock(
+	_ context.Context,
+	lease ExecutionLease,
+	_ time.Duration,
+) error {
+	s.lockRenewCount++
+	if s.lockRenewErr != nil {
+		return s.lockRenewErr
+	}
+	if !s.lockHeld || s.lockHolder != lease.Holder {
+		return ErrExecutionLockLost
+	}
+	return nil
+}
+
+func (s *stubDryRunExecutor) ReleaseExecutionLock(
+	_ context.Context,
+	lease ExecutionLease,
+) error {
+	s.lockReleaseCount++
+	if s.lockReleaseErr != nil {
+		return s.lockReleaseErr
+	}
+	if !s.lockHeld || s.lockHolder != lease.Holder {
+		return ErrExecutionLockLost
+	}
+	s.lockHeld = false
+	s.lockHolder = ""
 	return nil
 }
 
@@ -253,6 +316,85 @@ func TestExecuteAuthorizedNodeDrainIsDisabledByDefault(t *testing.T) {
 	}
 	if executor.realCordons != 0 || len(executor.realEvictedPods) != 0 {
 		t.Fatal("default adapter must not perform real mutations")
+	}
+}
+
+func TestExecuteAuthorizedNodeDrainEscalatesWhenExecutionLockIsHeld(t *testing.T) {
+	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{
+		lockAcquireErr: ErrExecutionLockHeld,
+	}
+	adapter := NewWithClockAndExperimentalMutations(&reader, executor, func() time.Time { return now })
+
+	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-lock-held", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("prepare returned error: %v", err)
+	}
+	if preparation.Authorization == nil {
+		t.Fatalf("expected authorization, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		context.Background(),
+		*preparation.Authorization,
+		"node-7",
+		defaultExecutionPolicy(),
+	)
+	if err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if report.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if !hasReason(report.ReasonCodes, ReasonExecutionLockHeld) {
+		t.Fatalf("expected %s, got %v", ReasonExecutionLockHeld, report.ReasonCodes)
+	}
+	if executor.realCordons != 0 || len(executor.realEvictedPods) != 0 {
+		t.Fatal("lock contention must prevent all real mutations")
+	}
+}
+
+func TestExecuteAuthorizedNodeDrainStopsWhenExecutionLockIsLost(t *testing.T) {
+	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{}
+	executor.cordonApply = func(_ string, _ string) error {
+		reader.node.Spec.Unschedulable = true
+		reader.node.ResourceVersion = "928442"
+		executor.lockRenewErr = ErrExecutionLockLost
+		return nil
+	}
+	adapter := NewWithClockAndExperimentalMutations(&reader, executor, func() time.Time { return now })
+
+	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-lock-lost", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("prepare returned error: %v", err)
+	}
+	if preparation.Authorization == nil {
+		t.Fatalf("expected authorization, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		context.Background(),
+		*preparation.Authorization,
+		"node-7",
+		defaultExecutionPolicy(),
+	)
+	if err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if report.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE after lock loss, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if !hasReason(report.ReasonCodes, ReasonExecutionLockLost) {
+		t.Fatalf("expected %s, got %v", ReasonExecutionLockLost, report.ReasonCodes)
+	}
+	if executor.realCordons != 1 {
+		t.Fatalf("expected cordon before injected lock loss, got %d", executor.realCordons)
+	}
+	if len(executor.realEvictedPods) != 0 {
+		t.Fatalf("lock loss must stop before eviction, got %d evictions", len(executor.realEvictedPods))
 	}
 }
 
