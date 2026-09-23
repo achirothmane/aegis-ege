@@ -4,7 +4,6 @@ package kubeadapter
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -143,7 +142,7 @@ func TestKindLiveRevalidationDetectsPodResourceVersionDrift(t *testing.T) {
 		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
 	}
 	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
-		t.Fatalf("expected initial ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+		t.Fatalf("expected initial ALLOW, got %s reasons=%v dryRun=%+v", preparation.Decision, preparation.ReasonCodes, preparation.DryRun)
 	}
 
 	before, err := env.client.CoreV1().Pods(env.namespace).Get(ctx, env.podName, metav1.GetOptions{})
@@ -228,6 +227,12 @@ func newKindIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
 		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 	}, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("create synthetic node: %v", err)
+	}
+
+	if _, err := client.CoreV1().ServiceAccounts(namespace).Create(ctx, &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: namespace},
+	}, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatalf("create default service account: %v", err)
 	}
 
 	controller := true
@@ -324,4 +329,3 @@ func waitForPDBStatus(
 	}
 }
 
-var _ = fmt.Sprintf
