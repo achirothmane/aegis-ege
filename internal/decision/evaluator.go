@@ -5,7 +5,8 @@ package decision
 // v0.1 currently enforces:
 //  1. required evidence must still be fresh;
 //  2. fresh observations of the same claim must not contradict;
-//  3. the configured number of distinct evidence sources must be present.
+//  3. action blast radius must stay within the configured hard limit;
+//  4. the configured number of distinct evidence sources must be present.
 func Evaluate(req Request) Result {
 	for _, observation := range req.Evidence {
 		age := req.RequestedAt.Sub(observation.ObservedAt)
@@ -29,6 +30,13 @@ func Evaluate(req Request) Result {
 				Decision:    Block,
 				ReasonCodes: []ReasonCode{EvidenceContradicted},
 			}
+		}
+	}
+
+	if req.MaxBlastRadius > 0 && req.BlastRadius > req.MaxBlastRadius {
+		return Result{
+			Decision:    Block,
+			ReasonCodes: []ReasonCode{BlastRadiusExceeded},
 		}
 	}
 
