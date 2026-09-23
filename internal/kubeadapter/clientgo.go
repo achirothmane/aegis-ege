@@ -110,7 +110,6 @@ func (r *ClientGoReader) DryRunCordonNode(ctx context.Context, nodeName, resourc
 
 func (r *ClientGoReader) DryRunEvictPod(ctx context.Context, pod PodStateRef) error {
 	uid := types.UID(pod.UID)
-	resourceVersion := pod.ResourceVersion
 
 	eviction := &policyv1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
@@ -120,8 +119,7 @@ func (r *ClientGoReader) DryRunEvictPod(ctx context.Context, pod PodStateRef) er
 		DeleteOptions: &metav1.DeleteOptions{
 			DryRun: []string{metav1.DryRunAll},
 			Preconditions: &metav1.Preconditions{
-				UID:             &uid,
-				ResourceVersion: &resourceVersion,
+				UID: &uid,
 			},
 		},
 	}
