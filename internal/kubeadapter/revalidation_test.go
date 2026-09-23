@@ -187,7 +187,7 @@ func TestRevalidateNodeDrainAuthorizationEscalatesWhenPodStateChanges(t *testing
 		t.Fatalf("expected authorization, got decision=%s reasons=%v", preparation.Decision, preparation.ReasonCodes)
 	}
 
-	reader.pods[0].ResourceVersion = "rv-api-b-new"
+	reader.pods[0].Labels = map[string]string{"state-latch.dev/drift": "changed"}
 
 	got, err := adapter.RevalidateNodeDrainAuthorization(
 		context.Background(),
