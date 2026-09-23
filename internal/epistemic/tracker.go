@@ -168,14 +168,30 @@ func (t *Tracker) Handle(event ResourceEvent) []Result {
 				continue
 			}
 
+			rootInvalidation := t.assumptions[upstream].Invalidation
+			oldResourceVersion := ""
+			newResourceVersion := ""
+			rootDependencyKey := rootKey
+			eventType := event.Type
+			if rootInvalidation != nil {
+				oldResourceVersion = rootInvalidation.OldResourceVersion
+				newResourceVersion = rootInvalidation.NewResourceVersion
+				if rootInvalidation.RootDependencyKey != "" {
+					rootDependencyKey = rootInvalidation.RootDependencyKey
+				}
+				if rootInvalidation.EventType != "" {
+					eventType = rootInvalidation.EventType
+				}
+			}
+
 			a = invalidateAssumption(a, event.At, Invalidation{
 				Cause:                CauseUpstreamAssumptionInvalidated,
 				DependencyKey:        "assumption/" + upstream,
-				RootDependencyKey:    rootKey,
+				RootDependencyKey:    rootDependencyKey,
 				UpstreamAssumptionID: upstream,
-				OldResourceVersion:   event.Resource.ResourceVersion,
-				NewResourceVersion:   event.Resource.ResourceVersion,
-				EventType:            event.Type,
+				OldResourceVersion:   oldResourceVersion,
+				NewResourceVersion:   newResourceVersion,
+				EventType:            eventType,
 			})
 			t.assumptions[id] = a
 			results = append(results, Result{Assumption: a, Changed: true})
