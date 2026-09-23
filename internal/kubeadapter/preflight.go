@@ -3,6 +3,7 @@ package kubeadapter
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,21 +17,21 @@ const mirrorPodAnnotationKey = "kubernetes.io/config.mirror"
 type DrainFindingCode string
 
 const (
-	FindingDaemonSetRequiresIgnore DrainFindingCode = "DAEMONSET_POD_REQUIRES_IGNORE"
+	FindingDaemonSetRequiresIgnore  DrainFindingCode = "DAEMONSET_POD_REQUIRES_IGNORE"
 	FindingUnmanagedPodRequiresForce DrainFindingCode = "UNMANAGED_POD_REQUIRES_FORCE"
-	FindingEmptyDirRequiresDelete DrainFindingCode = "EMPTYDIR_DATA_REQUIRES_DELETE"
-	FindingMirrorPodSkipped DrainFindingCode = "MIRROR_POD_SKIPPED"
-	FindingPDBDisruptionBlocked DrainFindingCode = "PDB_DISRUPTION_BLOCKED"
-	FindingPDBStatusStale DrainFindingCode = "PDB_STATUS_STALE"
-	FindingPDBEvidenceUnavailable DrainFindingCode = "PDB_EVIDENCE_UNAVAILABLE"
-	FindingPDBSelectorInvalid DrainFindingCode = "PDB_SELECTOR_INVALID"
+	FindingEmptyDirRequiresDelete    DrainFindingCode = "EMPTYDIR_DATA_REQUIRES_DELETE"
+	FindingMirrorPodSkipped          DrainFindingCode = "MIRROR_POD_SKIPPED"
+	FindingPDBDisruptionBlocked      DrainFindingCode = "PDB_DISRUPTION_BLOCKED"
+	FindingPDBStatusStale            DrainFindingCode = "PDB_STATUS_STALE"
+	FindingPDBEvidenceUnavailable    DrainFindingCode = "PDB_EVIDENCE_UNAVAILABLE"
+	FindingPDBSelectorInvalid        DrainFindingCode = "PDB_SELECTOR_INVALID"
 )
 
 type FindingSeverity string
 
 const (
-	FindingInfo FindingSeverity = "INFO"
-	FindingBlock FindingSeverity = "BLOCK"
+	FindingInfo     FindingSeverity = "INFO"
+	FindingBlock    FindingSeverity = "BLOCK"
 	FindingEscalate FindingSeverity = "ESCALATE"
 )
 
@@ -43,9 +44,17 @@ type DrainFinding struct {
 	Detail    string
 }
 
+type PodStateRef struct {
+	Namespace       string
+	Name            string
+	UID             string
+	ResourceVersion string
+}
+
 type DrainPreflightReport struct {
 	Decision             decision.Decision
 	EvictablePods        int
+	EvictionCandidates   []PodStateRef
 	SkippedMirrorPods    int
 	SkippedDaemonSetPods int
 	Findings             []DrainFinding
@@ -135,6 +144,20 @@ func (a *Adapter) preflightNodeDrain(
 	}
 
 	report.EvictablePods = len(evictionCandidates)
+	report.EvictionCandidates = make([]PodStateRef, 0, len(evictionCandidates))
+	for _, pod := range evictionCandidates {
+		report.EvictionCandidates = append(report.EvictionCandidates, PodStateRef{
+			Namespace:       pod.Namespace,
+			Name:            pod.Name,
+			UID:             string(pod.UID),
+			ResourceVersion: pod.ResourceVersion,
+		})
+	}
+	sort.Slice(report.EvictionCandidates, func(i, j int) bool {
+		left := report.EvictionCandidates[i].Namespace + "/" + report.EvictionCandidates[i].Name
+		right := report.EvictionCandidates[j].Namespace + "/" + report.EvictionCandidates[j].Name
+		return left < right
+	})
 
 	pdbs, err := a.reader.ListPodDisruptionBudgets(ctx)
 	if err != nil {
