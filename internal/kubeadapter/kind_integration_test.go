@@ -268,6 +268,7 @@ func newKindIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
 	}
 
 	pod := waitForReplicaSetPod(t, client, namespace, rs.UID)
+	pod = markPodRunningAndReady(t, client, pod)
 
 	t.Cleanup(func() {
 		_ = client.CoreV1().Namespaces().Delete(context.Background(), namespace, metav1.DeleteOptions{})
@@ -317,6 +318,34 @@ func waitForReplicaSetPod(
 		case <-ticker.C:
 		}
 	}
+}
+
+func markPodRunningAndReady(
+	t *testing.T,
+	client kubernetes.Interface,
+	pod corev1.Pod,
+) corev1.Pod {
+	t.Helper()
+
+	now := metav1.Now()
+	pod.Status.Phase = corev1.PodRunning
+	pod.Status.Conditions = []corev1.PodCondition{
+		{
+			Type:               corev1.PodReady,
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: now,
+		},
+	}
+
+	updated, err := client.CoreV1().Pods(pod.Namespace).UpdateStatus(
+		context.Background(),
+		&pod,
+		metav1.UpdateOptions{},
+	)
+	if err != nil {
+		t.Fatalf("mark test pod Running/Ready: %v", err)
+	}
+	return *updated
 }
 
 func integrationPolicy() NodeDrainPolicy {
