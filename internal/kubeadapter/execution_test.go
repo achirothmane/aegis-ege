@@ -19,6 +19,10 @@ type stubDryRunExecutor struct {
 	evictedPods           []PodStateRef
 	cordonErr             error
 	evictionErrByPod      map[string]error
+	cordonApply           func(nodeName, resourceVersion string) error
+	evictApply            func(pod PodStateRef) error
+	realCordons           int
+	realEvictedPods       []PodStateRef
 }
 
 func (s *stubDryRunExecutor) DryRunCordonNode(_ context.Context, nodeName, resourceVersion string) error {
@@ -33,6 +37,22 @@ func (s *stubDryRunExecutor) DryRunEvictPod(_ context.Context, pod PodStateRef) 
 		return nil
 	}
 	return s.evictionErrByPod[pod.Namespace+"/"+pod.Name]
+}
+
+func (s *stubDryRunExecutor) CordonNode(_ context.Context, nodeName, resourceVersion string) error {
+	s.realCordons++
+	if s.cordonApply != nil {
+		return s.cordonApply(nodeName, resourceVersion)
+	}
+	return nil
+}
+
+func (s *stubDryRunExecutor) EvictPod(_ context.Context, pod PodStateRef) error {
+	s.realEvictedPods = append(s.realEvictedPods, pod)
+	if s.evictApply != nil {
+		return s.evictApply(pod)
+	}
+	return nil
 }
 
 func TestBuildDrainExecutionPlanIsDeterministicAndStateBound(t *testing.T) {
@@ -168,6 +188,105 @@ func TestPrepareNodeDrainExecutionBlocksWhenAnyEvictionDryRunIsRejected(t *testi
 	}
 	if got.Authorization != nil {
 		t.Fatal("dry-run rejection must not expose authorization")
+	}
+}
+
+
+func TestExecuteAuthorizedNodeDrainAppliesCordonAndEvictionsAfterRevalidation(t *testing.T) {
+	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{}
+
+	executor.cordonApply = func(_ string, _ string) error {
+		reader.node.Spec.Unschedulable = true
+		reader.node.ResourceVersion = "928442"
+		return nil
+	}
+	executor.evictApply = func(target PodStateRef) error {
+		remaining := make([]corev1.Pod, 0, len(reader.pods))
+		for _, pod := range reader.pods {
+			if string(pod.UID) == target.UID {
+				continue
+			}
+			remaining = append(remaining, pod)
+		}
+		reader.pods = remaining
+		return nil
+	}
+
+	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-real", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("prepare returned error: %v", err)
+	}
+	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
+		t.Fatalf("expected prepared ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		context.Background(),
+		*preparation.Authorization,
+		"node-7",
+		defaultExecutionPolicy(),
+	)
+	if err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if report.Decision != decision.Allow {
+		t.Fatalf("expected execution ALLOW, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if executor.realCordons != 1 {
+		t.Fatalf("expected one real cordon, got %d", executor.realCordons)
+	}
+	if len(executor.realEvictedPods) != 2 {
+		t.Fatalf("expected two real evictions, got %d", len(executor.realEvictedPods))
+	}
+	if len(reader.pods) != 0 {
+		t.Fatalf("expected all authorized pods removed, got %d", len(reader.pods))
+	}
+	if len(report.Steps) != 3 {
+		t.Fatalf("expected 3 applied mutation steps, got %d", len(report.Steps))
+	}
+}
+
+func TestExecuteAuthorizedNodeDrainStopsBeforeEvictionWhenStateDriftsAfterCordon(t *testing.T) {
+	now := time.Date(2026, 9, 23, 16, 0, 0, 0, time.UTC)
+	reader := executionReaderFixture()
+	executor := &stubDryRunExecutor{}
+
+	executor.cordonApply = func(_ string, _ string) error {
+		reader.node.Spec.Unschedulable = true
+		reader.node.ResourceVersion = "928442"
+		reader.pods[0].Labels = map[string]string{"state-latch.dev/drift": "changed"}
+		return nil
+	}
+
+	adapter := NewWithClockAndExecutor(&reader, executor, func() time.Time { return now })
+	preparation, err := adapter.PrepareNodeDrainExecution(context.Background(), "act-drift", "node-7", defaultExecutionPolicy())
+	if err != nil {
+		t.Fatalf("prepare returned error: %v", err)
+	}
+	if preparation.Authorization == nil {
+		t.Fatalf("expected authorization, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
+	}
+
+	report, err := adapter.ExecuteAuthorizedNodeDrain(
+		context.Background(),
+		*preparation.Authorization,
+		"node-7",
+		defaultExecutionPolicy(),
+	)
+	if err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if report.Decision != decision.Escalate {
+		t.Fatalf("expected ESCALATE after in-flight drift, got %s reasons=%v", report.Decision, report.ReasonCodes)
+	}
+	if !hasReason(report.ReasonCodes, decision.ExecutionPlanChanged) {
+		t.Fatalf("expected %s, got %v", decision.ExecutionPlanChanged, report.ReasonCodes)
+	}
+	if len(executor.realEvictedPods) != 0 {
+		t.Fatalf("expected no eviction after drift, got %d", len(executor.realEvictedPods))
 	}
 }
 
