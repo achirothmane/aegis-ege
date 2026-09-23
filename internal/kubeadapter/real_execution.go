@@ -236,8 +236,9 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 				NodeHealth:         plan.NodeHealth,
 				OriginalPlanDigest: initial.CurrentPlanDigest,
 				ActivePlanDigest:   initial.CurrentPlanDigest,
-				AuthorizedPods:     append([]PodStateRef(nil), evictionCandidatesFromPlan(plan)...),
-				Status:             DrainExecutionRunning,
+				AuthorizedPods:          append([]PodStateRef(nil), evictionCandidatesFromPlan(plan)...),
+				OriginallyUnschedulable: plan.NodeInitiallyUnschedulable,
+				Status:                  DrainExecutionRunning,
 				LastDecision:       decision.Allow,
 				UpdatedAt:          a.now().UTC(),
 			}
@@ -282,6 +283,7 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 
 		if checkpoint != nil {
 			checkpoint.Cordoned = true
+			checkpoint.CordonOwned = !checkpoint.OriginallyUnschedulable
 			checkpoint.UpdatedAt = a.now().UTC()
 			if err := saveDrainCheckpoint(ctx, store, checkpoint); err != nil {
 				report.Decision = decision.Escalate
