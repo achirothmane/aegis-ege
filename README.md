@@ -407,8 +407,11 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 - synchronous lock verification before each real mutation;
 - live lock contention protection on KinD;
 - signed hash-chained execution journal with Ed25519 head anchor;
-- read-only-by-default HTTP daemon/API for node-drain preparation;
-- strict server-owned policy boundary and disabled-by-default mutation endpoint;
+- HTTP daemon/API with server-owned node-drain policy;
+- TLS 1.3 mTLS caller identity with separate PREPARE/EXECUTE permissions;
+- durable replay rejection for state-bound authorizations;
+- Kubernetes-backed shared checkpoint state with resourceVersion concurrency;
+- cluster-wide shared replay claims for multi-replica execution safety;
 - live authorization → execution → outcome journal binding in KinD;
 - postflight expected-vs-observed comparison;
 - advisory reliability ledger;
@@ -417,8 +420,6 @@ See [Partial failure and recovery](docs/partial-failure-recovery.md).
 ## What is not implemented
 
 - production mutation enablement;
-- authenticated/authorized production mutation API;
-- HA/shared checkpoint storage;
 - external fencing token enforced by mutation targets;
 - external WORM/KMS/transparency anti-rollback anchor for the journal;
 - production signing-key custody / HSM integration;
@@ -448,6 +449,8 @@ The next BUILD gate requires external usage evidence. See [ADOPTION.md](ADOPTION
 - [Execution locking](docs/execution-locking.md)
 - [Tamper-evident execution journal](docs/tamper-evident-journal.md)
 - [Daemon API](docs/daemon-api.md)
+- [mTLS authentication and authorization](docs/mtls-authz.md)
+- [Shared HA state](docs/shared-ha-state.md)
 - [v1.0 completion roadmap](V1_ROADMAP.md)
 - [Decision contract](docs/decision-contract.md)
 
