@@ -1,192 +1,117 @@
 # Kubernetes node-drain adapter
 
-StateLatch v0.1 includes a read-only assessment path for a proposed Kubernetes node drain.
+StateLatch v0.1 implements a read-only preparation path for a proposed Kubernetes node drain.
 
-## What it reads
+## Inputs taken from Kubernetes
 
-The adapter uses `client-go` to query the Kubernetes API directly.
+The adapter reads:
 
-For a target node it reads:
+- Node object and `metadata.resourceVersion`;
+- Node `Ready` condition;
+- Pods scheduled on the node;
+- Pod UID and `resourceVersion`;
+- PodDisruptionBudgets.
 
-1. the Node object;
-2. `metadata.resourceVersion`;
-3. the Node `Ready` condition;
-4. Pods whose `spec.nodeName` matches the target node;
-5. PodDisruptionBudgets.
+The agent does not provide these trusted values.
 
-The Pod lookup uses a field selector instead of trusting the caller to provide affected resources.
+## Preflight
 
-## Drain preflight
+Before an execution plan is built, StateLatch checks:
 
-Before `EvaluateNodeDrain` reaches the generic decision kernel, StateLatch evaluates drain-specific conditions.
+- DaemonSet-managed Pods;
+- mirror/static Pods;
+- unmanaged Pods;
+- `emptyDir` data;
+- matching PDB disruption capacity;
+- PDB status freshness.
 
-### DaemonSet-managed Pods
+A preflight `BLOCK` or `ESCALATE` prevents plan authorization.
 
-By default:
+## Execution plan
+
+For an allowed candidate, StateLatch builds:
 
 ```text
-DaemonSet pod present
-→ BLOCK
-→ DAEMONSET_POD_REQUIRES_IGNORE
+CORDON_NODE(node, nodeResourceVersion)
+EVICT_POD(namespace/name, podUID, podResourceVersion)
+EVICT_POD(...)
 ```
 
-If `IgnoreDaemonSets=true`, DaemonSet Pods are excluded from the evictable count.
+Eviction candidates are sorted by namespace/name so plan generation is deterministic.
 
-### Mirror / static Pods
+The generic blast-radius gate uses the preflight-derived evictable Pod count.
 
-Pods with the mirror annotation are recorded as:
+## Server-side dry-run
+
+The live client performs:
+
+### Cordon
+
+A merge patch sets:
 
 ```text
-MIRROR_POD_SKIPPED
+spec.unschedulable = true
 ```
 
-They are not counted as evictable Pods.
-
-### Unmanaged Pods
-
-A Pod without one of the currently recognized workload controllers requires explicit force policy:
+with:
 
 ```text
-ForceUnmanagedPods=false
-→ BLOCK
-→ UNMANAGED_POD_REQUIRES_FORCE
+metadata.resourceVersion = observed node version
+dryRun = All
 ```
 
-Current recognized controller kinds are:
+### Eviction
+
+Each Pod uses the `policy/v1` Eviction API with:
 
 ```text
-ReplicationController
-ReplicaSet
-DaemonSet
-StatefulSet
-Job
+DeleteOptions.DryRun = [All]
+Preconditions.UID = observed Pod UID
+Preconditions.ResourceVersion = observed Pod resourceVersion
 ```
 
-### emptyDir
+This makes the dry-run fail if the named Pod has been replaced or its state version no longer matches the plan.
 
-If an evictable Pod uses `emptyDir`:
+## Execution-readiness API
 
-```text
-DeleteEmptyDirData=false
-→ BLOCK
-→ EMPTYDIR_DATA_REQUIRES_DELETE
+Use:
+
+```go
+PrepareNodeDrainExecution(...)
 ```
 
-### PodDisruptionBudgets
+for the strongest current gate.
 
-For every matching PDB, StateLatch first checks whether:
+`EvaluateNodeDrain(...)` remains an assessment method. It should not be treated as equivalent to successful server-side execution preparation.
 
-```text
-status.observedGeneration == metadata.generation
-```
-
-If not:
+## Fail-closed behavior
 
 ```text
+dry-run executor unavailable
 → ESCALATE
-→ PDB_STATUS_STALE
-```
 
-For a current PDB status, StateLatch counts candidate Pods on the node that match the PDB selector.
-
-If:
-
-```text
-matching target pods > status.disruptionsAllowed
-```
-
-then:
-
-```text
+cordon rejected by API/admission/state precondition
 → BLOCK
-→ PDB_DISRUPTION_BLOCKED
-```
 
-If PDB state cannot be read at all:
+any eviction rejected
+→ BLOCK
 
-```text
+authorization expires while preparing
 → ESCALATE
-→ PDB_EVIDENCE_UNAVAILABLE
 ```
 
-This is deliberately fail-closed.
+No failed preparation exposes an execution authorization.
 
-## Derived state
+## Limits
 
-The adapter produces:
+This does not execute a drain.
 
-```text
-NodeName
-ResourceVersion
-NodeHealth
-ActivePods
-ObservedAt
-```
+Server-side dry-run does not persist state. Therefore:
 
-The preflight additionally derives:
+- a dry-run cordon does not actually make the node unschedulable;
+- dry-run evictions do not decrement PDB disruption budget;
+- concurrent cluster changes can invalidate the plan after dry-run;
+- exact `kubectl drain` behavior is not reproduced yet;
+- unhealthy-Pod eviction-policy nuances and orphaned controller resolution are still incomplete.
 
-```text
-EvictablePods
-SkippedMirrorPods
-SkippedDaemonSetPods
-Findings
-```
-
-The generic blast-radius gate uses the preflight's `EvictablePods`, not a value supplied by the agent.
-
-## Decision handoff
-
-Only when preflight returns `ALLOW` does `EvaluateNodeDrain` invoke the generic decision kernel:
-
-```text
-Action          = drain
-Target          = node/<name>
-ResourceVersion = value read from Kubernetes
-BlastRadius     = preflight-derived evictable pods
-Evidence claim  = node_health
-Evidence source = kubernetes-api
-```
-
-A preflight `BLOCK` or `ESCALATE` cannot mint a state-bound authorization.
-
-## Live client construction
-
-The adapter supports:
-
-- `NewInCluster()` for a Pod running inside Kubernetes;
-- `NewFromKubeconfig(path)` for an external process;
-- `NewForConfig(config)` when the caller already owns a `rest.Config`.
-
-The service account or kubeconfig must have permission to read Nodes, Pods, and PDBs.
-
-## Current multi-source behavior
-
-This adapter contributes one independent evidence source: `kubernetes-api`.
-
-If policy sets `RequiredSourceCount > 1`, the current node-drain path returns `ESCALATE / INSUFFICIENT_EVIDENCE` until another live adapter contributes an independent observation.
-
-## Important limits
-
-The preflight intentionally does not claim exact `kubectl drain` parity.
-
-Current limitations include:
-
-- PDB evaluation is conservative and does not yet model every `unhealthyPodEvictionPolicy` nuance;
-- missing/orphaned controller objects are not independently resolved yet;
-- eviction ordering is not simulated;
-- admission webhooks and server-side eviction responses are not probed;
-- no node cordon or Pod eviction is executed.
-
-These are candidates for the next execution-safety layer, not hidden assumptions.
-
-## What this does not do
-
-This adapter remains read-only. It does not:
-
-- cordon a node;
-- evict Pods;
-- invoke `kubectl drain`;
-- bypass Kubernetes RBAC;
-- claim that a production drain is safe merely because preflight returned `ALLOW`.
-
-`ALLOW` currently means that the implemented evidence, preflight, risk, and state-binding gates passed.
+These are explicit remaining execution-safety gaps.
