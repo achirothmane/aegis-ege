@@ -37,10 +37,12 @@ Evict one Pod
   ↓
 Observe deletion
   ↓
-Repeat or stop
+Checkpoint observed progress
+  ↓
+Repeat / pause / recover
 ```
 
-Any state drift, PDB denial, expired authorization, identity mismatch, or optimistic-concurrency conflict stops the execution path.
+Any state drift, PDB denial, expired authorization, identity mismatch, optimistic-concurrency conflict, or checkpoint failure stops the execution path.
 
 ## 60-second quickstart
 
@@ -186,6 +188,63 @@ ESCALATE / RESOURCE_VERSION_CHANGED
 
 If the world changes after cordon, the remaining evictions are stopped.
 
+## Partial failure and recovery
+
+For experimental mutation execution, StateLatch can persist a recovery checkpoint through:
+
+```go
+ExecuteAuthorizedNodeDrainWithCheckpointStore(...)
+InspectDrainRecovery(...)
+ResumeAuthorizedNodeDrain(...)
+```
+
+A checkpoint records:
+
+- the original and active plan digests;
+- Node identity and health;
+- the complete originally authorized Pod set;
+- whether cordon was observed as applied;
+- Pod UIDs whose removal was observed;
+- RUNNING / PAUSED / COMPLETED state;
+- the last decision and reason codes.
+
+Two checkpoint stores currently exist:
+
+```go
+NewMemoryDrainCheckpointStore()
+NewFileDrainCheckpointStore(path)
+```
+
+The file store uses a per-action atomic replacement file with restricted permissions.
+
+Recovery is state-derived, not replay-based:
+
+```text
+load checkpoint
+→ re-read Kubernetes
+→ reconcile already-absent authorized UIDs
+→ rerun Pod/PDB preflight
+→ compare remaining semantic Pod set
+→ COMPLETED
+   or REAUTHORIZATION_REQUIRED
+   or BLOCKED
+   or DIVERGED
+```
+
+A stale authorization is never silently reused after partial execution. If work remains, the caller must obtain a **fresh authorization for the current remaining plan** before `ResumeAuthorizedNodeDrain(...)` can mutate again.
+
+This also handles the ambiguous case:
+
+```text
+Kubernetes accepted eviction
+→ process/error occurs before checkpoint update
+→ recovery sees authorized UID is already absent
+→ reconcile as completed
+→ do not replay that eviction
+```
+
+See [Partial failure and recovery](docs/partial-failure-recovery.md).
+
 ## Drain preflight
 
 Implemented checks include:
@@ -245,6 +304,10 @@ These are live integration tests against a real temporary Kubernetes API server,
 - guarded real cordon + eviction loop behind explicit experimental opt-in
 - in-flight revalidation before every eviction
 - bounded observation of accepted Pod evictions
+- persistent atomic file checkpoints
+- partial-execution reconciliation against live Kubernetes state
+- fresh-authorization requirement before resume
+- safe resume of only the remaining authorized Pod set
 - optimistic-concurrency drift classification
 - default mutation lock
 - unit + KinD live integration CI
@@ -254,7 +317,9 @@ These are live integration tests against a real temporary Kubernetes API server,
 - production mutation enablement
 - graceful termination/retry policy comparable to mature drain tooling
 - exact `kubectl drain` parity
-- production-grade recovery/rollback after a partial drain
+- production-grade rollback/compensation after a partial drain
+- distributed/HA checkpoint storage and execution locking
+- tamper-evident append-only execution journal
 - Prometheus evidence adapter/cache
 - multi-source live evidence
 - production daemon / API surface
@@ -275,11 +340,12 @@ Real mutations are disabled by default.
 - [Kubernetes node-drain adapter](docs/kubernetes-node-drain.md)
 - [Server-side dry-run](docs/server-dry-run.md)
 - [Guarded experimental execution](docs/guarded-real-execution.md)
+- [Partial failure and recovery](docs/partial-failure-recovery.md)
 - [Decision contract](docs/decision-contract.md)
 
 ## Current status
 
-`v0.1-prealpha` — tested decision kernel + Kubernetes drain preflight + state-bound authorization + server-side dry-run + final and in-flight live revalidation + guarded real KinD mutation execution. Production mutation mode is intentionally disabled.
+`v0.1-prealpha` — tested decision kernel + Kubernetes drain preflight + state-bound authorization + server-side dry-run + final/in-flight revalidation + guarded real KinD mutations + persistent partial-failure recovery. Production mutation mode is intentionally disabled.
 
 ## Design principle
 
