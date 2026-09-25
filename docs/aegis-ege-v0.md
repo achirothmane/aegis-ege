@@ -1,4 +1,4 @@
-# Aegis-EGE v0 — execution-intent gate
+# Aegis-EGE v0 — evidence-gated execution intent
 
 Aegis-EGE is the product/protocol layer above StateLatch.
 
@@ -9,16 +9,17 @@ agent / automation
 → execution intent
 → evidence + state verification
 → ALLOW / BLOCK / ESCALATE
-→ exact action-bound authorization
+→ evidence manifest
+→ signed, state-bound execution permit
+→ live revalidation
 → execution
-→ revalidation during execution
 → postflight verification
 → audit
 ```
 
 ## Why this slice exists
 
-The first Aegis-EGE slice deliberately does **not** add AWS, GCP, SSH, databases, PLCs, a dashboard, or an LLM to the trusted execution path.
+The first Aegis-EGE slice deliberately does **not** add AWS, GCP, SSH, databases, PLCs, a dashboard, ZK proofs, eBPF enforcement, or an LLM to the trusted execution path.
 
 It proves one thing first:
 
@@ -55,7 +56,12 @@ Example:
 }
 ```
 
-A successful response uses the Aegis envelope while carrying the same StateLatch decision and exact authorization:
+When StateLatch reaches `ALLOW`, Aegis-EGE emits two artifacts in addition to the decision:
+
+1. an **Evidence Manifest** that identifies the evidence/state/plan the decision depended on;
+2. a short-lived **Ed25519-signed execution permit** bound to the exact intent, target, state version, evidence digest, manifest digest, plan digest, and expiry.
+
+Conceptual response:
 
 ```json
 {
@@ -68,25 +74,69 @@ A successful response uses the Aegis envelope while carrying the same StateLatch
   },
   "decision": "ALLOW",
   "plan_digest": "sha256:...",
-  "authorization": {
-    "action_id": "intent-2026-09-25-001",
-    "action": "drain",
-    "target": "node/worker-7",
+  "evidence_manifest": {
+    "api_version": "aegis.ege/evidence/v0alpha1",
+    "intent_id": "intent-2026-09-25-001",
+    "kind": "kubernetes.node_drain",
+    "target": {
+      "type": "kubernetes.node",
+      "name": "worker-7"
+    },
     "resource_version": "...",
     "evidence_digest": "sha256:...",
     "plan_digest": "sha256:...",
-    "valid_until": "..."
+    "observed_at": "...",
+    "evidence_classes": [
+      "kubernetes.authoritative-state",
+      "kubernetes.pdb-preflight",
+      "kubernetes.server-dry-run"
+    ]
+  },
+  "permit": {
+    "api_version": "aegis.ege/permit/v0alpha1",
+    "key_id": "ed25519:...",
+    "claims": {
+      "intent_id": "intent-2026-09-25-001",
+      "kind": "kubernetes.node_drain",
+      "target": {
+        "type": "kubernetes.node",
+        "name": "worker-7"
+      },
+      "action": "drain",
+      "resource_version": "...",
+      "evidence_digest": "sha256:...",
+      "evidence_manifest_digest": "sha256:...",
+      "plan_digest": "sha256:...",
+      "valid_until": "..."
+    },
+    "signature": "..."
   }
 }
 ```
+
+The permit is domain-separated and signed over its canonical claims. Changing the plan, target, evidence binding, state version, or expiry after issuance invalidates the signature.
 
 ## Execute
 
 `POST /v1/ege/execute`
 
-The caller must return the exact authorization issued by prepare together with the same intent identity, kind, and target.
+The caller returns the signed permit together with the same outer intent identity, kind, and target.
 
-A mismatch fails before the controller is called.
+Aegis-EGE verifies the signature before constructing the internal StateLatch authorization. It then requires the signed claims to match the outer execution intent exactly.
+
+A forged or modified permit returns:
+
+```text
+403 / INVALID_EXECUTION_PERMIT
+```
+
+A valid permit that belongs to a different intent or target returns:
+
+```text
+400 / PERMIT_INTENT_MISMATCH
+```
+
+Only after those checks can the request reach the StateLatch mutation controller.
 
 Real mutations remain disabled by default. Enabling execution retains the existing StateLatch requirements:
 
@@ -96,9 +146,23 @@ Real mutations remain disabled by default. Enabling execution retains the existi
 - checkpoint store;
 - exact action and target binding;
 - fresh authorization;
+- exact resource-version and plan binding;
 - final live revalidation;
 - target execution Lease;
-- revalidation before subsequent mutations.
+- revalidation before subsequent mutations;
+- postflight verification.
+
+This means a valid signature is **necessary but not sufficient**. A permit can be authentic and still become unusable because the world changed after it was issued.
+
+## Permit authority in v0
+
+The server currently creates an ephemeral Ed25519 permit authority when no authority is injected.
+
+That has a useful fail-closed property: a daemon restart invalidates outstanding permits.
+
+It is not yet the production HA/key-custody design. Multi-replica production deployment requires a shared or externally controlled signing/verification authority with rotation and custody semantics.
+
+The `PermitAuthority` interface exists so that the in-process signer can later be replaced without changing the protocol contract.
 
 ## Unsupported intent kinds
 
@@ -114,29 +178,51 @@ That is intentional. Aegis-EGE v0 is an execution gate, not an arbitrary proxy.
 
 ## Compatibility
 
-The existing endpoints remain available:
+The existing StateLatch endpoints remain available during the transition:
 
 ```text
 POST /v1/node-drains/prepare
 POST /v1/node-drains/execute
 ```
 
-The Aegis endpoints are an additional protocol surface over the same engine.
+The Aegis endpoints are the product-level protocol surface over the same assurance engine.
+
+## Current proof
+
+The KinD integration test exercises the public Aegis-EGE path end-to-end:
+
+```text
+mTLS caller
+→ /v1/ege/prepare
+→ real Kubernetes evidence/preflight/dry-run
+→ Evidence Manifest
+→ signed execution permit
+→ /v1/ege/execute
+→ permit verification
+→ StateLatch live revalidation
+→ guarded real node drain
+→ verify resulting node state
+→ replay same permit
+→ HTTP 409
+```
+
+Unit tests also require permit tampering to fail cryptographic verification.
 
 ## Next proof gate
 
-Do not add a second infrastructure adapter until this contract is exercised end-to-end and the adapter boundary is proven by tests.
+Do not add a second infrastructure adapter yet.
 
-The next architectural step after that is an explicit adapter registry where each adapter must implement:
+The next architectural step after this contract is stable is an explicit adapter registry where each adapter must implement:
 
 ```text
 normalize intent
 → observe authoritative state
 → collect/verify evidence
 → deterministic prepare
+→ evidence manifest
 → exact permit binding
 → execute with revalidation
 → verify outcome
 ```
 
-The execution path remains deterministic. LLMs may assist outside the trusted computing base, but they do not decide ALLOW.
+The execution path remains deterministic. LLMs may assist outside the trusted computing base, but they do not decide `ALLOW`.
