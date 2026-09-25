@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
 const (
@@ -27,23 +28,24 @@ type egePrepareRequest struct {
 }
 
 type egePrepareResponse struct {
-	APIVersion    string                `json:"api_version"`
-	IntentID      string                `json:"intent_id"`
-	Kind          string                `json:"kind"`
-	Target        egeTargetDTO          `json:"target"`
-	Decision      decision.Decision     `json:"decision"`
-	ReasonCodes   []decision.ReasonCode `json:"reason_codes,omitempty"`
-	PlanDigest    string                `json:"plan_digest,omitempty"`
-	Authorization *authorizationDTO     `json:"authorization,omitempty"`
-	Snapshot      *snapshotDTO          `json:"snapshot,omitempty"`
-	Plan          *planDTO              `json:"plan,omitempty"`
+	APIVersion       string                     `json:"api_version"`
+	IntentID         string                     `json:"intent_id"`
+	Kind             string                     `json:"kind"`
+	Target           egeTargetDTO               `json:"target"`
+	Decision         decision.Decision          `json:"decision"`
+	ReasonCodes      []decision.ReasonCode      `json:"reason_codes,omitempty"`
+	PlanDigest       string                     `json:"plan_digest,omitempty"`
+	EvidenceManifest *egeproto.EvidenceManifest `json:"evidence_manifest,omitempty"`
+	Permit           *egeproto.Permit           `json:"permit,omitempty"`
+	Snapshot         *snapshotDTO               `json:"snapshot,omitempty"`
+	Plan             *planDTO                   `json:"plan,omitempty"`
 }
 
 type egeExecuteRequest struct {
-	IntentID      string           `json:"intent_id"`
-	Kind          string           `json:"kind"`
-	Target        egeTargetDTO     `json:"target"`
-	Authorization authorizationDTO `json:"authorization"`
+	IntentID string          `json:"intent_id"`
+	Kind     string          `json:"kind"`
+	Target   egeTargetDTO    `json:"target"`
+	Permit   egeproto.Permit `json:"permit"`
 }
 
 type egeExecuteResponse struct {
@@ -104,30 +106,66 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := egePrepareResponse{
-		APIVersion: egeAPIVersion,
-		IntentID: intentID,
-		Kind: kind,
-		Target: target,
-		Decision: preparation.Decision,
+		APIVersion:  egeAPIVersion,
+		IntentID:    intentID,
+		Kind:        kind,
+		Target:      target,
+		Decision:    preparation.Decision,
 		ReasonCodes: append([]decision.ReasonCode(nil), preparation.ReasonCodes...),
-		PlanDigest: preparation.PlanDigest,
-	}
-	if preparation.Authorization != nil {
-		dto := authorizationToDTO(*preparation.Authorization)
-		response.Authorization = &dto
+		PlanDigest:  preparation.PlanDigest,
 	}
 	if preparation.Snapshot.NodeName != "" {
 		response.Snapshot = &snapshotDTO{
-			NodeUID: preparation.Snapshot.NodeUID,
+			NodeUID:         preparation.Snapshot.NodeUID,
 			ResourceVersion: preparation.Snapshot.ResourceVersion,
-			NodeHealth: preparation.Snapshot.NodeHealth,
-			Unschedulable: preparation.Snapshot.Unschedulable,
-			ActivePods: preparation.Snapshot.ActivePods,
-			ObservedAt: preparation.Snapshot.ObservedAt,
+			NodeHealth:      preparation.Snapshot.NodeHealth,
+			Unschedulable:   preparation.Snapshot.Unschedulable,
+			ActivePods:      preparation.Snapshot.ActivePods,
+			ObservedAt:      preparation.Snapshot.ObservedAt,
 		}
 	}
 	if preparation.Plan != nil {
 		response.Plan = planToDTO(*preparation.Plan)
+	}
+	if preparation.Authorization != nil {
+		auth := *preparation.Authorization
+		manifest := egeproto.EvidenceManifest{
+			APIVersion:      egeproto.EvidenceManifestVersion,
+			IntentID:        intentID,
+			Kind:            kind,
+			Target:          egeproto.Target{Type: target.Type, Name: target.Name},
+			ResourceVersion: auth.ResourceVersion,
+			EvidenceDigest:  auth.EvidenceDigest,
+			PlanDigest:      auth.PlanDigest,
+			ObservedAt:      preparation.Snapshot.ObservedAt,
+			EvidenceClasses: []string{
+				"kubernetes.authoritative-state",
+				"kubernetes.pdb-preflight",
+				"kubernetes.server-dry-run",
+			},
+		}
+		manifestDigest, err := egeproto.DigestEvidenceManifest(manifest)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "EVIDENCE_MANIFEST_FAILED", err)
+			return
+		}
+		permit, err := egeproto.SignPermit(ctx, s.permitAuthority, egeproto.PermitClaims{
+			IntentID:               intentID,
+			Kind:                   kind,
+			Target:                 egeproto.Target{Type: target.Type, Name: target.Name},
+			Action:                 auth.Action,
+			ResourceVersion:        auth.ResourceVersion,
+			EvidenceDigest:         auth.EvidenceDigest,
+			EvidenceManifestDigest: manifestDigest,
+			PlanDigest:             auth.PlanDigest,
+			ValidUntil:             auth.ValidUntil,
+		})
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "PERMIT_SIGNING_FAILED", err)
+			return
+		}
+		response.EvidenceManifest = &manifest
+		response.Permit = &permit
 	}
 
 	s.auditDecision(r, PermissionPrepare, string(preparation.Decision), intentID, target.Name, preparation.ReasonCodes)
@@ -158,14 +196,37 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auth := authorizationFromDTO(req.Authorization)
-	if auth.ActionID != intentID || auth.Action != "drain" || auth.Target != "node/"+target.Name {
-		writeError(w, http.StatusBadRequest, "AUTHORIZATION_MISMATCH", errors.New("authorization does not match execution intent"))
+	ctx, cancel := context.WithTimeout(r.Context(), s.config.RequestTimeout)
+	defer cancel()
+
+	if err := egeproto.VerifyPermit(ctx, s.permitAuthority, req.Permit); err != nil {
+		writeError(w, http.StatusForbidden, "INVALID_EXECUTION_PERMIT", err)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), s.config.RequestTimeout)
-	defer cancel()
+	claims := req.Permit.Claims
+	if claims.IntentID != intentID ||
+		claims.Kind != kind ||
+		claims.Target.Type != target.Type ||
+		claims.Target.Name != target.Name ||
+		claims.Action != "drain" ||
+		claims.ResourceVersion == "" ||
+		claims.EvidenceDigest == "" ||
+		claims.EvidenceManifestDigest == "" ||
+		claims.PlanDigest == "" {
+		writeError(w, http.StatusBadRequest, "PERMIT_INTENT_MISMATCH", errors.New("signed permit does not match execution intent or is missing required state bindings"))
+		return
+	}
+
+	auth := decision.Authorization{
+		ActionID:        claims.IntentID,
+		Action:          claims.Action,
+		Target:          "node/" + claims.Target.Name,
+		ResourceVersion: claims.ResourceVersion,
+		EvidenceDigest:  claims.EvidenceDigest,
+		PlanDigest:      claims.PlanDigest,
+		ValidUntil:      claims.ValidUntil,
+	}
 
 	if err := s.config.ReplayGuard.Claim(ctx, auth); err != nil {
 		if errors.Is(err, ErrExecutionReplay) {
@@ -190,20 +251,20 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := egeExecuteResponse{
-		APIVersion: egeAPIVersion,
-		IntentID: intentID,
-		Kind: kind,
-		Target: target,
-		Decision: report.Decision,
+		APIVersion:  egeAPIVersion,
+		IntentID:    intentID,
+		Kind:        kind,
+		Target:      target,
+		Decision:    report.Decision,
 		ReasonCodes: append([]decision.ReasonCode(nil), report.ReasonCodes...),
-		PlanDigest: report.PlanDigest,
-		Steps: make([]mutationStepDTO, 0, len(report.Steps)),
+		PlanDigest:  report.PlanDigest,
+		Steps:       make([]mutationStepDTO, 0, len(report.Steps)),
 	}
 	for _, step := range report.Steps {
 		response.Steps = append(response.Steps, mutationStepDTO{
-			Kind: step.Step.Kind,
+			Kind:    step.Step.Kind,
 			Applied: step.Applied,
-			Error: step.Error,
+			Error:   step.Error,
 		})
 	}
 
