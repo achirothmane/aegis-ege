@@ -81,6 +81,15 @@ func (s *Server) routes() {
 	}
 	s.mux.Handle("POST /v1/node-drains/prepare", prepare)
 	s.mux.Handle("POST /v1/node-drains/execute", execute)
+
+	egePrepare := http.Handler(http.HandlerFunc(s.handleEGEPrepare))
+	egeExecute := http.Handler(http.HandlerFunc(s.handleEGEExecute))
+	if s.config.RequireAuthentication {
+		egePrepare = s.authenticated(PermissionPrepare, egePrepare)
+		egeExecute = s.authenticated(PermissionExecute, egeExecute)
+	}
+	s.mux.Handle("POST /v1/ege/prepare", egePrepare)
+	s.mux.Handle("POST /v1/ege/execute", egeExecute)
 }
 
 type prepareRequest struct {
