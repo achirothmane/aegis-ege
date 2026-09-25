@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/kubeadapter"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
 
 type allowAuthorizer struct{}

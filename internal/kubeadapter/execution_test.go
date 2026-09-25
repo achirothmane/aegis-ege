@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 type stubDryRunExecutor struct {

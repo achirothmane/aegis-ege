@@ -11,8 +11,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/outcome"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/outcome"
 )
 
 // Replay source: kubernetes/kubernetes#117843

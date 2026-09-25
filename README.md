@@ -58,7 +58,7 @@ contradiction → BLOCK
 Requires Go 1.25+.
 
 ```bash
-git clone https://github.com/achirothmane/state-latch
+git clone https://github.com/achirothmane/aegis-ege
 cd state-latch
 
 go test ./...

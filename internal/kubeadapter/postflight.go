@@ -6,8 +6,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/outcome"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/outcome"
 )
 
 func (a *Adapter) ObserveDrainOutcome(

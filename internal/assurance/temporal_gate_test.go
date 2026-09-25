@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
 )
 
 func TestTemporalGateBlocksCriticalActionBaselineWouldAllow(t *testing.T) {

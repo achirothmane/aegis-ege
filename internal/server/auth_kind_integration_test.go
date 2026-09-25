@@ -25,8 +25,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/kubeadapter"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
 
 func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {

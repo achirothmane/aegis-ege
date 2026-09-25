@@ -8,7 +8,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 func TestDigestDrainExecutionPlanIsDeterministic(t *testing.T) {

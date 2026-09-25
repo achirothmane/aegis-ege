@@ -3,9 +3,9 @@ package kubeadapter
 import (
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/journal"
-	"github.com/achirothmane/state-latch/internal/outcome"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/journal"
+	"github.com/achirothmane/aegis-ege/internal/outcome"
 )
 
 func JournalAuthorizationEvent(auth decision.Authorization, occurredAt time.Time) journal.Event {

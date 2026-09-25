@@ -3,7 +3,7 @@ package kubeadapter
 import (
 	"context"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 type NodeDrainRevalidation struct {

@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/achirothmane/state-latch/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
 )
 
 type DeploymentInvalidationWatcher struct {

@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/achirothmane/state-latch/internal/kubeadapter"
+	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
 
 func TestKindM7DaemonPreparesButCannotMutateByDefault(t *testing.T) {

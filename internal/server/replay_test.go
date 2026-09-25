@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 func TestFileReplayGuardRejectsSecondClaimAndSurvivesReopen(t *testing.T) {

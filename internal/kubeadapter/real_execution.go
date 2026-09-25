@@ -8,7 +8,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 const (

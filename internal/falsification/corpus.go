@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
 )
 
 func CorpusV1() []Scenario {

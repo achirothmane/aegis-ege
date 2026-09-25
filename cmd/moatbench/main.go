@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/falsification"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/falsification"
 )
 
 const timingIterations = 2000
