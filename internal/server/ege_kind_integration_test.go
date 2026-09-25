@@ -140,7 +140,7 @@ func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T)
 				Type: egeNodeTarget,
 				Name: nodeName,
 			},
-			Authorization: *preparation.Authorization,
+			Permit: *preparation.Permit,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -234,7 +234,7 @@ func prepareEGEUntilStable(
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("EGE prepare status=%d response=%+v", resp.StatusCode, preparation)
 		}
-		if preparation.Decision == decision.Allow && preparation.Authorization != nil {
+		if preparation.Decision == decision.Allow && preparation.Permit != nil && preparation.EvidenceManifest != nil {
 			return preparation
 		}
 		if preparation.Decision == decision.Escalate &&
