@@ -7,7 +7,9 @@ The control path is now:
 ```text
 Execution Intent
 → Evidence Producer Registry
-→ Evidence Producer
+→ primary Evidence Producer
+→ Evidence Contributors
+→ composition policy
 → ALLOW / BLOCK / ESCALATE
 → Evidence Manifest
 → signed state-bound permit
@@ -73,34 +75,27 @@ A non-`ALLOW` result is forbidden from carrying a permit binding.
 
 Therefore a buggy future producer cannot accidentally return `BLOCK` or `ESCALATE` together with data that Aegis would sign into an execution permit.
 
-## What this does not claim yet
+## Composition boundary
 
-This change does not yet compose multiple independent producers for one intent.
+The primary producer is no longer assumed to be the entire evidence universe.
 
-There is currently one registered producer for:
+Aegis can compose its output with additional named contributors, each carrying an explicit trust domain, digest, observation time, and evidence classes.
 
-```text
-kubernetes.node_drain
-```
+The composition engine can require a minimum source count, a minimum number of distinct trust domains, and specific required source names before a permit is minted.
 
-The architectural boundary now exists for later evidence sources such as:
+The current Kubernetes production policy intentionally remains one-source:
 
 ```text
-StateLatch runtime evidence
-+ independent telemetry
-+ deterministic simulation
-+ formal/policy attestations
+statelatch.kubernetes.node_drain
+→ trust domain: kubernetes-control-plane
 ```
 
-but those sources should only be added when a concrete safety or market requirement justifies them.
+Multi-source behavior is proven with synthetic independent contributors in tests, but no second real production source has been added yet.
+
+See [evidence-composition.md](evidence-composition.md) for the composition contract and fail-closed semantics.
 
 ## Next proof gate
 
-Before adding a second evidence source, prove that:
+The next production evidence source must earn its place by covering a failure mode outside the existing Kubernetes control-plane trust domain.
 
-1. producer output cannot mint a permit unless all generic binding invariants hold;
-2. the existing KinD end-to-end path still succeeds;
-3. stale or changed Kubernetes state still invalidates execution after permit issuance;
-4. execution adapters remain unable to bypass the evidence-production stage through the public EGE API.
-
-Only then should Aegis move from one producer per intent toward multi-producer evidence composition.
+Candidate classes include independent telemetry, deterministic simulation, policy attestation, and formal verification. A source is not valuable merely because it is technically different; it must add independent decision information.
