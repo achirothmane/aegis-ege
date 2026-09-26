@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	EvidenceManifestVersion = "aegis.ege/evidence/v0alpha1"
+	EvidenceManifestVersion = "aegis.ege/evidence/v0alpha2"
 	PermitVersion           = "aegis.ege/permit/v0alpha1"
 )
 
@@ -24,16 +24,25 @@ type Target struct {
 	Name string `json:"name"`
 }
 
+type EvidenceSource struct {
+	Name        string    `json:"name"`
+	TrustDomain string    `json:"trust_domain"`
+	Digest      string    `json:"digest"`
+	ObservedAt  time.Time `json:"observed_at"`
+	Classes     []string  `json:"classes"`
+}
+
 type EvidenceManifest struct {
-	APIVersion      string    `json:"api_version"`
-	IntentID        string    `json:"intent_id"`
-	Kind            string    `json:"kind"`
-	Target          Target    `json:"target"`
-	ResourceVersion string    `json:"resource_version"`
-	EvidenceDigest  string    `json:"evidence_digest"`
-	PlanDigest      string    `json:"plan_digest"`
-	ObservedAt      time.Time `json:"observed_at"`
-	EvidenceClasses []string  `json:"evidence_classes"`
+	APIVersion      string           `json:"api_version"`
+	IntentID        string           `json:"intent_id"`
+	Kind            string           `json:"kind"`
+	Target          Target           `json:"target"`
+	ResourceVersion string           `json:"resource_version"`
+	EvidenceDigest  string           `json:"evidence_digest"`
+	PlanDigest      string           `json:"plan_digest"`
+	ObservedAt      time.Time        `json:"observed_at"`
+	EvidenceClasses []string         `json:"evidence_classes"`
+	Sources         []EvidenceSource `json:"sources,omitempty"`
 }
 
 type PermitClaims struct {
@@ -104,6 +113,21 @@ func DigestEvidenceManifest(manifest EvidenceManifest) (string, error) {
 	normalized.ObservedAt = normalized.ObservedAt.UTC()
 	normalized.EvidenceClasses = append([]string(nil), normalized.EvidenceClasses...)
 	sort.Strings(normalized.EvidenceClasses)
+	normalized.Sources = append([]EvidenceSource(nil), normalized.Sources...)
+	for i := range normalized.Sources {
+		normalized.Sources[i].ObservedAt = normalized.Sources[i].ObservedAt.UTC()
+		normalized.Sources[i].Classes = append([]string(nil), normalized.Sources[i].Classes...)
+		sort.Strings(normalized.Sources[i].Classes)
+	}
+	sort.Slice(normalized.Sources, func(i, j int) bool {
+		if normalized.Sources[i].Name != normalized.Sources[j].Name {
+			return normalized.Sources[i].Name < normalized.Sources[j].Name
+		}
+		if normalized.Sources[i].TrustDomain != normalized.Sources[j].TrustDomain {
+			return normalized.Sources[i].TrustDomain < normalized.Sources[j].TrustDomain
+		}
+		return normalized.Sources[i].Digest < normalized.Sources[j].Digest
+	})
 	payload, err := json.Marshal(normalized)
 	if err != nil {
 		return "", fmt.Errorf("marshal evidence manifest: %w", err)
