@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 type registryTestEvidenceProducer struct {
@@ -78,5 +81,54 @@ func TestEGEEvidenceProducerRegistryRejectsDuplicateKind(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected duplicate evidence producer kind to fail")
+	}
+}
+
+
+func TestValidateEGEEvidenceProductionRequiresBindingForAllow(t *testing.T) {
+	err := validateEGEEvidenceProduction(egeEvidenceProduction{
+		Decision:        decision.Allow,
+		PlanDigest:      "sha256:plan",
+		ObservedAt:      time.Now().UTC(),
+		EvidenceClasses: []string{"state"},
+	})
+	if err == nil {
+		t.Fatal("expected ALLOW without permit binding to fail")
+	}
+}
+
+func TestValidateEGEEvidenceProductionRejectsBindingForBlock(t *testing.T) {
+	err := validateEGEEvidenceProduction(egeEvidenceProduction{
+		Decision: decision.Block,
+		PermitBinding: &egePermitBinding{
+			Action:          "drain",
+			ResourceVersion: "100",
+			EvidenceDigest:  "sha256:evidence",
+			PlanDigest:      "sha256:plan",
+			ValidUntil:      time.Now().UTC().Add(time.Minute),
+		},
+	})
+	if err == nil {
+		t.Fatal("expected non-ALLOW with permit binding to fail")
+	}
+}
+
+func TestValidateEGEEvidenceProductionAcceptsBoundAllow(t *testing.T) {
+	observedAt := time.Now().UTC()
+	err := validateEGEEvidenceProduction(egeEvidenceProduction{
+		Decision:        decision.Allow,
+		PlanDigest:      "sha256:plan",
+		ObservedAt:      observedAt,
+		EvidenceClasses: []string{"state", "dry-run"},
+		PermitBinding: &egePermitBinding{
+			Action:          "drain",
+			ResourceVersion: "100",
+			EvidenceDigest:  "sha256:evidence",
+			PlanDigest:      "sha256:plan",
+			ValidUntil:      observedAt.Add(time.Minute),
+		},
+	})
+	if err != nil {
+		t.Fatalf("valid evidence production rejected: %v", err)
 	}
 }
