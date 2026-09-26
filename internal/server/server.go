@@ -34,11 +34,12 @@ type Config struct {
 }
 
 type Server struct {
-	controller NodeDrainController
-	store      kubeadapter.DrainCheckpointStore
+	controller      NodeDrainController
+	store           kubeadapter.DrainCheckpointStore
 	config          Config
 	mux             *http.ServeMux
 	permitAuthority egeproto.PermitAuthority
+	egeAdapters     *egeAdapterRegistry
 }
 
 func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore, config Config) (*Server, error) {
@@ -74,12 +75,20 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 			return nil, fmt.Errorf("create EGE permit authority: %w", err)
 		}
 	}
+	egeAdapters, err := newEGEAdapterRegistry(
+		newKubernetesNodeDrainEGEAdapter(controller, config.Policy, store),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create EGE adapter registry: %w", err)
+	}
+
 	s := &Server{
 		controller:      controller,
 		store:           store,
 		config:          config,
 		mux:             http.NewServeMux(),
 		permitAuthority: permitAuthority,
+		egeAdapters:     egeAdapters,
 	}
 	s.routes()
 	return s, nil
