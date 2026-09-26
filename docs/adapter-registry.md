@@ -9,7 +9,9 @@ The public protocol is:
 ```text
 Execution Intent
 → Evidence Producer Registry
-→ evidence/state production
+→ primary evidence/state production
+→ Evidence Contributors
+→ composition policy
 → Evidence Manifest
 → signed execution permit
 → verify permit
@@ -64,7 +66,8 @@ It does **not** prepare evidence or mint permits.
 Cross-cutting Aegis-EGE guarantees remain outside execution adapters:
 
 - public intent envelope;
-- evidence producer dispatch;
+- evidence producer/contributor dispatch;
+- evidence composition policy;
 - Evidence Manifest construction;
 - permit signing and signature verification;
 - outer intent/permit identity matching;
