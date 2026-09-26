@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
 type egePermitBinding struct {
@@ -24,12 +25,15 @@ type egeEvidenceProduction struct {
 	PlanDigest      string
 	ObservedAt      time.Time
 	EvidenceClasses []string
+	EvidenceSources []egeproto.EvidenceSource
 	PermitBinding   *egePermitBinding
 	Snapshot        *snapshotDTO
 	Plan            *planDTO
 }
 
 type egeEvidenceProducer interface {
+	Name() string
+	TrustDomain() string
 	Kind() string
 	TargetType() string
 	Produce(context.Context, string, egeTargetDTO) (egeEvidenceProduction, error)
@@ -45,10 +49,12 @@ func newEGEEvidenceProducerRegistry(producers ...egeEvidenceProducer) (*egeEvide
 		if producer == nil {
 			return nil, errors.New("EGE evidence producer is required")
 		}
+		name := strings.TrimSpace(producer.Name())
+		trustDomain := strings.TrimSpace(producer.TrustDomain())
 		kind := strings.TrimSpace(producer.Kind())
 		targetType := strings.TrimSpace(producer.TargetType())
-		if kind == "" || targetType == "" {
-			return nil, errors.New("EGE evidence producer kind and target type are required")
+		if name == "" || trustDomain == "" || kind == "" || targetType == "" {
+			return nil, errors.New("EGE evidence producer name, trust domain, kind, and target type are required")
 		}
 		if _, exists := registry.byKind[kind]; exists {
 			return nil, fmt.Errorf("duplicate EGE evidence producer kind %q", kind)
