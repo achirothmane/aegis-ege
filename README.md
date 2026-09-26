@@ -338,6 +338,10 @@ synthetic falsification
 
 This supports the tested Kubernetes node-drain safety claims. It does **not** establish production-wide superiority, a commercial moat, or broad incident coverage.
 
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
+
 ## Design principle
 
 **Evidence before action.**
