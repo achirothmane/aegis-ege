@@ -30,7 +30,10 @@ type Config struct {
 	ReplayGuard           ReplayGuard
 	AuditSink             AuditSink
 	Clock                 func() time.Time
-	EGEPermitAuthority    egeproto.PermitAuthority
+	EGEPermitAuthority                egeproto.PermitAuthority
+	EGEPrometheusNodeHealthURL         string
+	EGEPrometheusNodeHealthTrustDomain string
+	EGEPrometheusHTTPClient            *http.Client
 }
 
 type Server struct {
@@ -88,7 +91,41 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	if err != nil {
 		return nil, fmt.Errorf("create EGE evidence producer registry: %w", err)
 	}
-	egeEvidenceContributors, err := newEGEEvidenceContributorRegistry()
+	contributors := make([]egeEvidenceContributor, 0, 1)
+	compositionPolicy := egeEvidenceCompositionPolicy{
+		MinSources:      1,
+		MinTrustDomains: 1,
+		RequiredSources: []string{egeNodeDrainEvidenceSource},
+	}
+
+	prometheusURL := strings.TrimSpace(config.EGEPrometheusNodeHealthURL)
+	prometheusTrustDomain := strings.TrimSpace(config.EGEPrometheusNodeHealthTrustDomain)
+	if prometheusURL == "" && prometheusTrustDomain != "" {
+		return nil, fmt.Errorf("Prometheus evidence trust domain requires a Prometheus node-health URL")
+	}
+	if prometheusURL != "" {
+		contributor, err := newPrometheusNodeHealthEvidenceContributor(
+			prometheusURL,
+			prometheusTrustDomain,
+			config.Policy.MaxEvidenceAge,
+			config.EGEPrometheusHTTPClient,
+			config.Clock,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create Prometheus evidence contributor: %w", err)
+		}
+		contributors = append(contributors, contributor)
+		compositionPolicy = egeEvidenceCompositionPolicy{
+			MinSources:      2,
+			MinTrustDomains: 2,
+			RequiredSources: []string{
+				egeNodeDrainEvidenceSource,
+				egePrometheusNodeHealthEvidenceSource,
+			},
+		}
+	}
+
+	egeEvidenceContributors, err := newEGEEvidenceContributorRegistry(contributors...)
 	if err != nil {
 		return nil, fmt.Errorf("create EGE evidence contributor registry: %w", err)
 	}
@@ -96,11 +133,7 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		egeEvidenceProducers,
 		egeEvidenceContributors,
 		map[string]egeEvidenceCompositionPolicy{
-			egeNodeDrainKind: {
-				MinSources:      1,
-				MinTrustDomains: 1,
-				RequiredSources: []string{egeNodeDrainEvidenceSource},
-			},
+			egeNodeDrainKind: compositionPolicy,
 		},
 	)
 	if err != nil {
