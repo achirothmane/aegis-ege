@@ -102,24 +102,43 @@ The execution permit is already bound to `evidence_manifest_digest`, so every co
 
 ## Current production policy
 
-The real Kubernetes node-drain path currently has one registered production evidence source:
+Without an external contributor configured, the Kubernetes node-drain path keeps the original one-source policy:
 
 ```text
 name:         statelatch.kubernetes.node_drain
 trust_domain: kubernetes-control-plane
-```
 
-Its current policy requires:
-
-```text
 min_sources:       1
 min_trust_domains: 1
 required_source:   statelatch.kubernetes.node_drain
 ```
 
-This preserves the already-proven StateLatch behavior while moving permit minting behind the composition engine.
+A real Prometheus node-health contributor can now be enabled with:
 
-This change does **not** claim that Kubernetes node drain already has multiple independent production evidence sources.
+```text
+--prometheus-node-health-url=https://prometheus.example
+--prometheus-trust-domain=external-observability
+```
+
+When enabled, Aegis automatically strengthens the policy to:
+
+```text
+min_sources:       2
+min_trust_domains: 2
+required_sources:
+  - statelatch.kubernetes.node_drain
+  - prometheus.node_health
+```
+
+The Prometheus sample must be fresh and must agree with the primary StateLatch node-health observation. A stale sample blocks with `EVIDENCE_STALE`; a contradictory sample blocks with `EVIDENCE_CONTRADICTED`; an unavailable configured Prometheus source causes the composition to fail closed as `ESCALATE / INSUFFICIENT_EVIDENCE`.
+
+### Independence requirement
+
+The Prometheus trust-domain label is an operator assertion about operational independence. Aegis rejects the exact `kubernetes-control-plane` trust-domain name for this contributor, but it cannot prove from a URL alone that Prometheus is actually independent.
+
+To count this as genuinely independent evidence, the Prometheus deployment and the metric's data path should not merely mirror the same Kubernetes control-plane state through the same failure domain. The useful case is out-of-band observability that can detect a condition the control plane might miss or misreport.
+
+The KinD integration path now exercises the public Aegis prepare/execute flow with the Prometheus contributor enabled and requires two named sources in two declared trust domains before the permit is accepted.
 
 ## Multi-source proof
 
