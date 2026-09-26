@@ -105,6 +105,10 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "EVIDENCE_PRODUCTION_FAILED", err)
 		return
 	}
+	if err := validateEGEEvidenceProduction(preparation); err != nil {
+		writeError(w, http.StatusInternalServerError, "EVIDENCE_PRODUCTION_INVALID", err)
+		return
+	}
 
 	response := egePrepareResponse{
 		APIVersion:  egeAPIVersion,
