@@ -76,3 +76,38 @@ func (r *egeEvidenceProducerRegistry) Resolve(kind, targetType string) (egeEvide
 	}
 	return producer, nil
 }
+
+
+func validateEGEEvidenceProduction(production egeEvidenceProduction) error {
+	if production.Decision == decision.Allow {
+		if production.PermitBinding == nil {
+			return errors.New("ALLOW evidence production requires a permit binding")
+		}
+		if production.ObservedAt.IsZero() {
+			return errors.New("ALLOW evidence production requires observed_at")
+		}
+		if len(production.EvidenceClasses) == 0 {
+			return errors.New("ALLOW evidence production requires at least one evidence class")
+		}
+		binding := production.PermitBinding
+		if strings.TrimSpace(binding.Action) == "" ||
+			strings.TrimSpace(binding.ResourceVersion) == "" ||
+			strings.TrimSpace(binding.EvidenceDigest) == "" ||
+			strings.TrimSpace(binding.PlanDigest) == "" ||
+			binding.ValidUntil.IsZero() {
+			return errors.New("ALLOW evidence production has incomplete permit binding")
+		}
+		if production.PlanDigest == "" || production.PlanDigest != binding.PlanDigest {
+			return errors.New("ALLOW evidence production plan digest does not match permit binding")
+		}
+		if !binding.ValidUntil.After(production.ObservedAt) {
+			return errors.New("ALLOW evidence production permit expiry must be after observation time")
+		}
+		return nil
+	}
+
+	if production.PermitBinding != nil {
+		return errors.New("non-ALLOW evidence production must not include a permit binding")
+	}
+	return nil
+}
