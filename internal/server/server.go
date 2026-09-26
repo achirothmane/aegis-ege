@@ -39,8 +39,8 @@ type Server struct {
 	config          Config
 	mux             *http.ServeMux
 	permitAuthority egeproto.PermitAuthority
-	egeAdapters          *egeAdapterRegistry
-	egeEvidenceProducers *egeEvidenceProducerRegistry
+	egeAdapters         *egeAdapterRegistry
+	egeEvidenceComposer *egeEvidenceComposer
 }
 
 func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore, config Config) (*Server, error) {
@@ -88,15 +88,33 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	if err != nil {
 		return nil, fmt.Errorf("create EGE evidence producer registry: %w", err)
 	}
+	egeEvidenceContributors, err := newEGEEvidenceContributorRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("create EGE evidence contributor registry: %w", err)
+	}
+	egeEvidenceComposer, err := newEGEEvidenceComposer(
+		egeEvidenceProducers,
+		egeEvidenceContributors,
+		map[string]egeEvidenceCompositionPolicy{
+			egeNodeDrainKind: {
+				MinSources:      1,
+				MinTrustDomains: 1,
+				RequiredSources: []string{egeNodeDrainEvidenceSource},
+			},
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create EGE evidence composer: %w", err)
+	}
 
 	s := &Server{
-		controller:           controller,
-		store:                store,
-		config:               config,
-		mux:                  http.NewServeMux(),
-		permitAuthority:      permitAuthority,
-		egeAdapters:          egeAdapters,
-		egeEvidenceProducers: egeEvidenceProducers,
+		controller:          controller,
+		store:               store,
+		config:              config,
+		mux:                 http.NewServeMux(),
+		permitAuthority:     permitAuthority,
+		egeAdapters:         egeAdapters,
+		egeEvidenceComposer: egeEvidenceComposer,
 	}
 	s.routes()
 	return s, nil
