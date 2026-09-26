@@ -29,8 +29,10 @@ func newKubernetesNodeDrainEvidenceProducer(
 	}
 }
 
-func (*kubernetesNodeDrainEvidenceProducer) Kind() string       { return egeNodeDrainKind }
-func (*kubernetesNodeDrainEvidenceProducer) TargetType() string { return egeNodeTarget }
+func (*kubernetesNodeDrainEvidenceProducer) Name() string        { return "statelatch.kubernetes.node_drain" }
+func (*kubernetesNodeDrainEvidenceProducer) TrustDomain() string { return "kubernetes-control-plane" }
+func (*kubernetesNodeDrainEvidenceProducer) Kind() string        { return egeNodeDrainKind }
+func (*kubernetesNodeDrainEvidenceProducer) TargetType() string  { return egeNodeTarget }
 
 func (p *kubernetesNodeDrainEvidenceProducer) Produce(
 	ctx context.Context,
