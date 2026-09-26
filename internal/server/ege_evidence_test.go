@@ -10,9 +10,25 @@ import (
 )
 
 type registryTestEvidenceProducer struct {
-	kind       string
-	targetType string
-	calls      int
+	name        string
+	trustDomain string
+	kind        string
+	targetType  string
+	calls       int
+}
+
+func (p *registryTestEvidenceProducer) Name() string {
+	if p.name != "" {
+		return p.name
+	}
+	return "test.primary"
+}
+
+func (p *registryTestEvidenceProducer) TrustDomain() string {
+	if p.trustDomain != "" {
+		return p.trustDomain
+	}
+	return "test-control-plane"
 }
 
 func (p *registryTestEvidenceProducer) Kind() string       { return p.kind }

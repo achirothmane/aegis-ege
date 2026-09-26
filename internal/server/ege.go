@@ -91,22 +91,16 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	producer, err := s.egeEvidenceProducers.Resolve(kind, target.Type)
-	if err != nil {
-		writeEGEAdapterResolutionError(w, err)
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.RequestTimeout)
 	defer cancel()
 
-	preparation, err := producer.Produce(ctx, intentID, target)
+	preparation, err := s.egeEvidenceComposer.Compose(ctx, intentID, kind, target)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "EVIDENCE_PRODUCTION_FAILED", err)
-		return
-	}
-	if err := validateEGEEvidenceProduction(preparation); err != nil {
-		writeError(w, http.StatusInternalServerError, "EVIDENCE_PRODUCTION_INVALID", err)
+		if errors.Is(err, errUnsupportedEGEIntentKind) || errors.Is(err, errEGETargetTypeMismatch) {
+			writeEGEAdapterResolutionError(w, err)
+			return
+		}
+		writeError(w, http.StatusBadGateway, "EVIDENCE_COMPOSITION_FAILED", err)
 		return
 	}
 
@@ -134,6 +128,7 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 			PlanDigest:      binding.PlanDigest,
 			ObservedAt:      preparation.ObservedAt,
 			EvidenceClasses: append([]string(nil), preparation.EvidenceClasses...),
+			Sources:         append([]egeproto.EvidenceSource(nil), preparation.EvidenceSources...),
 		}
 		manifestDigest, err := egeproto.DigestEvidenceManifest(manifest)
 		if err != nil {

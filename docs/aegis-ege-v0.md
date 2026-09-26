@@ -8,6 +8,7 @@ StateLatch remains the evidence and state-assurance engine. Aegis-EGE gives agen
 agent / automation
 → execution intent
 → evidence + state verification
+→ evidence composition policy
 → ALLOW / BLOCK / ESCALATE
 → evidence manifest
 → signed, state-bound execution permit
@@ -75,7 +76,7 @@ Conceptual response:
   "decision": "ALLOW",
   "plan_digest": "sha256:...",
   "evidence_manifest": {
-    "api_version": "aegis.ege/evidence/v0alpha1",
+    "api_version": "aegis.ege/evidence/v0alpha2",
     "intent_id": "intent-2026-09-25-001",
     "kind": "kubernetes.node_drain",
     "target": {
@@ -90,6 +91,19 @@ Conceptual response:
       "kubernetes.authoritative-state",
       "kubernetes.pdb-preflight",
       "kubernetes.server-dry-run"
+    ],
+    "sources": [
+      {
+        "name": "statelatch.kubernetes.node_drain",
+        "trust_domain": "kubernetes-control-plane",
+        "digest": "sha256:...",
+        "observed_at": "...",
+        "classes": [
+          "kubernetes.authoritative-state",
+          "kubernetes.pdb-preflight",
+          "kubernetes.server-dry-run"
+        ]
+      }
     ]
   },
   "permit": {
@@ -208,21 +222,20 @@ mTLS caller
 
 Unit tests also require permit tampering to fail cryptographic verification.
 
+## Evidence composition
+
+Permit minting now sits behind an evidence-composition policy.
+
+The current Kubernetes production path still has one real evidence source, `statelatch.kubernetes.node_drain`, in the `kubernetes-control-plane` trust domain. The composition engine is capable of requiring multiple named sources and distinct trust domains, and those multi-source gates are exercised in unit tests.
+
+The Evidence Manifest v0alpha2 carries the canonicalized source set. Its digest is signed indirectly through `evidence_manifest_digest` in the execution permit.
+
+See [evidence-composition.md](evidence-composition.md).
+
 ## Next proof gate
 
-Do not add a second infrastructure adapter yet.
+Do not add a second infrastructure adapter or a decorative second evidence source.
 
-The next architectural step after this contract is stable is an explicit adapter registry where each adapter must implement:
-
-```text
-normalize intent
-→ observe authoritative state
-→ collect/verify evidence
-→ deterministic prepare
-→ evidence manifest
-→ exact permit binding
-→ execute with revalidation
-→ verify outcome
-```
+The next real source must reduce a failure mode that the existing Kubernetes control-plane trust domain cannot independently detect. Independent telemetry or deterministic simulation are candidates only if concrete evidence shows that they materially improve a high-consequence decision.
 
 The execution path remains deterministic. LLMs may assist outside the trusted computing base, but they do not decide `ALLOW`.
