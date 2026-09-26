@@ -91,7 +91,7 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	adapter, err := s.egeAdapters.Resolve(kind, target.Type)
+	producer, err := s.egeEvidenceProducers.Resolve(kind, target.Type)
 	if err != nil {
 		writeEGEAdapterResolutionError(w, err)
 		return
@@ -100,9 +100,13 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.RequestTimeout)
 	defer cancel()
 
-	preparation, err := adapter.Prepare(ctx, intentID, target)
+	preparation, err := producer.Produce(ctx, intentID, target)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "PREPARE_FAILED", err)
+		writeError(w, http.StatusBadGateway, "EVIDENCE_PRODUCTION_FAILED", err)
+		return
+	}
+	if err := validateEGEEvidenceProduction(preparation); err != nil {
+		writeError(w, http.StatusInternalServerError, "EVIDENCE_PRODUCTION_INVALID", err)
 		return
 	}
 

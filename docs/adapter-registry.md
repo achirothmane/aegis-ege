@@ -2,16 +2,18 @@
 
 The adapter registry is the dispatch boundary between the generic Aegis-EGE protocol and infrastructure-specific execution logic.
 
-The public protocol remains:
+Evidence preparation now lives behind a separate **Evidence Producer Registry**.
+
+The public protocol is:
 
 ```text
 Execution Intent
-→ resolve adapter by intent kind + target type
-→ adapter-specific evidence/state preparation
+→ Evidence Producer Registry
+→ evidence/state production
 → Evidence Manifest
 → signed execution permit
 → verify permit
-→ resolve same adapter
+→ Execution Adapter Registry
 → adapter-specific authorization reconstruction
 → replay protection
 → adapter execution with live revalidation
@@ -20,19 +22,21 @@ Execution Intent
 
 ## First registered adapter
 
-The registry currently contains exactly one production path:
+The execution registry currently contains exactly one production path:
 
 ```text
 kind:        kubernetes.node_drain
 target_type: kubernetes.node
-engine:      StateLatch
+engine:      StateLatch execution path
 ```
 
-This is an architectural extraction, not a surface-area expansion. No second infrastructure adapter is introduced in this change.
+The matching evidence producer is also StateLatch-backed, but it is registered separately from the execution adapter.
+
+This is an architectural extraction, not a surface-area expansion. No second infrastructure adapter is introduced.
 
 ## Fail-closed routing
 
-The registry is immutable after server construction.
+The execution registry is immutable after server construction.
 
 It rejects:
 
@@ -43,21 +47,24 @@ It rejects:
 
 An unsupported kind never reaches an infrastructure controller.
 
-## Adapter contract
+The evidence producer registry applies the same fail-closed kind/target routing rules independently.
 
-Each execution adapter owns the infrastructure-specific parts of the control loop:
+## Execution adapter contract
+
+Each execution adapter owns only the infrastructure-specific mutation side of the control loop:
 
 ```text
-prepare authoritative state/evidence
-→ expose permit binding
-→ reconstruct adapter authorization from verified permit claims
+reconstruct adapter authorization from verified permit claims
 → execute with adapter-specific live revalidation
 → return decision/outcome evidence
 ```
 
-Cross-cutting Aegis-EGE guarantees remain outside adapters:
+It does **not** prepare evidence or mint permits.
+
+Cross-cutting Aegis-EGE guarantees remain outside execution adapters:
 
 - public intent envelope;
+- evidence producer dispatch;
 - Evidence Manifest construction;
 - permit signing and signature verification;
 - outer intent/permit identity matching;
@@ -65,7 +72,7 @@ Cross-cutting Aegis-EGE guarantees remain outside adapters:
 - authentication and authorization at the API boundary;
 - audit emission.
 
-This split prevents a future adapter from bypassing the generic execution gate while allowing each infrastructure domain to retain its own state model and mutation semantics.
+This split prevents a future execution adapter from becoming the sole authority for both evidence generation and mutation while allowing each infrastructure domain to retain its own state and mutation semantics.
 
 ## Expansion gate
 

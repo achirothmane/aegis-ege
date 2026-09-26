@@ -14,38 +14,35 @@ const (
 	egeNodeTarget    = "kubernetes.node"
 )
 
-type kubernetesNodeDrainEGEAdapter struct {
+type kubernetesNodeDrainEvidenceProducer struct {
 	controller NodeDrainController
 	policy     kubeadapter.NodeDrainPolicy
-	store      kubeadapter.DrainCheckpointStore
 }
 
-func newKubernetesNodeDrainEGEAdapter(
+func newKubernetesNodeDrainEvidenceProducer(
 	controller NodeDrainController,
 	policy kubeadapter.NodeDrainPolicy,
-	store kubeadapter.DrainCheckpointStore,
-) *kubernetesNodeDrainEGEAdapter {
-	return &kubernetesNodeDrainEGEAdapter{
+) *kubernetesNodeDrainEvidenceProducer {
+	return &kubernetesNodeDrainEvidenceProducer{
 		controller: controller,
 		policy:     policy,
-		store:      store,
 	}
 }
 
-func (*kubernetesNodeDrainEGEAdapter) Kind() string       { return egeNodeDrainKind }
-func (*kubernetesNodeDrainEGEAdapter) TargetType() string { return egeNodeTarget }
+func (*kubernetesNodeDrainEvidenceProducer) Kind() string       { return egeNodeDrainKind }
+func (*kubernetesNodeDrainEvidenceProducer) TargetType() string { return egeNodeTarget }
 
-func (a *kubernetesNodeDrainEGEAdapter) Prepare(
+func (p *kubernetesNodeDrainEvidenceProducer) Produce(
 	ctx context.Context,
 	intentID string,
 	target egeTargetDTO,
-) (egeAdapterPreparation, error) {
-	preparation, err := a.controller.PrepareNodeDrainExecution(ctx, intentID, target.Name, a.policy)
+) (egeEvidenceProduction, error) {
+	preparation, err := p.controller.PrepareNodeDrainExecution(ctx, intentID, target.Name, p.policy)
 	if err != nil {
-		return egeAdapterPreparation{}, err
+		return egeEvidenceProduction{}, err
 	}
 
-	result := egeAdapterPreparation{
+	result := egeEvidenceProduction{
 		Decision:    preparation.Decision,
 		ReasonCodes: append([]decision.ReasonCode(nil), preparation.ReasonCodes...),
 		PlanDigest:  preparation.PlanDigest,
@@ -82,6 +79,27 @@ func (a *kubernetesNodeDrainEGEAdapter) Prepare(
 	}
 	return result, nil
 }
+
+type kubernetesNodeDrainEGEAdapter struct {
+	controller NodeDrainController
+	policy     kubeadapter.NodeDrainPolicy
+	store      kubeadapter.DrainCheckpointStore
+}
+
+func newKubernetesNodeDrainEGEAdapter(
+	controller NodeDrainController,
+	policy kubeadapter.NodeDrainPolicy,
+	store kubeadapter.DrainCheckpointStore,
+) *kubernetesNodeDrainEGEAdapter {
+	return &kubernetesNodeDrainEGEAdapter{
+		controller: controller,
+		policy:     policy,
+		store:      store,
+	}
+}
+
+func (*kubernetesNodeDrainEGEAdapter) Kind() string       { return egeNodeDrainKind }
+func (*kubernetesNodeDrainEGEAdapter) TargetType() string { return egeNodeTarget }
 
 func (a *kubernetesNodeDrainEGEAdapter) AuthorizationFromPermit(
 	intentID string,

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
@@ -15,25 +14,6 @@ var (
 	errUnsupportedEGEIntentKind = errors.New("unsupported EGE intent kind")
 	errEGETargetTypeMismatch    = errors.New("EGE target type mismatch")
 )
-
-type egePermitBinding struct {
-	Action          string
-	ResourceVersion string
-	EvidenceDigest  string
-	PlanDigest      string
-	ValidUntil      time.Time
-}
-
-type egeAdapterPreparation struct {
-	Decision        decision.Decision
-	ReasonCodes     []decision.ReasonCode
-	PlanDigest      string
-	ObservedAt      time.Time
-	EvidenceClasses []string
-	PermitBinding   *egePermitBinding
-	Snapshot        *snapshotDTO
-	Plan            *planDTO
-}
 
 type egeAdapterExecution struct {
 	Decision    decision.Decision
@@ -45,7 +25,6 @@ type egeAdapterExecution struct {
 type egeExecutionAdapter interface {
 	Kind() string
 	TargetType() string
-	Prepare(context.Context, string, egeTargetDTO) (egeAdapterPreparation, error)
 	AuthorizationFromPermit(string, egeTargetDTO, egeproto.PermitClaims) (decision.Authorization, error)
 	Execute(context.Context, decision.Authorization, egeTargetDTO) (egeAdapterExecution, error)
 }
