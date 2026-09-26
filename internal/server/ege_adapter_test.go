@@ -17,14 +17,6 @@ type registryTestAdapter struct {
 func (a registryTestAdapter) Kind() string       { return a.kind }
 func (a registryTestAdapter) TargetType() string { return a.targetType }
 
-func (registryTestAdapter) Prepare(
-	context.Context,
-	string,
-	egeTargetDTO,
-) (egeAdapterPreparation, error) {
-	return egeAdapterPreparation{}, nil
-}
-
 func (registryTestAdapter) AuthorizationFromPermit(
 	string,
 	egeTargetDTO,
