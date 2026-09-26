@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/prometheusprobe"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/prometheusprobe"
 )
 
 func TestKindContradictionReconciliationFreshAgreementAllows(t *testing.T) {

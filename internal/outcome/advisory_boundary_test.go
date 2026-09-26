@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/outcome"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/outcome"
 )
 
 func TestDegradedReliabilityAdvisoryDoesNotMutateDecisionPolicy(t *testing.T) {

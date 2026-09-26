@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"github.com/achirothmane/state-latch/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
 )
 
 func TestKindPDBChangePropagatesToHigherLevelDrainAssumption(t *testing.T) {

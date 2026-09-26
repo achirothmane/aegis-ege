@@ -1,4 +1,4 @@
-module github.com/achirothmane/state-latch
+module github.com/achirothmane/aegis-ege
 
 go 1.25.0
 

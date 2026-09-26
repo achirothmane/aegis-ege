@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/achirothmane/state-latch/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
 )
 
 func TestKindContinuousWatchInvalidatesDeploymentAssumption(t *testing.T) {

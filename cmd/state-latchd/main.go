@@ -16,8 +16,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/achirothmane/state-latch/internal/kubeadapter"
-	"github.com/achirothmane/state-latch/internal/server"
+	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
+	"github.com/achirothmane/aegis-ege/internal/server"
 )
 
 func main() {

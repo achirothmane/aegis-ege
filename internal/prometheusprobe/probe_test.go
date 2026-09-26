@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 func TestBinaryNodeHealthProbeReadsPrometheusVector(t *testing.T) {

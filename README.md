@@ -1,12 +1,26 @@
-# StateLatch
+# Aegis-EGE
 
-**Evidence before action for autonomous Kubernetes changes.**
+**Evidence-gated execution for AI agents and high-consequence automation.**
 
-StateLatch is an experimental runtime-assurance layer for high-consequence automation. Before an automated system changes Kubernetes, StateLatch asks:
+Aegis-EGE is an experimental execution-governance gateway that sits between an agent or automation system and the infrastructure it wants to change.
+
+The current assurance engine inside Aegis-EGE is **StateLatch**. Before an automated action reaches infrastructure, StateLatch asks:
 
 > Is the evidence that justified this action still current, consistent, sufficient, and valid for this exact action and world state?
 
-Today the proof target is deliberately narrow: **Kubernetes node drain**. The goal is to prove the execution-safety model before expanding the surface area.
+The first proof target is deliberately narrow: **Kubernetes node drain**. Aegis-EGE v0 adds a generic execution-intent contract above that proven StateLatch path before the project expands to additional infrastructure adapters.
+
+Current control path:
+
+```text
+Agent / Automation
+→ Aegis-EGE execution intent
+→ StateLatch evidence + state assurance
+→ ALLOW / BLOCK / ESCALATE
+→ exact authorization
+→ guarded execution
+→ postflight verification
+```
 
 ## Why this exists
 
@@ -58,7 +72,7 @@ contradiction → BLOCK
 Requires Go 1.25+.
 
 ```bash
-git clone https://github.com/achirothmane/state-latch
+git clone https://github.com/achirothmane/aegis-ege
 cd state-latch
 
 go test ./...

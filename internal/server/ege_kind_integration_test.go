@@ -5,17 +5,10 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -29,7 +22,7 @@ import (
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
 
-func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
+func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T) {
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
 		t.Skip("KUBECONFIG is required")
@@ -44,7 +37,7 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	nodeName := "state-latch-m8-auth-node"
+	nodeName := "aegis-ege-v0-api-node"
 	_, err = client.CoreV1().Nodes().Create(ctx, &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 		Status: corev1.NodeStatus{
@@ -72,7 +65,7 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	identity := "spiffe://state-latch.test/operator"
+	identity := "spiffe://aegis-ege.test/operator"
 	authorizer, err := NewMTLSAuthorizer(AuthzFile{
 		Principals: map[string][]Permission{
 			identity: {PermissionPrepare, PermissionExecute},
@@ -120,26 +113,41 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 	transport.TLSClientConfig.Certificates = []tls.Certificate{clientCertificate}
 	clientHTTP.Transport = transport
 
-	preparePayload := []byte("{\"action_id\":\"m8-kind\",\"node_name\":\"" + nodeName + "\"}")
+	intentID := "ege-kind-v0"
+	preparePayload := []byte("{\"intent_id\":\"" + intentID + "\",\"kind\":\"" + egeNodeDrainKind + "\",\"target\":{\"type\":\"" + egeNodeTarget + "\",\"name\":\"" + nodeName + "\"}}")
+
 	var executePayload []byte
-	var execution executeResponse
+	var execution egeExecuteResponse
 	for attempt := 0; attempt < 12; attempt++ {
-		preparation := prepareUntilStable(
+		preparation := prepareEGEUntilStable(
 			t,
 			clientHTTP,
 			testServer.URL,
 			preparePayload,
 		)
+		if preparation.APIVersion != egeAPIVersion ||
+			preparation.IntentID != intentID ||
+			preparation.Kind != egeNodeDrainKind ||
+			preparation.Target.Type != egeNodeTarget ||
+			preparation.Target.Name != nodeName {
+			t.Fatalf("unexpected Aegis-EGE preparation envelope: %+v", preparation)
+		}
 
-		executePayload, err = json.Marshal(executeRequest{
-			NodeName:       nodeName,
-			Authorization: *preparation.Authorization,
+		executePayload, err = json.Marshal(egeExecuteRequest{
+			IntentID: intentID,
+			Kind:     egeNodeDrainKind,
+			Target: egeTargetDTO{
+				Type: egeNodeTarget,
+				Name: nodeName,
+			},
+			Permit: *preparation.Permit,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		executeResp, err := clientHTTP.Post(
-			testServer.URL+"/v1/node-drains/execute",
+			testServer.URL+"/v1/ege/execute",
 			"application/json",
 			bytes.NewReader(executePayload),
 		)
@@ -148,9 +156,9 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 		}
 		if executeResp.StatusCode != http.StatusOK {
 			_ = executeResp.Body.Close()
-			t.Fatalf("execute status=%d", executeResp.StatusCode)
+			t.Fatalf("EGE execute status=%d", executeResp.StatusCode)
 		}
-		execution = executeResponse{}
+		execution = egeExecuteResponse{}
 		if err := json.NewDecoder(executeResp.Body).Decode(&execution); err != nil {
 			_ = executeResp.Body.Close()
 			t.Fatal(err)
@@ -166,10 +174,10 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		t.Fatalf("unexpected authenticated execution result: %+v", execution)
+		t.Fatalf("unexpected Aegis-EGE execution result: %+v", execution)
 	}
 	if execution.Decision != decision.Allow {
-		t.Fatalf("authenticated execution did not stabilize to ALLOW: %+v", execution)
+		t.Fatalf("Aegis-EGE execution did not stabilize to ALLOW: %+v", execution)
 	}
 
 	node, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
@@ -177,11 +185,11 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !node.Spec.Unschedulable {
-		t.Fatal("authenticated execution did not cordon node")
+		t.Fatal("Aegis-EGE authorized execution did not cordon node")
 	}
 
 	replayResp, err := clientHTTP.Post(
-		testServer.URL+"/v1/node-drains/execute",
+		testServer.URL+"/v1/ege/execute",
 		"application/json",
 		bytes.NewReader(executePayload),
 	)
@@ -190,74 +198,52 @@ func TestKindM8AuthenticatedMutationAndReplayRejection(t *testing.T) {
 	}
 	defer replayResp.Body.Close()
 	if replayResp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected replay 409, got %d", replayResp.StatusCode)
+		t.Fatalf("expected EGE replay 409, got %d", replayResp.StatusCode)
 	}
 	var replayError errorResponse
 	if err := json.NewDecoder(replayResp.Body).Decode(&replayError); err != nil {
 		t.Fatal(err)
 	}
 	if replayError.Code != "EXECUTION_REPLAY_REJECTED" {
-		t.Fatalf("unexpected replay error: %+v", replayError)
+		t.Fatalf("unexpected EGE replay error: %+v", replayError)
 	}
 }
 
-func generateClientCertificate(t *testing.T, identity string) ([]byte, tls.Certificate) {
+func prepareEGEUntilStable(
+	t *testing.T,
+	client *http.Client,
+	baseURL string,
+	payload []byte,
+) egePrepareResponse {
 	t.Helper()
-	now := time.Now().UTC()
-	_, caKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 12; attempt++ {
+		resp, err := client.Post(
+			baseURL+"/v1/ege/prepare",
+			"application/json",
+			bytes.NewReader(payload),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var preparation egePrepareResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&preparation)
+		_ = resp.Body.Close()
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("EGE prepare status=%d response=%+v", resp.StatusCode, preparation)
+		}
+		if preparation.Decision == decision.Allow && preparation.Permit != nil && preparation.EvidenceManifest != nil {
+			return preparation
+		}
+		if preparation.Decision == decision.Escalate &&
+			hasServerReason(preparation.ReasonCodes, decision.ResourceVersionChanged) {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		t.Fatalf("EGE prepare did not reach stable ALLOW: %+v", preparation)
 	}
-	caTemplate := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "StateLatch Test Client CA"},
-		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, caKey.Public(), caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	caCert, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	clientPublic, clientPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	uri, err := url.Parse(identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: "ignored-cn"},
-		NotBefore:    now.Add(-time.Minute),
-		NotAfter:     now.Add(time.Hour),
-		URIs:         []*url.URL{uri},
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-	}
-	clientDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caCert, clientPublic, caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientKeyDER, err := x509.MarshalPKCS8PrivateKey(clientPrivate)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
-	clientCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientDER})
-	clientKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: clientKeyDER})
-	certificate, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return caPEM, certificate
+	t.Fatal("EGE prepare remained unstable after retries")
+	return egePrepareResponse{}
 }

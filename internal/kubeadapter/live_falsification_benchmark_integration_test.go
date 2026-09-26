@@ -14,10 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/epistemic"
-	"github.com/achirothmane/state-latch/internal/outcome"
-	"github.com/achirothmane/state-latch/internal/prometheusprobe"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/outcome"
+	"github.com/achirothmane/aegis-ege/internal/prometheusprobe"
 )
 
 type liveMoatMetrics struct {

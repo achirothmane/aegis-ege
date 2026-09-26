@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
 const liveNodeHealthProbeSource = "kubernetes-api-live-probe"

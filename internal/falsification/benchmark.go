@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/assurance"
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/epistemic"
-	"github.com/achirothmane/state-latch/internal/outcome"
+	"github.com/achirothmane/aegis-ege/internal/assurance"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/epistemic"
+	"github.com/achirothmane/aegis-ege/internal/outcome"
 )
 
 type GroundTruth string

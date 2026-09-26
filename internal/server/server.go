@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/achirothmane/state-latch/internal/decision"
-	"github.com/achirothmane/state-latch/internal/kubeadapter"
+	"github.com/achirothmane/aegis-ege/internal/decision"
+	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
+	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
 
 type NodeDrainController interface {
@@ -29,13 +30,15 @@ type Config struct {
 	ReplayGuard           ReplayGuard
 	AuditSink             AuditSink
 	Clock                 func() time.Time
+	EGEPermitAuthority    egeproto.PermitAuthority
 }
 
 type Server struct {
 	controller NodeDrainController
 	store      kubeadapter.DrainCheckpointStore
-	config     Config
-	mux        *http.ServeMux
+	config          Config
+	mux             *http.ServeMux
+	permitAuthority egeproto.PermitAuthority
 }
 
 func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore, config Config) (*Server, error) {
@@ -63,7 +66,21 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	if config.MutationsEnabled && config.ReplayGuard == nil {
 		return nil, fmt.Errorf("replay guard is required when mutations are enabled")
 	}
-	s := &Server{controller: controller, store: store, config: config, mux: http.NewServeMux()}
+	permitAuthority := config.EGEPermitAuthority
+	if permitAuthority == nil {
+		var err error
+		permitAuthority, err = egeproto.NewEphemeralEd25519Authority()
+		if err != nil {
+			return nil, fmt.Errorf("create EGE permit authority: %w", err)
+		}
+	}
+	s := &Server{
+		controller:      controller,
+		store:           store,
+		config:          config,
+		mux:             http.NewServeMux(),
+		permitAuthority: permitAuthority,
+	}
 	s.routes()
 	return s, nil
 }
@@ -81,6 +98,15 @@ func (s *Server) routes() {
 	}
 	s.mux.Handle("POST /v1/node-drains/prepare", prepare)
 	s.mux.Handle("POST /v1/node-drains/execute", execute)
+
+	egePrepare := http.Handler(http.HandlerFunc(s.handleEGEPrepare))
+	egeExecute := http.Handler(http.HandlerFunc(s.handleEGEExecute))
+	if s.config.RequireAuthentication {
+		egePrepare = s.authenticated(PermissionPrepare, egePrepare)
+		egeExecute = s.authenticated(PermissionExecute, egeExecute)
+	}
+	s.mux.Handle("POST /v1/ege/prepare", egePrepare)
+	s.mux.Handle("POST /v1/ege/execute", egeExecute)
 }
 
 type prepareRequest struct {
