@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	egeNodeDrainKind = "kubernetes.node_drain"
-	egeNodeTarget    = "kubernetes.node"
+	egeNodeDrainKind           = "kubernetes.node_drain"
+	egeNodeTarget              = "kubernetes.node"
+	egeNodeDrainEvidenceSource = "statelatch.kubernetes.node_drain"
+	egeNodeDrainTrustDomain    = "kubernetes-control-plane"
 )
 
 type kubernetesNodeDrainEvidenceProducer struct {
@@ -29,8 +31,8 @@ func newKubernetesNodeDrainEvidenceProducer(
 	}
 }
 
-func (*kubernetesNodeDrainEvidenceProducer) Name() string        { return "statelatch.kubernetes.node_drain" }
-func (*kubernetesNodeDrainEvidenceProducer) TrustDomain() string { return "kubernetes-control-plane" }
+func (*kubernetesNodeDrainEvidenceProducer) Name() string        { return egeNodeDrainEvidenceSource }
+func (*kubernetesNodeDrainEvidenceProducer) TrustDomain() string { return egeNodeDrainTrustDomain }
 func (*kubernetesNodeDrainEvidenceProducer) Kind() string        { return egeNodeDrainKind }
 func (*kubernetesNodeDrainEvidenceProducer) TargetType() string  { return egeNodeTarget }
 
