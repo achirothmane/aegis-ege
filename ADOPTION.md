@@ -1,6 +1,6 @@
 # Adoption Gate
 
-StateLatch has enough engineering proof for the current Kubernetes node-drain thesis.
+Aegis-EGE has enough engineering proof for the current Kubernetes node-drain thesis.
 
 The next bottleneck is **external adoption**, not additional architecture.
 
@@ -138,13 +138,16 @@ Do not use stars alone as the success metric.
 
 ## Current baseline
 
-At the start of `v0.2.0-prealpha`:
+As verified on 2026-09-26 for the published `v0.2.0-prealpha` release:
 
 ```text
+release asset downloads: 0
 confirmed external users: 0
 confirmed external integrations: 0
 paid users: 0
 ```
+
+The next packaging cycle is `v0.3.0-prealpha`, which surfaces the Aegis-EGE protocol, evidence composition, Prometheus contributor, and the new falsification proof more clearly. This does not change the BUILD gate.
 
 This file should be updated only when there is externally verifiable evidence.
 
