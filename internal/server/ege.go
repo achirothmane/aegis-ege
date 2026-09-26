@@ -10,11 +10,7 @@ import (
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
-const (
-	egeAPIVersion    = "aegis.ege/v0alpha1"
-	egeNodeDrainKind = "kubernetes.node_drain"
-	egeNodeTarget    = "kubernetes.node"
-)
+const egeAPIVersion = "aegis.ege/v0alpha1"
 
 type egeTargetDTO struct {
 	Type string `json:"type"`
@@ -68,13 +64,18 @@ func normalizeEGEIntent(intentID, kind string, target egeTargetDTO) (string, str
 	if intentID == "" || kind == "" || target.Type == "" || target.Name == "" {
 		return "", "", egeTargetDTO{}, errors.New("intent_id, kind, target.type, and target.name are required")
 	}
-	if kind != egeNodeDrainKind {
-		return "", "", egeTargetDTO{}, errors.New("unsupported intent kind")
-	}
-	if target.Type != egeNodeTarget {
-		return "", "", egeTargetDTO{}, errors.New("target.type must be kubernetes.node for kubernetes.node_drain")
-	}
 	return intentID, kind, target, nil
+}
+
+func writeEGEAdapterResolutionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errUnsupportedEGEIntentKind):
+		writeError(w, http.StatusUnprocessableEntity, "UNSUPPORTED_INTENT_KIND", err)
+	case errors.Is(err, errEGETargetTypeMismatch):
+		writeError(w, http.StatusBadRequest, "INVALID_TARGET_TYPE", err)
+	default:
+		writeError(w, http.StatusInternalServerError, "ADAPTER_REGISTRY_UNAVAILABLE", err)
+	}
 }
 
 func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
@@ -86,20 +87,20 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 
 	intentID, kind, target, err := normalizeEGEIntent(req.IntentID, req.Kind, req.Target)
 	if err != nil {
-		code := "INVALID_REQUEST"
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "unsupported intent kind") {
-			code = "UNSUPPORTED_INTENT_KIND"
-			status = http.StatusUnprocessableEntity
-		}
-		writeError(w, status, code, err)
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+
+	adapter, err := s.egeAdapters.Resolve(kind, target.Type)
+	if err != nil {
+		writeEGEAdapterResolutionError(w, err)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.config.RequestTimeout)
 	defer cancel()
 
-	preparation, err := s.controller.PrepareNodeDrainExecution(ctx, intentID, target.Name, s.config.Policy)
+	preparation, err := adapter.Prepare(ctx, intentID, target)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "PREPARE_FAILED", err)
 		return
@@ -113,36 +114,22 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 		Decision:    preparation.Decision,
 		ReasonCodes: append([]decision.ReasonCode(nil), preparation.ReasonCodes...),
 		PlanDigest:  preparation.PlanDigest,
+		Snapshot:    preparation.Snapshot,
+		Plan:        preparation.Plan,
 	}
-	if preparation.Snapshot.NodeName != "" {
-		response.Snapshot = &snapshotDTO{
-			NodeUID:         preparation.Snapshot.NodeUID,
-			ResourceVersion: preparation.Snapshot.ResourceVersion,
-			NodeHealth:      preparation.Snapshot.NodeHealth,
-			Unschedulable:   preparation.Snapshot.Unschedulable,
-			ActivePods:      preparation.Snapshot.ActivePods,
-			ObservedAt:      preparation.Snapshot.ObservedAt,
-		}
-	}
-	if preparation.Plan != nil {
-		response.Plan = planToDTO(*preparation.Plan)
-	}
-	if preparation.Authorization != nil {
-		auth := *preparation.Authorization
+
+	if preparation.PermitBinding != nil {
+		binding := *preparation.PermitBinding
 		manifest := egeproto.EvidenceManifest{
 			APIVersion:      egeproto.EvidenceManifestVersion,
 			IntentID:        intentID,
 			Kind:            kind,
 			Target:          egeproto.Target{Type: target.Type, Name: target.Name},
-			ResourceVersion: auth.ResourceVersion,
-			EvidenceDigest:  auth.EvidenceDigest,
-			PlanDigest:      auth.PlanDigest,
-			ObservedAt:      preparation.Snapshot.ObservedAt,
-			EvidenceClasses: []string{
-				"kubernetes.authoritative-state",
-				"kubernetes.pdb-preflight",
-				"kubernetes.server-dry-run",
-			},
+			ResourceVersion: binding.ResourceVersion,
+			EvidenceDigest:  binding.EvidenceDigest,
+			PlanDigest:      binding.PlanDigest,
+			ObservedAt:      preparation.ObservedAt,
+			EvidenceClasses: append([]string(nil), preparation.EvidenceClasses...),
 		}
 		manifestDigest, err := egeproto.DigestEvidenceManifest(manifest)
 		if err != nil {
@@ -153,12 +140,12 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 			IntentID:               intentID,
 			Kind:                   kind,
 			Target:                 egeproto.Target{Type: target.Type, Name: target.Name},
-			Action:                 auth.Action,
-			ResourceVersion:        auth.ResourceVersion,
-			EvidenceDigest:         auth.EvidenceDigest,
+			Action:                 binding.Action,
+			ResourceVersion:        binding.ResourceVersion,
+			EvidenceDigest:         binding.EvidenceDigest,
 			EvidenceManifestDigest: manifestDigest,
-			PlanDigest:             auth.PlanDigest,
-			ValidUntil:             auth.ValidUntil,
+			PlanDigest:             binding.PlanDigest,
+			ValidUntil:             binding.ValidUntil,
 		})
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "PERMIT_SIGNING_FAILED", err)
@@ -186,13 +173,13 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 
 	intentID, kind, target, err := normalizeEGEIntent(req.IntentID, req.Kind, req.Target)
 	if err != nil {
-		code := "INVALID_REQUEST"
-		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "unsupported intent kind") {
-			code = "UNSUPPORTED_INTENT_KIND"
-			status = http.StatusUnprocessableEntity
-		}
-		writeError(w, status, code, err)
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+
+	adapter, err := s.egeAdapters.Resolve(kind, target.Type)
+	if err != nil {
+		writeEGEAdapterResolutionError(w, err)
 		return
 	}
 
@@ -208,24 +195,15 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 	if claims.IntentID != intentID ||
 		claims.Kind != kind ||
 		claims.Target.Type != target.Type ||
-		claims.Target.Name != target.Name ||
-		claims.Action != "drain" ||
-		claims.ResourceVersion == "" ||
-		claims.EvidenceDigest == "" ||
-		claims.EvidenceManifestDigest == "" ||
-		claims.PlanDigest == "" {
-		writeError(w, http.StatusBadRequest, "PERMIT_INTENT_MISMATCH", errors.New("signed permit does not match execution intent or is missing required state bindings"))
+		claims.Target.Name != target.Name {
+		writeError(w, http.StatusBadRequest, "PERMIT_INTENT_MISMATCH", errors.New("signed permit does not match execution intent"))
 		return
 	}
 
-	auth := decision.Authorization{
-		ActionID:        claims.IntentID,
-		Action:          claims.Action,
-		Target:          "node/" + claims.Target.Name,
-		ResourceVersion: claims.ResourceVersion,
-		EvidenceDigest:  claims.EvidenceDigest,
-		PlanDigest:      claims.PlanDigest,
-		ValidUntil:      claims.ValidUntil,
+	auth, err := adapter.AuthorizationFromPermit(intentID, target, claims)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "PERMIT_INTENT_MISMATCH", err)
+		return
 	}
 
 	if err := s.config.ReplayGuard.Claim(ctx, auth); err != nil {
@@ -238,13 +216,7 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := s.controller.ExecuteAuthorizedNodeDrainWithCheckpointStore(
-		ctx,
-		auth,
-		target.Name,
-		s.config.Policy,
-		s.store,
-	)
+	execution, err := adapter.Execute(ctx, auth, target)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "EXECUTION_FAILED", err)
 		return
@@ -255,19 +227,12 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		IntentID:    intentID,
 		Kind:        kind,
 		Target:      target,
-		Decision:    report.Decision,
-		ReasonCodes: append([]decision.ReasonCode(nil), report.ReasonCodes...),
-		PlanDigest:  report.PlanDigest,
-		Steps:       make([]mutationStepDTO, 0, len(report.Steps)),
-	}
-	for _, step := range report.Steps {
-		response.Steps = append(response.Steps, mutationStepDTO{
-			Kind:    step.Step.Kind,
-			Applied: step.Applied,
-			Error:   step.Error,
-		})
+		Decision:    execution.Decision,
+		ReasonCodes: append([]decision.ReasonCode(nil), execution.ReasonCodes...),
+		PlanDigest:  execution.PlanDigest,
+		Steps:       append([]mutationStepDTO(nil), execution.Steps...),
 	}
 
-	s.auditDecision(r, PermissionExecute, string(report.Decision), intentID, target.Name, report.ReasonCodes)
+	s.auditDecision(r, PermissionExecute, string(execution.Decision), intentID, target.Name, execution.ReasonCodes)
 	writeJSON(w, http.StatusOK, response)
 }
