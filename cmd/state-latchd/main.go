@@ -33,6 +33,8 @@ func main() {
 		stateNamespace  = flag.String("state-namespace", "kube-system", "namespace for shared Kubernetes state")
 		enableMutations = flag.Bool("enable-mutations", false, "enable authenticated real node-drain execution")
 		insecureReadOnly = flag.Bool("insecure-read-only", false, "allow HTTP without mTLS; mutations are forbidden")
+		prometheusNodeHealthURL = flag.String("prometheus-node-health-url", "", "optional Prometheus base URL for independent node-health evidence")
+		prometheusTrustDomain = flag.String("prometheus-trust-domain", "", "trust-domain name for Prometheus evidence; required with prometheus-node-health-url and must differ from kubernetes-control-plane")
 	)
 	flag.Parse()
 
@@ -137,7 +139,9 @@ func main() {
 		RequireAuthentication: requireAuthentication,
 		Authorizer:            authorizer,
 		ReplayGuard:           replay,
-		AuditSink:             server.SlogAuditSink{},
+		AuditSink:                         server.SlogAuditSink{},
+		EGEPrometheusNodeHealthURL:         *prometheusNodeHealthURL,
+		EGEPrometheusNodeHealthTrustDomain: *prometheusTrustDomain,
 	})
 	if err != nil {
 		fatal("create API server", err)

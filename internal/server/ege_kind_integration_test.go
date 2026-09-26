@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -64,6 +65,19 @@ func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	prometheus := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/query" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(
+			w,
+			"{\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[{\"value\":[%f,\"1\"]}]}}",
+			float64(time.Now().UTC().Unix()),
+		)
+	}))
+	defer prometheus.Close()
 
 	identity := "spiffe://aegis-ege.test/operator"
 	authorizer, err := NewMTLSAuthorizer(AuthzFile{
@@ -95,7 +109,10 @@ func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T)
 			MutationsEnabled:      true,
 			RequireAuthentication: true,
 			Authorizer:            authorizer,
-			ReplayGuard:           replay,
+			ReplayGuard:                       replay,
+			EGEPrometheusNodeHealthURL:         prometheus.URL,
+			EGEPrometheusNodeHealthTrustDomain: "external-observability",
+			EGEPrometheusHTTPClient:            prometheus.Client(),
 		},
 	)
 	if err != nil {
@@ -131,6 +148,20 @@ func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T)
 			preparation.Target.Type != egeNodeTarget ||
 			preparation.Target.Name != nodeName {
 			t.Fatalf("unexpected Aegis-EGE preparation envelope: %+v", preparation)
+		}
+		if preparation.EvidenceManifest == nil || len(preparation.EvidenceManifest.Sources) != 2 {
+			t.Fatalf("expected Kubernetes + Prometheus composed evidence, got %+v", preparation.EvidenceManifest)
+		}
+		sourceNames := map[string]bool{}
+		trustDomains := map[string]bool{}
+		for _, source := range preparation.EvidenceManifest.Sources {
+			sourceNames[source.Name] = true
+			trustDomains[source.TrustDomain] = true
+		}
+		if !sourceNames[egeNodeDrainEvidenceSource] ||
+			!sourceNames[egePrometheusNodeHealthEvidenceSource] ||
+			len(trustDomains) != 2 {
+			t.Fatalf("expected two distinct evidence sources/domains, got %+v", preparation.EvidenceManifest.Sources)
 		}
 
 		executePayload, err = json.Marshal(egeExecuteRequest{
