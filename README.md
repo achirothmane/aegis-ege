@@ -1,71 +1,71 @@
 # Aegis-EGE
 
-**Evidence-gated execution for AI agents and high-consequence automation.**
+**Do not let automation mutate infrastructure on stale or contradictory evidence.**
 
-Aegis-EGE is an experimental execution-governance gateway that sits between an agent or automation system and the infrastructure it wants to change.
+Aegis-EGE is an experimental evidence-gated execution layer for AI agents and high-consequence automation.
 
-The current assurance engine inside Aegis-EGE is **StateLatch**. Before an automated action reaches infrastructure, StateLatch asks:
-
-> Is the evidence that justified this action still current, consistent, sufficient, and valid for this exact action and world state?
-
-The first proof target is deliberately narrow: **Kubernetes node drain**. Aegis-EGE v0 adds a generic execution-intent contract above that proven StateLatch path before the project expands to additional infrastructure adapters.
-
-Current control path:
+The first proven path is deliberately narrow:
 
 ```text
-Agent / Automation
-→ Aegis-EGE execution intent
-→ StateLatch evidence + state assurance
-→ ALLOW / BLOCK / ESCALATE
-→ exact authorization
-→ guarded execution
-→ postflight verification
+Kubernetes node drain
 ```
 
-## Why this exists
+An agent or automation can propose the action. Aegis-EGE decides whether the current evidence is sufficient to let that exact action execute against that exact world state.
 
-A normal request-time policy can be correct when it runs and still become unsafe milliseconds later.
+> **Evidence before action.**
 
-Examples StateLatch is designed to catch:
+## The failure Aegis-EGE is built for
+
+A request-time policy can be correct when it runs and still become unsafe before or during execution.
 
 ```text
 policy says ALLOW
-→ PDB changes
-→ original decision is now stale
-
-Kubernetes says healthy
-→ Prometheus says unhealthy
-→ evidence conflicts
-
-authorization was valid
-→ Pod is replaced or its drain-relevant state changes
-→ execution plan is no longer the authorized plan
-
-drain finishes
-→ a new workload appears directly on the cordoned node
-→ expected outcome no longer matches reality
+→ world state changes
+→ automation executes anyway
 ```
 
-The control loop is:
+Aegis-EGE instead uses:
 
 ```text
-Observe
-→ maintain evidence/assumptions
-→ verify
-→ acquire missing evidence safely
-→ authorize exact action + state
-→ execute
-→ observe outcome
-→ record divergence
+Execution Intent
+→ Evidence Producer(s)
+→ Evidence Composition Policy
+→ ALLOW / BLOCK / ESCALATE
+→ Evidence Manifest
+→ Signed, state-bound Permit
+→ Live Revalidation
+→ Guarded Mutation
+→ Outcome Verification
 ```
 
-Insufficient evidence does **not** become ALLOW:
+A valid signature is necessary but not sufficient. If the world changes after permit issuance, execution can still be rejected.
+
+## One concrete falsification
+
+The repository contains a KinD integration test that evaluates the **same node** and **same drain intent** in two paths.
+
+Kubernetes alone:
 
 ```text
-UNKNOWN → safe read-only probe → re-evaluate
-still unknown → ESCALATE
-contradiction → BLOCK
+NodeReady=True
+→ ALLOW
+→ signed permit
 ```
+
+Then with an independently declared Prometheus evidence source reporting the node unhealthy:
+
+```text
+Kubernetes: healthy
+Prometheus: unhealthy
+→ EVIDENCE_CONTRADICTED
+→ BLOCK
+→ no permit
+→ no mutation
+```
+
+That proves incremental decision value: the external evidence domain can veto an action the Kubernetes-only path would otherwise authorize.
+
+See [Prometheus falsification v1](docs/prometheus-falsification-v1.md).
 
 ## 60-second quickstart
 
@@ -73,32 +73,21 @@ Requires Go 1.25+.
 
 ```bash
 git clone https://github.com/achirothmane/aegis-ege
-cd state-latch
+cd aegis-ege
 
 go test ./...
 go run ./cmd/moatbench
 ```
 
-The second command runs the reproducible synthetic falsification benchmark and prints the baseline-vs-StateLatch comparison.
+The first command runs the unit suite. The second runs the reproducible synthetic falsification benchmark.
 
-The main CI also creates a temporary KinD cluster and runs the live Kubernetes adversarial and incident-replay suites.
+CI also creates a temporary KinD cluster and runs live adversarial, integration, replay, and Aegis-EGE evidence-gating tests.
 
 ## What the benchmark currently shows
 
-### Benchmark v1 — 40 labeled synthetic cases
+### Synthetic benchmark v1 — 40 labeled cases
 
-Baseline:
-
-```text
-live primary lookup
-+ fixed TTL
-+ static policy
-+ request-time decision
-```
-
-Current CI result:
-
-| Metric | Baseline | StateLatch |
+| Metric | Request-time baseline | StateLatch assurance |
 | --- | ---: | ---: |
 | Unsafe ALLOWs | 19 | **0** |
 | Unresolved/UNKNOWN ALLOWs | 4 | **0** |
@@ -106,22 +95,18 @@ Current CI result:
 | Safe escalations | 0 | **0** |
 | Postflight divergences detected | 0/2 | **2/2** |
 
-CPU-only GitHub-runner microbenchmark from the same run:
+CPU-only GitHub-runner microbenchmark from the same benchmark:
 
 ```text
 Baseline   ~61 ns/scenario
 StateLatch ~1.9 µs/scenario
 ```
 
-This is **not production latency**. Real Kubernetes/Prometheus network and API costs dominate these in-memory numbers.
+These are **not production latencies**. Real Kubernetes/Prometheus network and API costs dominate.
 
-### Benchmark v2 — live adversarial KinD corpus
+### Live adversarial KinD benchmark v2
 
-Eight live cases use real Kubernetes state transitions.
-
-Current CI result:
-
-| Metric | Baseline | StateLatch |
+| Metric | Request-time baseline | StateLatch assurance |
 | --- | ---: | ---: |
 | Unsafe ALLOWs | 3 | **0** |
 | Unresolved-source ALLOWs | 1 | **0** |
@@ -129,358 +114,229 @@ Current CI result:
 | Ordinary PDB policy block | 1/1 | **1/1** |
 | Postflight divergence detected | 0/1 | **1/1** |
 
-The baseline is intentionally not trivial: it performs a live request-time Kubernetes preflight over Node/Pods/PDB state. It simply lacks StateLatch's continuous invalidation, independent evidence, state-bound revalidation, and postflight loop.
+### Source-backed incident replay v3
 
-### Benchmark v3 — source-backed incident replay
-
-The replay suite uses public Kubernetes issue reports as external scenario sources.
-
-One replay **falsified StateLatch before it passed**:
+One replay initially falsified the system:
 
 ```text
 real drain succeeds
 → Node remains cordoned
-→ a new Pod is created with spec.nodeName
+→ a new Pod appears via spec.nodeName
 → old postflight logic returns MATCH   ❌
 ```
 
-That exposed a real gap: postflight only checked the originally authorized Pod UIDs.
-
-The repair added this invariant:
+The repair added the invariant:
 
 ```text
 unexpected_workload_pods = 0
 ```
 
-The same replay then passed without changing its success criterion.
-
-Other source-backed replays verify:
-
-- same Pod name with a different UID invalidates the old authorization;
-- a rejected cordon stops execution before any Pod eviction.
+The same replay then passed without changing the success criterion.
 
 See [Real incident replay benchmark v3](docs/real-incident-replay-v3.md).
 
-## What StateLatch adds beyond request-time policy
+## Evidence composition
 
-### 1. Continuous invalidation
+Aegis-EGE can bind multiple named evidence sources into one Evidence Manifest and require a composition policy before permit minting.
 
-A watched world-state change can invalidate an assumption **before another execution request arrives**.
-
-```text
-Kubernetes event
-→ resource dependency
-→ assumption invalidated
-```
-
-### 2. Transitive assumption graph
-
-Higher-level assumptions can depend on lower-level assumptions.
+Current source model:
 
 ```text
-PDB changed
-→ "PDB permits disruption" invalid
-→ "node drain is safe" invalid
+source name
++ trust domain
++ evidence digest
++ observed_at
++ evidence classes
 ```
 
-The target Node itself does not need to change.
+Policy can require:
 
-### 3. Independent evidence
+- minimum source count;
+- minimum distinct trust-domain count;
+- specific named sources.
 
-StateLatch can require distinct evidence sources.
+When Prometheus node-health is configured, the node-drain policy becomes:
 
 ```text
-Kubernetes = healthy
-Prometheus = unhealthy
-→ BLOCK / EVIDENCE_CONTRADICTED
+statelatch.kubernetes.node_drain
++ prometheus.node_health
++ 2 declared trust domains
+→ permit eligible
 ```
 
-If evidence is missing, a bounded **READ_ONLY** probe can acquire it and force a deterministic re-evaluation.
+If Prometheus contradicts Kubernetes, Aegis returns `BLOCK`. If required external evidence is unavailable, Aegis fails closed with `ESCALATE`.
 
-### 4. Fresh-evidence reconciliation
+Important limitation: Aegis can enforce distinct declared trust-domain identities, but operational independence still depends on how the observability path is actually deployed.
 
-Contradictions are not resolved by majority vote.
+See [Evidence composition](docs/evidence-composition.md).
+
+## StateLatch: the current assurance engine
+
+StateLatch is the Kubernetes assurance engine inside Aegis-EGE.
+
+It provides:
+
+- continuous Kubernetes state invalidation;
+- transitive assumption dependencies;
+- action-sensitive temporal validity;
+- bounded read-only evidence acquisition;
+- contradiction detection and fresh-evidence reconciliation;
+- Node / Pod / PDB inspection;
+- server-side dry-run;
+- deterministic execution plans and digests;
+- short-lived state-bound authorization;
+- final and in-flight revalidation;
+- Pod UID and semantic-state protection;
+- Kubernetes Lease single-writer execution locking;
+- durable replay rejection;
+- persistent partial-failure checkpoints;
+- postflight expected-vs-observed verification;
+- signed hash-chained execution journal;
+- external anti-rollback/key-custody boundaries;
+- mTLS caller identity with separate PREPARE/EXECUTE permissions.
+
+## Public Aegis-EGE protocol
+
+Prepare:
 
 ```text
-historical contradiction
-→ start fresh evidence epoch
-→ reacquire independent sources
-→ agree     → ALLOW may become possible
-→ disagree  → BLOCK
-→ incomplete → ESCALATE
+POST /v1/ege/prepare
 ```
 
-### 5. Action-sensitive temporal validity
-
-The same assumption may be fresh enough for a low-consequence action but expired for a critical one.
+A successful ALLOW can return:
 
 ```text
-same assumption, age 20s
-
-LOW window = 60s
-→ VALID
-
-CRITICAL window = 5s
-→ EXPIRED / BLOCK
+Evidence Manifest v0alpha2
++
+Ed25519-signed execution permit
 ```
 
-Event invalidation always dominates temporal freshness.
+The permit is bound to the exact:
 
-### 6. State-bound authorization
-
-The plan is built from Kubernetes-observed state, not agent-supplied state.
-
-Authorization is bound to the exact execution context, including:
-
-- action and target;
-- Node identity and state;
-- deterministic plan digest;
+- intent;
+- kind;
+- target;
+- action;
+- resource version;
 - evidence digest;
-- short expiry;
-- Pod identity and drain-relevant semantic state.
+- Evidence Manifest digest;
+- plan digest;
+- expiry.
 
-A same-name replacement Pod is not treated as the original object.
-
-### 7. Revalidation during execution
-
-With experimental mutations enabled:
+Execute:
 
 ```text
-final live revalidation
-→ cordon
-→ re-read state
-→ compare remaining plan
-→ evict one Pod
-→ observe deletion
-→ revalidate
-→ repeat
+POST /v1/ege/execute
 ```
 
-The execution loop does not blindly consume a previously authorized plan.
+Before mutation, Aegis verifies the permit and StateLatch performs live revalidation.
 
-### 8. Single-writer execution lease
+## Prometheus external evidence
 
-Real mutation execution now requires a Kubernetes `coordination.k8s.io/v1 Lease` for the target Node.
+Optional daemon configuration:
 
 ```text
-acquire target Lease
-→ revalidate
-→ checkpoint
-→ mutate
-→ renew/verify ownership before each mutation
-→ release
+--prometheus-node-health-url=https://prometheus.example
+--prometheus-trust-domain=external-observability
 ```
 
-A second StateLatch executor targeting the same Node receives:
+When configured, Prometheus becomes required evidence for node-drain permit minting.
 
-```text
-ESCALATE / EXECUTION_LOCK_HELD
-```
+The Prometheus sample must:
 
-If the holder loses the Lease during execution:
-
-```text
-ESCALATE / EXECUTION_LOCK_LOST
-```
-
-and no later mutation is attempted.
-
-See [Execution locking](docs/execution-locking.md).
-
-### 9. Tamper-evident execution journal
-
-M6 adds a signed append-only journal for the authorization → execution → outcome lifecycle.
-
-```text
-authorization
-→ execution
-→ postflight outcome
-→ hash-chained JSONL
-→ Ed25519-signed head anchor
-```
-
-Verification detects entry modification, reordering, middle deletion, tail truncation against the current signed anchor, anchor tampering, and missing anchors.
-
-The journal is audit evidence only; it does not participate in ALLOW/BLOCK/ESCALATE authority.
-
-A full rollback of both the journal and a matching older valid signed anchor requires an external monotonic/WORM reference to detect and remains outside M6.
-
-See [Tamper-evident execution journal](docs/tamper-evident-journal.md).
-
-### 10. Postflight outcome verification
-
-StateLatch compares expected and observed outcome:
-
-```text
-MATCH
-DIVERGED
-UNKNOWN
-```
-
-For node drain, postflight checks include:
-
-- Node remains unschedulable;
-- originally evicted Pod UIDs remain absent;
-- no unexpected non-terminal, non-mirror, non-DaemonSet workload appears on the drained Node.
-
-Outcome reliability calibration exists, but it is **advisory only**. It cannot silently rewrite production authorization policy.
+- target the exact node;
+- resolve to exactly one series;
+- be fresh;
+- contain a supported binary health value;
+- agree with the primary StateLatch observation.
 
 ## Safe-by-default mutation model
 
-Normal constructors keep real mutations disabled:
+Real Kubernetes mutations are disabled by default.
+
+Normal constructors:
 
 ```go
 NewForConfig(config)
 NewWithExecutor(reader, executor)
 ```
 
-Real mutation currently requires the explicitly named experimental path:
+Experimental mutation constructors:
 
 ```go
 NewForConfigWithExperimentalMutations(config)
 ```
 
-Without that opt-in, real execution returns:
+Without explicit opt-in, execution cannot mutate infrastructure.
 
-```text
-ESCALATE / REAL_EXECUTION_UNAVAILABLE
-```
-
-Production mutation enablement is intentionally not part of this pre-alpha release.
-
-## Node-drain checks
-
-Current preflight includes:
-
-```text
-DaemonSet pod without explicit ignore
-→ BLOCK
-
-Unmanaged pod without explicit force
-→ BLOCK
-
-emptyDir without explicit delete permission
-→ BLOCK
-
-PDB disruption capacity insufficient
-→ BLOCK
-
-PDB status stale
-→ ESCALATE
-
-PDB state unavailable
-→ ESCALATE
-```
-
-Mirror/static Pods are recorded and skipped according to drain semantics.
-
-Server-side dry-run is required for the cordon and every planned eviction before an authorization is exposed.
-
-## Partial failure and recovery
-
-Experimental real execution can persist a checkpoint and recover from interruption.
-
-```go
-ExecuteAuthorizedNodeDrainWithCheckpointStore(...)
-InspectDrainRecovery(...)
-ResumeAuthorizedNodeDrain(...)
-```
-
-Recovery is state-derived:
-
-```text
-load checkpoint
-→ re-read Kubernetes
-→ reconcile already-observed completion
-→ rebuild remaining state
-→ require fresh authorization if work remains
-→ resume only the current authorized remainder
-```
-
-A stale authorization is never silently reused after partial execution.
-
-See [Partial failure and recovery](docs/partial-failure-recovery.md).
-
-## What is implemented
-
-- continuous Kubernetes watch invalidation;
-- transitive assumption dependency graph;
-- action-sensitive temporal validity;
-- bounded read-only active evidence acquisition;
-- independent Prometheus-compatible HTTP evidence;
-- contradiction detection and fresh-epoch reconciliation;
-- Node / Pod / PDB live state inspection;
-- server-side dry-run cordon and eviction;
-- deterministic execution plan + digest;
-- state-bound short-lived authorization;
-- final and in-flight revalidation;
-- real guarded cordon + eviction behind explicit experimental opt-in;
-- Pod UID and semantic-state protection;
-- persistent partial-failure checkpoints and recovery;
-- Kubernetes Lease-based single-writer execution locking;
-- synchronous lock verification before each real mutation;
-- live lock contention protection on KinD;
-- signed hash-chained execution journal with Ed25519 head anchor;
-- HTTP daemon/API with server-owned node-drain policy;
-- TLS 1.3 mTLS caller identity with separate PREPARE/EXECUTE permissions;
-- durable replay rejection for state-bound authorizations;
-- Kubernetes-backed shared checkpoint state with resourceVersion concurrency;
-- cluster-wide shared replay claims for multi-replica execution safety;
-- live authorization → execution → outcome journal binding in KinD;
-- postflight expected-vs-observed comparison;
-- advisory reliability ledger;
-- synthetic, live KinD, and source-backed incident falsification suites.
+Aegis-EGE is still **pre-alpha** and is not a production-ready replacement for `kubectl drain`.
 
 ## What is not implemented
 
-- production mutation enablement;
+- production-ready mutation enablement;
 - external fencing token enforced by mutation targets;
-- external WORM/KMS/transparency anti-rollback anchor for the journal;
-- production signing-key custody / HSM integration;
 - mature rollback/compensation semantics;
 - full `kubectl drain` parity;
+- complete deployment/operations packaging;
+- production hardening/RC validation;
 - AWS/GCP/SSH/database/PLC adapters;
-- automatic policy changes from reliability calibration.
+- generic arbitrary Kubernetes mutation proxy;
+- automatic policy learning.
 
-StateLatch is still a **controlled research/prototype system**, not a production-ready drain replacement.
+## Current product boundary
 
-## Adoption gate
+The supported real execution path is still intentionally narrow:
 
-Development is now gated by external adoption evidence rather than feature count.
+```text
+kind:        kubernetes.node_drain
+target_type: kubernetes.node
+```
 
-**No new major capability or new infrastructure adapter is justified solely because it is technically interesting.**
+We are **not** adding more infrastructure adapters just to demonstrate extensibility.
 
-The next BUILD gate requires external usage evidence. See [ADOPTION.md](ADOPTION.md) for the thresholds and decision rules.
+The current bottleneck is external usage and product discovery, not feature count.
+
+## Try it and report what breaks
+
+If you run Aegis-EGE in KinD or against a non-sensitive Kubernetes workflow, report the result—even if the result is “this is too complicated” or “I would use a simpler alternative.”
+
+[Open an adoption / real usage report](https://github.com/achirothmane/aegis-ege/issues/new?template=adoption.yml)
+
+That feedback is the gate for major product expansion.
 
 ## Docs
 
+- [Aegis-EGE v0 protocol](docs/aegis-ege-v0.md)
+- [Evidence producers](docs/evidence-producers.md)
+- [Evidence composition](docs/evidence-composition.md)
+- [Prometheus falsification v1](docs/prometheus-falsification-v1.md)
+- [Adapter registry](docs/adapter-registry.md)
 - [Adoption gate](ADOPTION.md)
-- [Real incident replay benchmark v3](docs/real-incident-replay-v3.md)
 - [Kubernetes node-drain adapter](docs/kubernetes-node-drain.md)
-- [Server-side dry-run](docs/server-dry-run.md)
 - [Guarded experimental execution](docs/guarded-real-execution.md)
-- [Partial failure and recovery](docs/partial-failure-recovery.md)
 - [Execution locking](docs/execution-locking.md)
+- [Partial failure and recovery](docs/partial-failure-recovery.md)
 - [Tamper-evident execution journal](docs/tamper-evident-journal.md)
-- [Daemon API](docs/daemon-api.md)
 - [mTLS authentication and authorization](docs/mtls-authz.md)
 - [Shared HA state](docs/shared-ha-state.md)
 - [v1.0 completion roadmap](V1_ROADMAP.md)
-- [Decision contract](docs/decision-contract.md)
 
 ## Current status
 
-**v0.2.0-prealpha**
+**v0.3.0-prealpha candidate**
 
-The execution-safety thesis now has three evidence layers:
+Technical evidence currently includes:
 
 ```text
 synthetic falsification
 → live KinD adversarial testing
 → source-backed incident replay
+→ signed evidence-gated execution
+→ multi-source evidence composition
+→ Prometheus incremental-value falsification
 ```
 
-That supports a differentiation claim for the tested Kubernetes drain scenarios. It does **not** establish a commercial moat, production-wide superiority, or broad incident coverage.
+This supports the tested Kubernetes node-drain safety claims. It does **not** establish production-wide superiority, a commercial moat, or broad incident coverage.
 
 ## Design principle
 

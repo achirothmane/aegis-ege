@@ -18,19 +18,19 @@ It is not a multi-cloud automation gateway. AWS/GCP/SSH/database/PLC adapters do
 
 ## Remaining v1 milestones
 
-### M7 — daemon / API surface
+### M7 — daemon / API surface — COMPLETED
 
 Long-running state-latchd, health endpoint, prepare endpoint, execution endpoint with mutations disabled by default, strict request parsing, bounded bodies, server timeouts, graceful shutdown, and KinD proof that default daemon mode cannot mutate.
 
-### M8 — caller authentication and authorization — IMPLEMENTED / pending CI merge
+### M8 — caller authentication and authorization — COMPLETED
 
 mTLS URI-SAN identity, separate PREPARE and EXECUTE permissions, default deny, structured identity audit records, durable single-daemon replay protection, TLS 1.3, and no mutation enablement without authentication/replay/checkpoint configuration.
 
-### M9 — shared durable state / HA recovery — IMPLEMENTED / pending CI merge
+### M9 — shared durable state / HA recovery — COMPLETED
 
 Kubernetes-backed shared checkpoint storage, resourceVersion optimistic concurrency, cluster-wide replay claims, cross-replica recovery proof, and Kubernetes shared state as the production daemon default.
 
-### M10 — external anti-rollback anchor and key custody — IMPLEMENTED / pending CI merge
+### M10 — external anti-rollback anchor and key custody — COMPLETED
 
 Signer/verifier separation, HTTPS remote signer boundary for KMS/HSM custody, KeyID-based rotation with historical verification, ExternalHeadStore abstraction, Kubernetes resourceVersion-backed external head, and full-local-snapshot rollback detection.
 

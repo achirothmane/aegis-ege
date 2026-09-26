@@ -1,5 +1,5 @@
 name: Adoption / real usage report
-description: Tell us what happened when you ran StateLatch or tried it on a real Kubernetes workflow.
+description: Tell us what happened when you ran Aegis-EGE or tried it on a real Kubernetes workflow.
 title: "[adoption] "
 labels:
   - adoption
