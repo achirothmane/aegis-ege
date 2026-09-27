@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -264,6 +265,81 @@ func VerifyBootstrapArtifact(path string, manifest BootstrapManifest) error {
 		)
 	}
 	return nil
+}
+
+func StageVerifiedBootstrapArtifact(
+	sourcePath string,
+	manifest BootstrapManifest,
+) (string, func(), error) {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("open BPF artifact: %w", err)
+	}
+	defer source.Close()
+
+	dir, err := os.MkdirTemp("", "aegis-bpf-bootstrap-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create secure BPF staging directory: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	stagedPath := filepath.Join(dir, "verified.bpf.o")
+	staged, err := os.OpenFile(stagedPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("create staged BPF artifact: %w", err)
+	}
+
+	hasher := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(staged, hasher), source)
+	if copyErr != nil {
+		_ = staged.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("stage BPF artifact: %w", copyErr)
+	}
+	if err := staged.Sync(); err != nil {
+		_ = staged.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("sync staged BPF artifact: %w", err)
+	}
+	if err := staged.Chmod(0o400); err != nil {
+		_ = staged.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("lock staged BPF artifact permissions: %w", err)
+	}
+	if err := staged.Close(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("close staged BPF artifact: %w", err)
+	}
+
+	actualDigest := "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+	if written != manifest.ArtifactSize || actualDigest != manifest.ArtifactSHA256 {
+		cleanup()
+		return "", nil, fmt.Errorf(
+			"%w: size=%d/%d digest=%s/%s",
+			ErrBootstrapArtifactMismatch,
+			written,
+			manifest.ArtifactSize,
+			actualDigest,
+			manifest.ArtifactSHA256,
+		)
+	}
+
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("open BPF staging directory: %w", err)
+	}
+	if err := dirFile.Sync(); err != nil {
+		_ = dirFile.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("sync BPF staging directory: %w", err)
+	}
+	if err := dirFile.Close(); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return stagedPath, cleanup, nil
 }
 
 func BootstrapManifestDigest(manifest BootstrapManifest) (string, error) {
