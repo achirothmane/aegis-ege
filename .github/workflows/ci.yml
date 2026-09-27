@@ -20,6 +20,10 @@ jobs:
           go-version: "1.25.x"
           cache: true
       - run: go mod download
+      - name: Materialize EASL checksum (temporary diagnostic)
+        run: |
+          go get github.com/achirothmane/easl@v0.0.0-20260927015333-57993793afb9
+          grep 'github.com/achirothmane/easl' go.sum
       - run: go mod verify
       - run: go test ./...
       - name: Run moat falsification benchmark v1
