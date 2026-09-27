@@ -308,28 +308,13 @@ func TestKindGuardedRealExecutionStopsOnDriftAfterCordon(t *testing.T) {
 	}
 	adapter := NewWithExperimentalMutations(reader, executor)
 
-	preparation, err := adapter.PrepareNodeDrainExecution(
-		ctx,
+	_, report := executeKindDrainWithFreshAuthorizationRetry(
+		t,
+		adapter,
 		"act-kind-real-drift",
 		env.nodeName,
 		policy,
 	)
-	if err != nil {
-		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
-	}
-	if preparation.Decision != decision.Allow || preparation.Authorization == nil {
-		t.Fatalf("expected prepared ALLOW, got %s reasons=%v", preparation.Decision, preparation.ReasonCodes)
-	}
-
-	report, err := adapter.ExecuteAuthorizedNodeDrain(
-		ctx,
-		*preparation.Authorization,
-		env.nodeName,
-		policy,
-	)
-	if err != nil {
-		t.Fatalf("ExecuteAuthorizedNodeDrain returned error: %v", err)
-	}
 	if report.Decision != decision.Escalate {
 		t.Fatalf("expected ESCALATE after post-cordon drift, got %s reasons=%v", report.Decision, report.ReasonCodes)
 	}
