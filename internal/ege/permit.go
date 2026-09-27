@@ -65,9 +65,13 @@ type Permit struct {
 	Signature  string       `json:"signature"`
 }
 
-type PermitAuthority interface {
-	Sign(context.Context, []byte) (string, []byte, error)
+type SignatureVerifier interface {
 	Verify(context.Context, string, []byte, []byte) error
+}
+
+type PermitAuthority interface {
+	SignatureVerifier
+	Sign(context.Context, []byte) (string, []byte, error)
 }
 
 type Ed25519Authority struct {
@@ -158,7 +162,7 @@ func SignPermit(ctx context.Context, authority PermitAuthority, claims PermitCla
 	}, nil
 }
 
-func VerifyPermit(ctx context.Context, authority PermitAuthority, permit Permit) error {
+func VerifyPermit(ctx context.Context, authority SignatureVerifier, permit Permit) error {
 	if authority == nil {
 		return errors.New("EGE permit authority is required")
 	}
