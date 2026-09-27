@@ -75,6 +75,7 @@ authenticate caller
 → verify signed permit
 → match permit to outer intent
 → validate full EBA conformance bundle
+→ evaluate consequence admissibility
 → derive execution authorization
 → claim replay guard
 → execute mutation
@@ -87,8 +88,9 @@ reaches the mutation controller.
 
 - missing bundle -> `403 EBA_CONFORMANCE_REQUIRED`
 - invalid/tampered bundle -> `403 EBA_CONFORMANCE_BLOCKED`
+- consequence policy rejection -> `403 CONSEQUENCE_ADMISSIBILITY_BLOCKED`
 - controller is not called
-- replay guard is not claimed before EBA validation
+- replay guard is not claimed before EBA validation or consequence admission
 
 ## Backward compatibility
 
@@ -139,3 +141,12 @@ Aegis daemon
 
 The derived `key_id` is stable across process restarts because it is based on
 the Ed25519 public-key SHA-256 fingerprint.
+
+
+## Consequence boundary
+
+After EBA validates evidence, assumptions, authority, and approvals, Aegis performs a separate deterministic consequence-admission check before claiming replay state or entering the mutation controller.
+
+The first profile classifies Kubernetes node drain as an `operational_state_change` and binds the decision to a versioned policy, policy hash, evaluation time, and exact action-scope digest.
+
+See [Consequence admissibility](consequence-admissibility.md).
