@@ -140,7 +140,23 @@ func TestSignedBootstrapReceiptRoundTrip(t *testing.T) {
 			LockdownMode:  "integrity",
 			BPFFSRoot:     "/sys/fs/bpf/aegis-ege",
 		},
-		CgroupPath:  "/sys/fs/cgroup/workload",
+		CgroupPath: "/sys/fs/cgroup/workload",
+		Programs: []PinnedProgramAttestation{{
+			PinName:    "aegis_connect4",
+			ID:         11,
+			Name:       "aegis_connect4",
+			Type:       "cgroup_sock_addr",
+			Tag:        "0123456789abcdef",
+			AttachType: "connect4",
+		}},
+		Maps: []PinnedMapAttestation{{
+			Name:       "aegis_capsules",
+			ID:         22,
+			Type:       "hash",
+			KeySize:    40,
+			ValueSize:  240,
+			MaxEntries: 16384,
+		}},
 		CompletedAt: time.Date(2026, 9, 27, 22, 0, 0, 0, time.UTC),
 	}
 	signed, err := SignBootstrapReceipt(receipt, priv)
