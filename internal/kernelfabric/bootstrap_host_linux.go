@@ -98,13 +98,13 @@ func normalizeKernelLockdown(value string) string {
 	return value
 }
 
-func utsReleaseString(release [65]int8) string {
+func utsReleaseString(release [65]byte) string {
 	buf := make([]byte, 0, len(release))
 	for _, value := range release {
 		if value == 0 {
 			break
 		}
-		buf = append(buf, byte(value))
+		buf = append(buf, value)
 	}
 	return string(buf)
 }
