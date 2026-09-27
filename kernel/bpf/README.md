@@ -48,4 +48,13 @@ and maps under:
 
 Userspace installs scope fences and DecisionCapsules through the pinned maps. The Go package `internal/kernelfabric` provides a bpftool-backed `KernelStore` for those updates.
 
+The object also pins:
+
+```text
+/sys/fs/bpf/aegis-ege/maps/aegis_evidence_events
+/sys/fs/bpf/aegis-ege/maps/aegis_evidence_accounting
+```
+
+`EvidenceReader` consumes the ring buffer and compares its observed sequence with the kernel accounting map. Ring-buffer reservation failures increment the kernel `lost` counter and consume a sequence number, making evidence loss detectable even under backpressure.
+
 This is the cgroup network adapter only. XDP and BPF-LSM are separate enforcement adapters and are not implied by this directory.
