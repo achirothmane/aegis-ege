@@ -47,6 +47,7 @@ type ExecutionReceipt struct {
 	PlanDigest           string                  `json:"plan_digest"`
 	ReasonCodes          []string                `json:"reason_codes,omitempty"`
 	ResourceChanges      []ReceiptResourceChange `json:"resource_changes"`
+	ConsequenceAdmission *ConsequenceAdmission   `json:"consequence_admission,omitempty"`
 	ActualUsage          map[string]int64        `json:"actual_usage"`
 	ProducedEvidenceRefs []string                `json:"produced_evidence_refs"`
 	Integrity            Integrity               `json:"integrity"`
@@ -64,7 +65,8 @@ type ReceiptEvidenceClaims struct {
 	ReasonCodes           []string `json:"reason_codes,omitempty"`
 	ActionDigest          string   `json:"action_digest"`
 	DecisionRef           string   `json:"decision_ref"`
-	ResourceChangesDigest string   `json:"resource_changes_digest"`
+	ResourceChangesDigest     string   `json:"resource_changes_digest"`
+	ConsequenceAdmissionDigest string  `json:"consequence_admission_digest,omitempty"`
 }
 
 type ReceiptEvidence struct {
@@ -89,7 +91,8 @@ type ExecutionReceiptInput struct {
 	PlanDigest      string
 	StartedAt       time.Time
 	FinishedAt      time.Time
-	ResourceChanges []ReceiptResourceChange
+	ResourceChanges      []ReceiptResourceChange
+	ConsequenceAdmission *ConsequenceAdmission
 }
 
 func BuildExecutionReceiptFeedback(input ExecutionReceiptInput) (ExecutionReceipt, ReceiptEvidence, error) {
@@ -106,6 +109,34 @@ func BuildExecutionReceiptFeedback(input ExecutionReceiptInput) (ExecutionReceip
 	finishedAt := input.FinishedAt.UTC()
 	if finishedAt.Before(startedAt) {
 		return ExecutionReceipt{}, ReceiptEvidence{}, errors.New("receipt finished_at precedes started_at")
+	}
+
+	var consequenceAdmission *ConsequenceAdmission
+	consequenceAdmissionDigest := ""
+	if input.ConsequenceAdmission != nil {
+		admission := *input.ConsequenceAdmission
+		if err := ValidateConsequenceAdmission(admission); err != nil {
+			return ExecutionReceipt{}, ReceiptEvidence{}, fmt.Errorf("validate consequence admission: %w", err)
+		}
+		if admission.Decision != ConsequenceDecisionAdmissible {
+			return ExecutionReceipt{}, ReceiptEvidence{}, errors.New("execution receipt cannot bind a blocked consequence admission")
+		}
+		expectedScopeDigest, err := consequenceActionScopeDigest(input.Permit.Claims)
+		if err != nil {
+			return ExecutionReceipt{}, ReceiptEvidence{}, err
+		}
+		if admission.ActionScopeDigest != expectedScopeDigest {
+			return ExecutionReceipt{}, ReceiptEvidence{}, errors.New("CONSEQUENCE_ADMISSION_ACTION_BINDING_INVALID")
+		}
+		if admission.EvaluatedAt.UTC().After(startedAt) {
+			return ExecutionReceipt{}, ReceiptEvidence{}, errors.New("CONSEQUENCE_ADMISSION_AFTER_EXECUTION_START")
+		}
+		digest, err := digestJSON(admission)
+		if err != nil {
+			return ExecutionReceipt{}, ReceiptEvidence{}, err
+		}
+		consequenceAdmissionDigest = "sha256:" + digest
+		consequenceAdmission = &admission
 	}
 
 	permitRef, err := permitReference(input.Permit)
@@ -153,8 +184,9 @@ func BuildExecutionReceiptFeedback(input ExecutionReceiptInput) (ExecutionReceip
 		Outcome:         outcome,
 		PlanDigest:      input.PlanDigest,
 		ReasonCodes:     append([]string(nil), input.ReasonCodes...),
-		ResourceChanges: append([]ReceiptResourceChange(nil), input.ResourceChanges...),
-		ActualUsage:     map[string]int64{},
+		ResourceChanges:      append([]ReceiptResourceChange(nil), input.ResourceChanges...),
+		ConsequenceAdmission: consequenceAdmission,
+		ActualUsage:          map[string]int64{},
 	}
 
 	changesDigest, err := digestJSON(receipt.ResourceChanges)
@@ -166,7 +198,8 @@ func BuildExecutionReceiptFeedback(input ExecutionReceiptInput) (ExecutionReceip
 		"observed_at": finishedAt,
 		"outcome": outcome,
 		"action_digest": actionDigest,
-		"resource_changes_digest": changesDigest,
+		"resource_changes_digest":      changesDigest,
+		"consequence_admission_digest": consequenceAdmissionDigest,
 	})
 	if err != nil {
 		return ExecutionReceipt{}, ReceiptEvidence{}, err
@@ -195,7 +228,8 @@ func BuildExecutionReceiptFeedback(input ExecutionReceiptInput) (ExecutionReceip
 			ReasonCodes:           append([]string(nil), input.ReasonCodes...),
 			ActionDigest:          actionDigest,
 			DecisionRef:           permitRef,
-			ResourceChangesDigest: changesDigest,
+			ResourceChangesDigest:      changesDigest,
+			ConsequenceAdmissionDigest: consequenceAdmissionDigest,
 		},
 	}
 	if err := attachIntegrity(&evidence); err != nil {
@@ -213,6 +247,14 @@ func ValidateExecutionReceipt(receipt ExecutionReceipt) error {
 	if receipt.ContractVersion != EBAContractVersion || receipt.Kind != ExecutionReceiptKind {
 		return errors.New("EXECUTION_RECEIPT_CONTRACT_INVALID")
 	}
+	if receipt.ConsequenceAdmission != nil {
+		if err := ValidateConsequenceAdmission(*receipt.ConsequenceAdmission); err != nil {
+			return err
+		}
+		if receipt.ConsequenceAdmission.Decision != ConsequenceDecisionAdmissible {
+			return errors.New("EXECUTION_RECEIPT_CONSEQUENCE_NOT_ADMISSIBLE")
+		}
+	}
 	return validateTypedIntegrity(receipt.Integrity, receipt)
 }
 
@@ -225,6 +267,17 @@ func ValidateReceiptEvidence(evidence ReceiptEvidence, receipt ExecutionReceipt)
 	}
 	if len(receipt.ProducedEvidenceRefs) != 1 || receipt.ProducedEvidenceRefs[0] != evidence.ID {
 		return errors.New("RECEIPT_EVIDENCE_REFERENCE_INVALID")
+	}
+	expectedConsequenceDigest := ""
+	if receipt.ConsequenceAdmission != nil {
+		digest, err := digestJSON(*receipt.ConsequenceAdmission)
+		if err != nil {
+			return err
+		}
+		expectedConsequenceDigest = "sha256:" + digest
+	}
+	if evidence.Claims.ConsequenceAdmissionDigest != expectedConsequenceDigest {
+		return errors.New("RECEIPT_EVIDENCE_CONSEQUENCE_BINDING_INVALID")
 	}
 	return validateTypedIntegrity(evidence.Integrity, evidence)
 }
