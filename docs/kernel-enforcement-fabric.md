@@ -203,7 +203,6 @@ Not yet implemented:
 ```text
 BPF-LSM filesystem/process enforcement
 XDP ingress enforcement
-TPM/IMA hardware-rooted remote attestation
 hot-upgrade protocol for already-pinned BPF state
 kernel-side constraint classes beyond network connect
 runtime verifier test on a privileged CI host
@@ -218,6 +217,24 @@ Kernel attachment now flows through a signed release manifest and a separate hos
 This is local cryptographic attestation. TPM quote, IMA verification, Secure Boot proof, and remote challenge/nonce are not yet claimed.
 
 See [signed-bpf-loader-bootstrap.md](signed-bpf-loader-bootstrap.md).
+
+## Hardware-rooted remote attestation
+
+A separate TPM + IMA protocol now verifies the host remotely:
+
+```text
+EK trust
+-> AK credential activation
+-> fresh TPM PCR quote
+-> TCG platform event-log replay
+-> IMA SHA-256 PCR10 replay
+-> BPF artifact measurement check
+-> signed remote ALLOW/BLOCK
+```
+
+The quote nonce binds the signed bootstrap receipt and both measurement logs to the verifier's fresh challenge.
+
+See [remote-tpm-ima-attestation.md](remote-tpm-ima-attestation.md).
 
 ## Governing invariant
 
