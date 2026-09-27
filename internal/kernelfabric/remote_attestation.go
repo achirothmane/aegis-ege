@@ -73,8 +73,9 @@ type TPMEnrollmentRequest struct {
 	DeviceID         string                   `json:"device_id"`
 	AK               TPMAttestationParameters `json:"ak"`
 	EKPublicDER      []byte                   `json:"ek_public_der"`
-	EKCertificateDER []byte                   `json:"ek_certificate_der,omitempty"`
-	TPMManufacturer  string                   `json:"tpm_manufacturer,omitempty"`
+	EKCertificateDER           []byte                   `json:"ek_certificate_der,omitempty"`
+	BootstrapAttestorPublicKey []byte                   `json:"bootstrap_attestor_public_key"`
+	TPMManufacturer            string                   `json:"tpm_manufacturer,omitempty"`
 	TPMVendorInfo    string                   `json:"tpm_vendor_info,omitempty"`
 	TPMFirmwareMajor int                      `json:"tpm_firmware_major,omitempty"`
 	TPMFirmwareMinor int                      `json:"tpm_firmware_minor,omitempty"`
@@ -111,8 +112,9 @@ type EnrolledTPMIdentity struct {
 	DeviceID          string                   `json:"device_id"`
 	AK                 TPMAttestationParameters `json:"ak"`
 	EKSPKISHA256       string                   `json:"ek_spki_sha256"`
-	EKCertificateSHA256 string                  `json:"ek_certificate_sha256,omitempty"`
-	TPMManufacturer   string                   `json:"tpm_manufacturer,omitempty"`
+	EKCertificateSHA256       string                  `json:"ek_certificate_sha256,omitempty"`
+	BootstrapAttestorPublicKey []byte                  `json:"bootstrap_attestor_public_key"`
+	TPMManufacturer           string                   `json:"tpm_manufacturer,omitempty"`
 	TPMVendorInfo     string                   `json:"tpm_vendor_info,omitempty"`
 	TPMFirmwareMajor  int                      `json:"tpm_firmware_major,omitempty"`
 	TPMFirmwareMinor  int                      `json:"tpm_firmware_minor,omitempty"`
@@ -138,6 +140,9 @@ func BeginTPMEnrollment(
 	}
 	if strings.TrimSpace(req.DeviceID) == "" || len(req.EKPublicDER) == 0 {
 		return TPMEnrollmentChallenge{}, PendingTPMEnrollment{}, errors.New("device id and EK public key are required")
+	}
+	if len(req.BootstrapAttestorPublicKey) != ed25519.PublicKeySize {
+		return TPMEnrollmentChallenge{}, PendingTPMEnrollment{}, errors.New("bootstrap attestor Ed25519 public key is required")
 	}
 	ekPublic, err := x509.ParsePKIXPublicKey(req.EKPublicDER)
 	if err != nil {
@@ -243,8 +248,9 @@ func CompleteTPMEnrollment(
 		DeviceID:           pending.Request.DeviceID,
 		AK:                 pending.Request.AK,
 		EKSPKISHA256:       pending.EKSPKISHA256,
-		EKCertificateSHA256: certDigest,
-		TPMManufacturer:    pending.Request.TPMManufacturer,
+		EKCertificateSHA256:       certDigest,
+		BootstrapAttestorPublicKey: append([]byte(nil), pending.Request.BootstrapAttestorPublicKey...),
+		TPMManufacturer:            pending.Request.TPMManufacturer,
 		TPMVendorInfo:      pending.Request.TPMVendorInfo,
 		TPMFirmwareMajor:   pending.Request.TPMFirmwareMajor,
 		TPMFirmwareMinor:   pending.Request.TPMFirmwareMinor,
@@ -366,9 +372,10 @@ func SignedBootstrapReceiptDigest(receipt SignedBootstrapReceipt) (string, error
 }
 
 type RemoteAttestationPolicy struct {
-	RequiredLockdownModes map[string]struct{}
-	RequirePlatformEventLog bool
-	RequireIMAReplay        bool
+	RequiredLockdownModes             map[string]struct{}
+	RequirePlatformEventLog           bool
+	RequireIMAReplay                  bool
+	RequireBootstrapArtifactMeasurement bool
 	VerifierKey             ed25519.PrivateKey
 	VerifierID              string
 	Now                     func() time.Time
@@ -416,6 +423,18 @@ func VerifyRemoteAttestation(
 	}
 	if err := ValidateBootstrapReceipt(evidence.BootstrapReceipt.Receipt); err != nil {
 		return SignedRemoteAttestationDecision{}, fmt.Errorf("%w: bootstrap receipt: %v", ErrRemoteAttestationInvalid, err)
+	}
+	if len(identity.BootstrapAttestorPublicKey) != ed25519.PublicKeySize {
+		return SignedRemoteAttestationDecision{}, fmt.Errorf("%w: enrolled bootstrap attestor key missing", ErrRemoteAttestationInvalid)
+	}
+	if err := VerifySignedBootstrapReceipt(
+		evidence.BootstrapReceipt,
+		ed25519.PublicKey(identity.BootstrapAttestorPublicKey),
+	); err != nil {
+		return signRemoteDecision(blockRemoteDecision(
+			challenge, identity, evidence, now,
+			"BOOTSTRAP_RECEIPT_SIGNATURE_INVALID",
+		), policy)
 	}
 	if len(policy.RequiredLockdownModes) > 0 {
 		if _, ok := policy.RequiredLockdownModes[evidence.BootstrapReceipt.Receipt.Host.LockdownMode]; !ok {
@@ -475,6 +494,18 @@ func VerifyRemoteAttestation(
 		return SignedRemoteAttestationDecision{}, err
 	}
 	var replayDigest []byte
+	if policy.RequireBootstrapArtifactMeasurement {
+		if !IMAMeasurementContainsDigest(
+			evidence.IMASHA256Measurements,
+			evidence.BootstrapReceipt.Receipt.ArtifactSHA256,
+		) {
+			return signRemoteDecision(blockRemoteDecision(
+				challenge, identity, evidence, now,
+				"BPF_ARTIFACT_NOT_MEASURED_BY_IMA",
+			), policy)
+		}
+	}
+
 	if policy.RequireIMAReplay {
 		replayDigest, err = ReplayIMASHA256PCR10(evidence.IMASHA256Measurements)
 		if err != nil {
@@ -496,6 +527,9 @@ func VerifyRemoteAttestation(
 	decision.ReasonCodes = []string{"TPM_QUOTE_VERIFIED"}
 	if policy.RequirePlatformEventLog {
 		decision.ReasonCodes = append(decision.ReasonCodes, "PLATFORM_EVENT_LOG_VERIFIED")
+	}
+	if policy.RequireBootstrapArtifactMeasurement {
+		decision.ReasonCodes = append(decision.ReasonCodes, "BPF_ARTIFACT_IMA_MEASURED")
 	}
 	if policy.RequireIMAReplay {
 		decision.ReasonCodes = append(decision.ReasonCodes, "IMA_PCR10_REPLAY_VERIFIED")
