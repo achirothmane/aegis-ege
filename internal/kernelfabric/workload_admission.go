@@ -582,14 +582,4 @@ func SignWorkloadActivationReceipt(
 		KeyID:     keyID,
 		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
 	}, nil
-}       `json:"process_id"`
-	StartedAt        time.Time `json:"started_at"`
 }
-
-type SignedWorkloadActivationReceipt struct {
-	Receipt   WorkloadActivationReceipt `json:"receipt"`
-	KeyID     string                    `json:"key_id"`
-	Signature string                    `json:"signature"`
-}
-
-
