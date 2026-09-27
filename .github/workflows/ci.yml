@@ -21,6 +21,14 @@ jobs:
           cache: true
       - run: go mod download
       - run: go mod verify
+      - name: Compile kernel DecisionCapsule BPF adapter
+        run: |
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_connect.bpf.c \
+            -o "$RUNNER_TEMP/aegis_connect.bpf.o"
       - run: go test ./...
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
