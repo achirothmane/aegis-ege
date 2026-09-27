@@ -414,10 +414,18 @@ func (s *Server) auditDecision(
 	actionID string,
 	nodeName string,
 	reasons []decision.ReasonCode,
+	artifactRefs ...string,
 ) {
 	reasonStrings := make([]string, 0, len(reasons))
 	for _, reason := range reasons {
 		reasonStrings = append(reasonStrings, string(reason))
+	}
+	var receiptID, evidenceID string
+	if len(artifactRefs) > 0 {
+		receiptID = artifactRefs[0]
+	}
+	if len(artifactRefs) > 1 {
+		evidenceID = artifactRefs[1]
 	}
 	s.auditSecurity(r.Context(), SecurityAuditRecord{
 		OccurredAt: s.config.Clock().UTC(),
@@ -430,6 +438,8 @@ func (s *Server) auditDecision(
 		ActionID: actionID,
 		NodeName: nodeName,
 		Reason: strings.Join(reasonStrings, ","),
+		ReceiptID: receiptID,
+		EvidenceID: evidenceID,
 	})
 }
 
