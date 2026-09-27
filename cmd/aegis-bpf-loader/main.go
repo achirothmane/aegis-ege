@@ -51,26 +51,22 @@ func main() {
 	if err != nil {
 		fatalf("load attestation key: %v", err)
 	}
-	host, err := kernelfabric.CaptureBootstrapHostSnapshot(
-		*bpffsRoot,
-		*bootIDPath,
-		*lockdownPath,
-	)
-	if err != nil {
-		fatalf("capture host attestation snapshot: %v", err)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	loader := kernelfabric.BootstrapLoader{BPFToolPath: *bpftoolPath}
+	loader := kernelfabric.BootstrapLoader{
+		BPFToolPath: *bpftoolPath,
+		HostProvider: kernelfabric.LinuxBootstrapHostProvider{
+			BootIDPath:   *bootIDPath,
+			LockdownPath: *lockdownPath,
+		},
+	}
 	result, err := loader.LoadAndAttach(ctx, kernelfabric.BootstrapLoadRequest{
 		ArtifactPath:          *artifact,
 		CgroupPath:            *cgroupPath,
 		BPFFSRoot:             *bpffsRoot,
 		SignedManifest:        signedManifest,
 		Trust:                 trust,
-		Host:                  host,
 		AttestationPrivateKey: attestationKey,
 	})
 	if err != nil {
