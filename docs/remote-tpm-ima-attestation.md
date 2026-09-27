@@ -64,9 +64,20 @@ The verifier accepts the EK only through an explicit trust source:
 - exact EK SPKI SHA-256 inventory allowlist; or
 - an EK certificate chaining to verifier-configured roots.
 
-The verifier then generates a TPM credential-activation challenge.
+The verifier then hashes the complete enrollment request and places that digest inside the TPM credential-activation challenge.
 
-The host can recover the activation secret only when the AK and selected EK are present on the same TPM. The verifier stores the successfully activated AK as the enrolled hardware identity.
+The host must retain its original enrollment request. Before activating the challenge it recomputes the request digest and rejects a mismatch. After credential activation it signs the complete enrollment challenge transcript with the TPM AK.
+
+The verifier therefore requires both:
+
+```text
+credential activation secret
++ AK signature over challenge + enrollment-request digest
+```
+
+before storing the identity.
+
+This prevents a network intermediary from replacing the bootstrap-attestor public key or other enrollment metadata while still relaying a valid EK/AK activation exchange.
 
 The bootstrap-attestor public key is enrolled at the same time, so a future bootstrap receipt cannot silently substitute a new host signing key.
 
@@ -222,6 +233,7 @@ The pending file contains the activation secret and is verifier-private.
 ```bash
 go run ./cmd/aegis-tpm-enroll-activate \
   -ak /var/lib/aegis/attestation.ak \
+  -request tpm-enrollment-request.json \
   -challenge tpm-enrollment-challenge.json \
   -out tpm-enrollment-proof.json
 ```
@@ -262,8 +274,11 @@ go run ./cmd/aegis-attest-verify \
   -evidence remote-attestation-evidence.json \
   -verifier-key remote-verifier.key \
   -verifier-id prod-attestation-authority \
+  -consumption-dir /var/lib/aegis/verifier/consumed-challenges \
   -out remote-attestation-decision.json
 ```
+
+Before evaluating evidence, the verifier atomically consumes the challenge in the configured durable consumption directory. A second verifier process racing on the same challenge receives a replay error. A crash after consumption requires a new challenge rather than reopening the old one.
 
 Default verifier policy requires:
 
@@ -305,7 +320,9 @@ Implemented:
 ```text
 EK trust policy
 AK credential activation
-fresh challenge / replay protection
+fresh short-lived challenge
+atomic one-time challenge consumption
+AK-signed enrollment transcript
 TPM SHA-256 PCR quote
 TCG platform event-log replay
 IMA SHA-256 PCR10 replay
@@ -321,8 +338,7 @@ Not yet implemented:
 automatic TPM manufacturer EK root distribution
 OCSP / CRL checking for EK certificate chains
 network HTTP/gRPC transport
-durable verifier database for enrollment/challenge state
-one-time challenge consumption store
+durable multi-host verifier database for enrollment/challenge state
 remote decision integration into workload admission
 confidential-computing TEE attestation
 runtime memory integrity
@@ -336,7 +352,7 @@ TPM + IMA attest measured state; they do not prove that arbitrary runtime memory
 
 IMA coverage is only as strong as the active IMA policy. Requiring the BPF artifact in the log fails closed when that policy does not measure it.
 
-The file protocol is intended to stabilize cryptographic semantics first. Production deployment should place the same messages behind authenticated transport and durable verifier-side state with one-time challenge consumption.
+The file protocol is intended to stabilize cryptographic semantics first. Its local filesystem guard already provides atomic one-time challenge consumption on a single/shared filesystem. Production multi-verifier deployment should place the same protocol behind authenticated transport and a linearizable shared verifier store.
 
 ## Governing invariant
 
