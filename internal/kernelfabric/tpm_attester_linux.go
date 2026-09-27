@@ -4,6 +4,7 @@ package kernelfabric
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
