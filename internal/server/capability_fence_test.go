@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -446,5 +447,106 @@ func TestEGECapabilityClaimAbortsOnlyBeforeMutationController(t *testing.T) {
 	}
 	if record.State != ExecutionClaimAborted {
 		t.Fatalf("expected durable ABORTED state, got %+v", record)
+	}
+}
+
+
+func TestEGECapabilityClaimRemainsClaimedOnAmbiguousExecutionError(t *testing.T) {
+	now := time.Now().UTC()
+	controller := &fakeController{
+		preparation: capabilityTestPreparation(now),
+		executeErr:  errors.New("transport ended after mutation boundary"),
+	}
+	authority := &fakeCapabilityFenceAuthority{
+		issue: CapabilityFenceIssue{
+			AuthorityDomain: "cluster-a/control-plane",
+			AuthorityTerm:   7,
+			DecisionEpoch:   31,
+			RevocationEpoch: 4,
+		},
+		current: egeproto.CapabilityAuthoritySnapshot{
+			AuthorityDomain: "cluster-a/control-plane",
+			AuthorityTerm:   7,
+			DecisionEpoch:   31,
+			RevocationEpoch: 4,
+		},
+	}
+	replay, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(
+		controller,
+		kubeadapter.NewMemoryDrainCheckpointStore(),
+		Config{
+			MutationsEnabled:         true,
+			RequireAuthentication:    true,
+			Authorizer:               allowAuthorizer{},
+			ReplayGuard:              replay,
+			RequireCapabilityFencing: true,
+			CapabilityFenceAuthority: authority,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	prepareRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/ege/prepare",
+		strings.NewReader(`{
+			"intent_id":"intent-cap-1",
+			"kind":"kubernetes.node_drain",
+			"target":{"type":"kubernetes.node","name":"node-7"}
+		}`),
+	)
+	prepareRecorder := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(prepareRecorder, prepareRequest)
+	if prepareRecorder.Code != http.StatusOK {
+		t.Fatalf("prepare expected 200, got %d body=%s", prepareRecorder.Code, prepareRecorder.Body.String())
+	}
+	var preparation egePrepareResponse
+	if err := json.Unmarshal(prepareRecorder.Body.Bytes(), &preparation); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter, err := srv.egeAdapters.Resolve(egeNodeDrainKind, egeNodeTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := adapter.AuthorizationFromPermit(
+		"intent-cap-1",
+		egeTargetDTO{Type: egeNodeTarget, Name: "node-7"},
+		preparation.Permit.Claims,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := json.Marshal(egeExecuteRequest{
+		IntentID: "intent-cap-1",
+		Kind:     egeNodeDrainKind,
+		Target:   egeTargetDTO{Type: egeNodeTarget, Name: "node-7"},
+		Permit:   *preparation.Permit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/ege/execute", bytes.NewReader(payload))
+	recorder := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	record, err := replay.State(context.Background(), auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != ExecutionClaimClaimed {
+		t.Fatalf("ambiguous post-entry failure must remain CLAIMED, got %+v", record)
+	}
+	if err := replay.Claim(context.Background(), auth); !errors.Is(err, ErrExecutionReplay) {
+		t.Fatalf("ambiguous capability must remain non-replayable, got %v", err)
 	}
 }
