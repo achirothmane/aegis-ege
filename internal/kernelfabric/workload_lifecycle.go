@@ -213,6 +213,29 @@ type WorkloadLifecycleState struct {
 	UpdatedAt               time.Time `json:"updated_at"`
 }
 
+func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
+	if state.Version != WorkloadLifecycleStateVersion ||
+		strings.TrimSpace(state.DeviceID) == "" ||
+		strings.TrimSpace(state.WorkloadID) == "" ||
+		state.Generation == 0 ||
+		(state.State != LifecycleStateRunning && state.State != LifecycleStateExited) ||
+		state.RestartWindowStartedAt.IsZero() ||
+		state.UpdatedAt.IsZero() {
+		return errors.New("workload lifecycle state is invalid")
+	}
+	if _, err := ParseSHA256Digest(state.ActivationDigest); err != nil {
+		return fmt.Errorf("lifecycle activation digest: %w", err)
+	}
+	if state.State == LifecycleStateExited {
+		if _, err := ParseSHA256Digest(state.ExitDigest); err != nil {
+			return fmt.Errorf("lifecycle exit digest: %w", err)
+		}
+	} else if state.ExitDigest != "" {
+		return errors.New("running lifecycle state cannot carry an exit digest")
+	}
+	return nil
+}
+
 type WorkloadRestartPolicy struct {
 	MaxRestartsPerWindow uint32
 	RestartWindow        time.Duration
@@ -236,6 +259,10 @@ type WorkloadRestartDecision struct {
 	DecisionID                  string    `json:"decision_id"`
 	DeviceID                    string    `json:"device_id"`
 	WorkloadID                  string    `json:"workload_id"`
+	WorkloadSpecDigest          string    `json:"workload_spec_digest"`
+	TargetCgroup                string    `json:"target_cgroup"`
+	TargetCgroupID              uint64    `json:"target_cgroup_id"`
+	BootstrapDigest             string    `json:"bootstrap_digest"`
 	PreviousGeneration          uint64    `json:"previous_generation"`
 	PreviousActivationDigest   string    `json:"previous_activation_digest"`
 	PreviousExitDigest         string    `json:"previous_exit_digest"`
@@ -401,6 +428,10 @@ func EvaluateWorkloadRestart(
 		DecisionID:                  decisionID,
 		DeviceID:                    state.DeviceID,
 		WorkloadID:                  state.WorkloadID,
+		WorkloadSpecDigest:          activation.Receipt.WorkloadSpecDigest,
+		TargetCgroup:                activation.Receipt.TargetCgroup,
+		TargetCgroupID:              activation.Receipt.TargetCgroupID,
+		BootstrapDigest:             priorGrant.Grant.BootstrapDigest,
 		PreviousGeneration:          state.Generation,
 		PreviousActivationDigest:    activationDigest,
 		PreviousExitDigest:          exitDigest,
@@ -494,7 +525,11 @@ func IssueRestartWorkloadAdmissionGrant(
 		return SignedWorkloadAdmissionGrant{}, ErrRestartDecisionRejected
 	}
 	if restart.Decision.DeviceID != req.DeviceID ||
-		restart.Decision.WorkloadID != req.WorkloadID {
+		restart.Decision.WorkloadID != req.WorkloadID ||
+		restart.Decision.WorkloadSpecDigest != req.WorkloadSpecDigest ||
+		restart.Decision.TargetCgroup != req.TargetCgroup ||
+		restart.Decision.TargetCgroupID != req.TargetCgroupID ||
+		restart.Decision.BootstrapDigest != req.BootstrapDigest {
 		return SignedWorkloadAdmissionGrant{}, ErrLifecycleInvalidLineage
 	}
 	remoteDigest, err := SignedRemoteAttestationDecisionDigest(remote)
@@ -538,7 +573,11 @@ func ValidateRestartForLifecycleState(
 		decision.PreviousExitDigest != state.ExitDigest ||
 		decision.CurrentRemoteDecisionDigest != grant.Grant.RemoteDecisionDigest ||
 		grant.Grant.DeviceID != state.DeviceID ||
-		grant.Grant.WorkloadID != state.WorkloadID {
+		grant.Grant.WorkloadID != state.WorkloadID ||
+		grant.Grant.WorkloadSpecDigest != decision.WorkloadSpecDigest ||
+		grant.Grant.TargetCgroup != decision.TargetCgroup ||
+		grant.Grant.TargetCgroupID != decision.TargetCgroupID ||
+		grant.Grant.BootstrapDigest != decision.BootstrapDigest {
 		return ErrLifecycleInvalidLineage
 	}
 	return nil
@@ -609,6 +648,8 @@ func ValidateWorkloadRestartDecision(
 		strings.TrimSpace(decision.DecisionID) == "" ||
 		strings.TrimSpace(decision.DeviceID) == "" ||
 		strings.TrimSpace(decision.WorkloadID) == "" ||
+		strings.TrimSpace(decision.TargetCgroup) == "" ||
+		decision.TargetCgroupID == 0 ||
 		decision.PreviousGeneration == 0 ||
 		strings.TrimSpace(decision.AuthorityID) == "" ||
 		decision.EvaluatedAt.IsZero() ||
@@ -619,6 +660,8 @@ func ValidateWorkloadRestartDecision(
 		return errors.New("workload restart decision is incomplete")
 	}
 	for field, digest := range map[string]string{
+		"workload_spec_digest": decision.WorkloadSpecDigest,
+		"bootstrap_digest": decision.BootstrapDigest,
 		"previous_activation_digest": decision.PreviousActivationDigest,
 		"previous_exit_digest": decision.PreviousExitDigest,
 		"current_remote_decision_digest": decision.CurrentRemoteDecisionDigest,
@@ -626,6 +669,10 @@ func ValidateWorkloadRestartDecision(
 		if _, err := ParseSHA256Digest(digest); err != nil {
 			return fmt.Errorf("%s: %w", field, err)
 		}
+	}
+	if filepath.Clean(decision.TargetCgroup) != decision.TargetCgroup ||
+		!filepath.IsAbs(decision.TargetCgroup) {
+		return errors.New("restart decision target_cgroup must be a clean absolute path")
 	}
 	switch decision.Outcome {
 	case RestartOutcomeBlock, RestartOutcomeRequireFreshGrant, RestartOutcomeRequireReattestation:
@@ -649,6 +696,7 @@ func canonicalWorkloadRestartDecisionPayload(
 ) ([]byte, error) {
 	normalized := decision
 	normalized.ReasonCodes = append([]string(nil), decision.ReasonCodes...)
+	normalized.TargetCgroup = filepath.Clean(decision.TargetCgroup)
 	sort.Strings(normalized.ReasonCodes)
 	normalized.RestartWindowStartedAt = normalized.RestartWindowStartedAt.UTC()
 	normalized.NotBefore = normalized.NotBefore.UTC()
