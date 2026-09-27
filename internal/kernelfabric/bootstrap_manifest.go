@@ -55,8 +55,8 @@ func BuildNetworkBootstrapManifest(
 		},
 		Maps: []BootstrapMap{
 			{Name: "aegis_capsules", Type: "hash"},
-			{Name: "aegis_evidence_accounting", Type: "array"},
-			{Name: "aegis_evidence_events", Type: "ringbuf"},
+			{Name: "aegis_ev_acct", Type: "array"},
+			{Name: "aegis_ev_events", Type: "ringbuf"},
 			{Name: "aegis_fences", Type: "hash"},
 			{Name: "aegis_stats", Type: "percpu_array"},
 		},
