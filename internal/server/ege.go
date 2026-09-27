@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -37,11 +38,20 @@ type egePrepareResponse struct {
 	Plan             *planDTO                   `json:"plan,omitempty"`
 }
 
+type egeExecutionEBABundle struct {
+	EvidenceManifest    *egeproto.EvidenceManifest     `json:"evidence_manifest,omitempty"`
+	AssumptionArtifacts []json.RawMessage               `json:"assumption_artifacts,omitempty"`
+	AuthorityArtifact   json.RawMessage                 `json:"authority_artifact,omitempty"`
+	BudgetArtifact      json.RawMessage                 `json:"budget_artifact,omitempty"`
+	Approvals           []egeproto.ApprovalAttestation `json:"approvals,omitempty"`
+}
+
 type egeExecuteRequest struct {
-	IntentID string          `json:"intent_id"`
-	Kind     string          `json:"kind"`
-	Target   egeTargetDTO    `json:"target"`
-	Permit   egeproto.Permit `json:"permit"`
+	IntentID string                 `json:"intent_id"`
+	Kind     string                 `json:"kind"`
+	Target   egeTargetDTO           `json:"target"`
+	Permit   egeproto.Permit        `json:"permit"`
+	EBA      *egeExecutionEBABundle `json:"eba,omitempty"`
 }
 
 type egeExecuteResponse struct {
@@ -197,6 +207,52 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		claims.Target.Name != target.Name {
 		writeError(w, http.StatusBadRequest, "PERMIT_INTENT_MISMATCH", errors.New("signed permit does not match execution intent"))
 		return
+	}
+
+	if s.config.RequireEBAConformance {
+		if req.EBA == nil || req.EBA.EvidenceManifest == nil {
+			s.auditDecision(
+				r,
+				PermissionExecute,
+				string(decision.Block),
+				intentID,
+				target.Name,
+				[]decision.ReasonCode{"EBA_CONFORMANCE_REQUIRED"},
+			)
+			writeError(
+				w,
+				http.StatusForbidden,
+				"EBA_CONFORMANCE_REQUIRED",
+				errors.New("EBA execution bundle with evidence_manifest is required"),
+			)
+			return
+		}
+		if err := egeproto.ValidateKubernetesDrainConformance(
+			ctx,
+			s.permitAuthority,
+			s.approvalAuthority,
+			egeproto.KubernetesDrainConformanceInput{
+				PrincipalID:         s.config.EBAExecutionPrincipal,
+				AssumptionArtifacts: req.EBA.AssumptionArtifacts,
+				AuthorityArtifact:   req.EBA.AuthorityArtifact,
+				BudgetArtifact:      req.EBA.BudgetArtifact,
+				Approvals:           req.EBA.Approvals,
+				EvidenceManifest:    *req.EBA.EvidenceManifest,
+				Permit:              req.Permit,
+			},
+			s.config.Clock().UTC(),
+		); err != nil {
+			s.auditDecision(
+				r,
+				PermissionExecute,
+				string(decision.Block),
+				intentID,
+				target.Name,
+				[]decision.ReasonCode{"EBA_CONFORMANCE_BLOCKED"},
+			)
+			writeError(w, http.StatusForbidden, "EBA_CONFORMANCE_BLOCKED", err)
+			return
+		}
 	}
 
 	auth, err := adapter.AuthorizationFromPermit(intentID, target, claims)
