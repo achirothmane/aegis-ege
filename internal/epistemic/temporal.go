@@ -1,6 +1,10 @@
 package epistemic
 
-import "time"
+import (
+	"time"
+
+	"github.com/achirothmane/easl"
+)
 
 type ActionSensitivity string
 
@@ -21,12 +25,13 @@ const (
 )
 
 const (
-	TemporalReasonWithinWindow       = "WITHIN_VALIDITY_WINDOW"
-	TemporalReasonAgeExceeded        = "ASSUMPTION_AGE_EXCEEDED"
-	TemporalReasonEventInvalidated   = "EVENT_INVALIDATED"
-	TemporalReasonMissingTimestamp   = "MISSING_EVALUATED_AT"
-	TemporalReasonClockSkew          = "CLOCK_SKEW"
-	TemporalReasonUndefinedPolicy    = "UNDEFINED_TEMPORAL_POLICY"
+	TemporalReasonWithinWindow             = "WITHIN_VALIDITY_WINDOW"
+	TemporalReasonAgeExceeded              = "ASSUMPTION_AGE_EXCEEDED"
+	TemporalReasonEventInvalidated         = "EVENT_INVALIDATED"
+	TemporalReasonMissingTimestamp         = "MISSING_EVALUATED_AT"
+	TemporalReasonClockSkew                = "CLOCK_SKEW"
+	TemporalReasonUndefinedPolicy          = "UNDEFINED_TEMPORAL_POLICY"
+	TemporalReasonEpistemicEvaluationError = "EPISTEMIC_EVALUATION_ERROR"
 )
 
 type TemporalPolicy struct {
@@ -99,7 +104,13 @@ func AssessTemporalValidity(
 		return assessment
 	}
 
-	if age > maxAge {
+	expired, err := assumptionExpiredByEASL(assumption.ID, assumption.EvaluatedAt, now, maxAge)
+	if err != nil {
+		assessment.Validity = ValidityUnknown
+		assessment.Reason = TemporalReasonEpistemicEvaluationError
+		return assessment
+	}
+	if expired {
 		assessment.Validity = ValidityExpired
 		assessment.Reason = TemporalReasonAgeExceeded
 		return assessment
@@ -142,7 +153,17 @@ func AssessFixedTTL(assumption Assumption, now time.Time, maxAge time.Duration) 
 			Reason: TemporalReasonClockSkew,
 		}
 	}
-	if age > maxAge {
+
+	expired, err := assumptionExpiredByEASL(assumption.ID, assumption.EvaluatedAt, now, maxAge)
+	if err != nil {
+		return FixedTTLAssessment{
+			Valid:  false,
+			Age:    age,
+			MaxAge: maxAge,
+			Reason: TemporalReasonEpistemicEvaluationError,
+		}
+	}
+	if expired {
 		return FixedTTLAssessment{
 			Valid:  false,
 			Age:    age,
@@ -150,10 +171,39 @@ func AssessFixedTTL(assumption Assumption, now time.Time, maxAge time.Duration) 
 			Reason: TemporalReasonAgeExceeded,
 		}
 	}
+
 	return FixedTTLAssessment{
 		Valid:  true,
 		Age:    age,
 		MaxAge: maxAge,
 		Reason: TemporalReasonWithinWindow,
 	}
+}
+
+func assumptionExpiredByEASL(
+	assumptionID string,
+	evaluatedAt time.Time,
+	now time.Time,
+	maxAge time.Duration,
+) (bool, error) {
+	validUntil := evaluatedAt.UTC().Add(maxAge)
+	id := easl.AssumptionID(assumptionID)
+
+	evaluation, err := easl.Evaluate(easl.Snapshot{
+		At: now.UTC(),
+		Assumptions: []easl.Assumption{{
+			ID:         id,
+			ValidUntil: &validUntil,
+		}},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	for _, invalidation := range evaluation.Invalidations {
+		if invalidation.AssumptionID == id && invalidation.Reason == easl.ReasonAssumptionExpired {
+			return true, nil
+		}
+	}
+	return false, nil
 }
