@@ -48,6 +48,21 @@ func (g *KubernetesReplayGuard) Issue(
 		metav1.CreateOptions{},
 	)
 	if apierrors.IsAlreadyExists(err) {
+		current, readErr := g.client.CoreV1().ConfigMaps(g.namespace).Get(
+			ctx,
+			cm.Name,
+			metav1.GetOptions{},
+		)
+		if readErr != nil {
+			return fmt.Errorf("read existing shared execution capability: %w", readErr)
+		}
+		existing, parseErr := executionClaimRecordFromConfigMap(current, auth)
+		if parseErr != nil {
+			return parseErr
+		}
+		if existing.State == ExecutionClaimIssued {
+			return nil
+		}
 		return ErrExecutionReplay
 	}
 	if err != nil {
