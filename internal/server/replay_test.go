@@ -238,3 +238,38 @@ func TestFileReplayGuardAbortedCapabilityIsTerminal(t *testing.T) {
 		t.Fatalf("ABORTED -> CONSUMED must be rejected, got %v", err)
 	}
 }
+
+
+func TestFileReplayGuardAtomicClaimAllowsExactlyOneWinner(t *testing.T) {
+	guard, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := lifecycleTestAuthorization()
+	auth.ActionID = "cap-race"
+	ctx := context.Background()
+	if err := guard.Issue(ctx, auth); err != nil {
+		t.Fatal(err)
+	}
+
+	results := make(chan error, 2)
+	go func() { results <- guard.Claim(ctx, auth) }()
+	go func() { results <- guard.Claim(ctx, auth) }()
+
+	successes := 0
+	replays := 0
+	for i := 0; i < 2; i++ {
+		err := <-results
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrExecutionReplay):
+			replays++
+		default:
+			t.Fatalf("unexpected concurrent claim error: %v", err)
+		}
+	}
+	if successes != 1 || replays != 1 {
+		t.Fatalf("expected one winner and one replay rejection, got successes=%d replays=%d", successes, replays)
+	}
+}
