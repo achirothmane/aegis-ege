@@ -148,3 +148,52 @@ func TestExecutionReceiptActionDigestChangesWithBoundAction(t *testing.T) {
 		t.Fatal("materially changed action retained same action digest")
 	}
 }
+
+
+func TestExecutionReceiptBindsConsequenceAdmissionIntoProducedEvidence(t *testing.T) {
+	now := time.Date(2026, 9, 27, 19, 30, 0, 0, time.UTC)
+	permit := receiptTestPermit(t, now)
+	manifest := EvidenceManifest{
+		APIVersion:      EvidenceManifestVersion,
+		IntentID:        permit.Claims.IntentID,
+		Kind:            permit.Claims.Kind,
+		Target:          permit.Claims.Target,
+		ResourceVersion: permit.Claims.ResourceVersion,
+		EvidenceDigest:  permit.Claims.EvidenceDigest,
+		PlanDigest:      permit.Claims.PlanDigest,
+		ObservedAt:      now,
+	}
+	admission, err := EvaluateConsequenceAdmission(
+		KubernetesNodeDrainConsequencePolicy(15*time.Second),
+		permit.Claims,
+		manifest,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receipt, evidence, err := BuildExecutionReceiptFeedback(ExecutionReceiptInput{
+		Permit:               permit,
+		Decision:             "ALLOW",
+		PlanDigest:           permit.Claims.PlanDigest,
+		StartedAt:            now.Add(time.Second),
+		FinishedAt:           now.Add(2 * time.Second),
+		ConsequenceAdmission: &admission,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.ConsequenceAdmission == nil {
+		t.Fatal("expected consequence admission in execution receipt")
+	}
+	if evidence.Claims.ConsequenceAdmissionDigest == "" {
+		t.Fatal("expected produced evidence to bind consequence admission")
+	}
+	if err := ValidateExecutionReceipt(receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateReceiptEvidence(evidence, receipt); err != nil {
+		t.Fatal(err)
+	}
+}

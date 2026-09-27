@@ -259,6 +259,17 @@ func TestEGEExecuteEBAEnforcementAllowsConformantBundle(t *testing.T) {
 	if controller.executeCalls != 1 {
 		t.Fatalf("expected conformant EBA request to reach controller once, got %d", controller.executeCalls)
 	}
+	var response egeExecuteResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ConsequenceAdmission == nil ||
+		response.ConsequenceAdmission.Decision != egeproto.ConsequenceDecisionAdmissible {
+		t.Fatalf("expected admissible consequence decision, got %+v", response.ConsequenceAdmission)
+	}
+	if response.ExecutionReceipt == nil || response.ExecutionReceipt.ConsequenceAdmission == nil {
+		t.Fatal("expected execution receipt to bind consequence admission")
+	}
 }
 
 func TestEGEExecuteEBAEnforcementRejectsTamperedAuthority(t *testing.T) {
@@ -378,5 +389,54 @@ func TestEGEExecuteRemainsBackwardCompatibleWhenEBAEnforcementDisabled(t *testin
 	}
 	if controller.executeCalls != 1 {
 		t.Fatalf("legacy request should still reach controller, got %d calls", controller.executeCalls)
+	}
+}
+
+
+func TestEGEExecuteConsequenceAdmissionBlocksBeforeReplayClaim(t *testing.T) {
+	s, controller, permit, bundle := newEBAExecuteFixture(t)
+
+	blockedPolicy := egeproto.KubernetesNodeDrainConsequencePolicy(0)
+	blockedPolicy.AllowedActions = []string{"delete"}
+	s.consequencePolicy = &blockedPolicy
+
+	payload, err := json.Marshal(egeExecuteRequest{
+		IntentID: "intent-eba-1",
+		Kind:     egeNodeDrainKind,
+		Target:   egeTargetDTO{Type: egeNodeTarget, Name: "node-7"},
+		Permit:   permit,
+		EBA:      &bundle,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstRequest := httptest.NewRequest(http.MethodPost, "/v1/ege/execute", bytes.NewReader(payload))
+	firstRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(firstRecorder, firstRequest)
+
+	if firstRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected consequence gate 403, got %d body=%s", firstRecorder.Code, firstRecorder.Body.String())
+	}
+	if !strings.Contains(firstRecorder.Body.String(), "CONSEQUENCE_ADMISSIBILITY_BLOCKED") ||
+		!strings.Contains(firstRecorder.Body.String(), "CONSEQUENCE_ACTION_NOT_ADMISSIBLE") {
+		t.Fatalf("unexpected consequence gate body: %s", firstRecorder.Body.String())
+	}
+	if controller.executeCalls != 0 {
+		t.Fatalf("blocked consequence must not reach controller")
+	}
+
+	allowedPolicy := egeproto.KubernetesNodeDrainConsequencePolicy(0)
+	s.consequencePolicy = &allowedPolicy
+
+	secondRequest := httptest.NewRequest(http.MethodPost, "/v1/ege/execute", bytes.NewReader(payload))
+	secondRecorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(secondRecorder, secondRequest)
+
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("expected same request to succeed after policy restoration, got %d body=%s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+	if controller.executeCalls != 1 {
+		t.Fatalf("blocked consequence must not consume replay claim; expected one later execution, got %d", controller.executeCalls)
 	}
 }

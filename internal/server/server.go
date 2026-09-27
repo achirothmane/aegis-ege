@@ -33,6 +33,7 @@ type Config struct {
 	RequireEBAConformance bool
 	EBAApprovalAuthority  egeproto.SignatureVerifier
 	EBAExecutionPrincipal string
+	EGEConsequencePolicy *egeproto.ConsequencePolicy
 	EGEPermitAuthority                egeproto.PermitAuthority
 	EGEPrometheusNodeHealthURL         string
 	EGEPrometheusNodeHealthTrustDomain string
@@ -46,6 +47,7 @@ type Server struct {
 	mux             *http.ServeMux
 	permitAuthority   egeproto.PermitAuthority
 	approvalAuthority egeproto.SignatureVerifier
+	consequencePolicy *egeproto.ConsequencePolicy
 	egeAdapters         *egeAdapterRegistry
 	egeEvidenceComposer *egeEvidenceComposer
 }
@@ -77,6 +79,19 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.RequireEBAConformance && config.EBAApprovalAuthority == nil {
 		return nil, fmt.Errorf("EBA approval authority is required when EBA conformance enforcement is enabled")
+	}
+	var consequencePolicy *egeproto.ConsequencePolicy
+	if config.RequireEBAConformance {
+		policy := egeproto.KubernetesNodeDrainConsequencePolicy(config.Policy.MaxEvidenceAge)
+		if config.EGEConsequencePolicy != nil {
+			policy = *config.EGEConsequencePolicy
+		}
+		if err := egeproto.ValidateConsequencePolicy(policy); err != nil {
+			return nil, fmt.Errorf("invalid EGE consequence policy: %w", err)
+		}
+		consequencePolicy = &policy
+	} else if config.EGEConsequencePolicy != nil {
+		return nil, fmt.Errorf("EGE consequence policy requires EBA conformance enforcement")
 	}
 	if strings.TrimSpace(config.EBAExecutionPrincipal) == "" {
 		config.EBAExecutionPrincipal = "aegis-ege"
@@ -159,6 +174,7 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		mux:                 http.NewServeMux(),
 		permitAuthority:     permitAuthority,
 		approvalAuthority:   config.EBAApprovalAuthority,
+		consequencePolicy:   consequencePolicy,
 		egeAdapters:         egeAdapters,
 		egeEvidenceComposer: egeEvidenceComposer,
 	}

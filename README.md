@@ -37,6 +37,9 @@ Execution Intent
 → ALLOW / BLOCK / ESCALATE
 → Evidence Manifest
 → Signed, state-bound Permit
+→ EBA Conformance
+→ Consequence Admissibility
+→ Commit Boundary
 → Live Revalidation
 → Guarded Mutation
 → Outcome Verification
@@ -233,7 +236,9 @@ Execute:
 POST /v1/ege/execute
 ```
 
-Before mutation, Aegis verifies the permit and StateLatch performs live revalidation.
+Before mutation, Aegis verifies the permit. When EBA enforcement is enabled, it then validates the EBA bundle and evaluates a deterministic consequence policy before the replay claim or mutation controller. StateLatch still performs live revalidation at execution time.
+
+A probabilistic evaluator may contribute risk or blast-radius evidence, but it is not the final authority at the commit boundary.
 
 ## Prometheus external evidence
 
@@ -319,6 +324,7 @@ That feedback is the gate for major product expansion.
 - [Kubernetes node-drain adapter](docs/kubernetes-node-drain.md)
 - [Guarded experimental execution](docs/guarded-real-execution.md)
 - [Execution locking](docs/execution-locking.md)
+- [Consequence admissibility](docs/consequence-admissibility.md)
 - [Partial failure and recovery](docs/partial-failure-recovery.md)
 - [Ambiguous mutation outcome boundary](docs/ambiguous-mutation-outcome.md)
 - [Tamper-evident execution journal](docs/tamper-evident-journal.md)
