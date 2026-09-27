@@ -14,18 +14,23 @@ import (
 
 func main() {
 	akPath := flag.String("ak", "", "persistent TPM AK blob path")
+	requestPath := flag.String("request", "", "original TPM enrollment request")
 	challengePath := flag.String("challenge", "", "enrollment challenge")
 	out := flag.String("out", "tpm-enrollment-proof.json", "proof output")
 	flag.Parse()
-	if *akPath == "" || *challengePath == "" {
-		fatalf("-ak and -challenge are required")
+	if *akPath == "" || *requestPath == "" || *challengePath == "" {
+		fatalf("-ak, -request and -challenge are required")
+	}
+	request, err := cliio.ReadJSON[kernelfabric.TPMEnrollmentRequest](*requestPath)
+	if err != nil {
+		fatalf("%v", err)
 	}
 	challenge, err := cliio.ReadJSON[kernelfabric.TPMEnrollmentChallenge](*challengePath)
 	if err != nil {
 		fatalf("%v", err)
 	}
 	proof, err := kernelfabric.ActivateTPMEnrollmentChallenge(
-		*akPath, challenge, time.Now().UTC(),
+		*akPath, request, challenge, time.Now().UTC(),
 	)
 	if err != nil {
 		fatalf("%v", err)
