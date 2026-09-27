@@ -25,8 +25,8 @@ type KubernetesDrainConformanceInput struct {
 
 func ValidateKubernetesDrainConformance(
 	ctx context.Context,
-	permitAuthority PermitAuthority,
-	approvalAuthority PermitAuthority,
+	permitAuthority SignatureVerifier,
+	approvalAuthority SignatureVerifier,
 	input KubernetesDrainConformanceInput,
 	now time.Time,
 ) error {
