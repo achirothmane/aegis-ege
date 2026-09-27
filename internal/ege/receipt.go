@@ -279,23 +279,15 @@ func digestJSON(value any) (string, error) {
 }
 
 func attachIntegrity(value any) error {
+	digest, err := integrityDigest(value)
+	if err != nil {
+		return err
+	}
 	switch artifact := value.(type) {
 	case *ExecutionReceipt:
-		copyValue := *artifact
-		copyValue.Integrity = Integrity{}
-		digest, err := digestJSON(copyValue)
-		if err != nil {
-			return err
-		}
 		artifact.Integrity = Integrity{Algorithm: "sha256", Digest: digest}
 		return nil
 	case *ReceiptEvidence:
-		copyValue := *artifact
-		copyValue.Integrity = Integrity{}
-		digest, err := digestJSON(copyValue)
-		if err != nil {
-			return err
-		}
 		artifact.Integrity = Integrity{Algorithm: "sha256", Digest: digest}
 		return nil
 	default:
@@ -307,27 +299,25 @@ func validateTypedIntegrity(integrity Integrity, value any) error {
 	if integrity.Algorithm != "sha256" || integrity.Digest == "" {
 		return errors.New("EBA_INTEGRITY_INVALID")
 	}
-	switch artifact := value.(type) {
-	case ExecutionReceipt:
-		artifact.Integrity = Integrity{}
-		digest, err := digestJSON(artifact)
-		if err != nil {
-			return err
-		}
-		if digest != integrity.Digest {
-			return errors.New("EBA_INTEGRITY_INVALID")
-		}
-	case ReceiptEvidence:
-		artifact.Integrity = Integrity{}
-		digest, err := digestJSON(artifact)
-		if err != nil {
-			return err
-		}
-		if digest != integrity.Digest {
-			return errors.New("EBA_INTEGRITY_INVALID")
-		}
-	default:
-		return fmt.Errorf("unsupported integrity artifact %T", value)
+	digest, err := integrityDigest(value)
+	if err != nil {
+		return err
+	}
+	if digest != integrity.Digest {
+		return errors.New("EBA_INTEGRITY_INVALID")
 	}
 	return nil
+}
+
+func integrityDigest(value any) (string, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("marshal integrity artifact: %w", err)
+	}
+	var artifact map[string]any
+	if err := json.Unmarshal(payload, &artifact); err != nil {
+		return "", fmt.Errorf("decode integrity artifact: %w", err)
+	}
+	delete(artifact, "integrity")
+	return digestJSON(artifact)
 }
