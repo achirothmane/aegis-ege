@@ -492,6 +492,40 @@ func IssueRestartWorkloadAdmissionGrant(
 	return IssueWorkloadAdmissionGrant(req, remote, policy)
 }
 
+func ValidateRestartForLifecycleState(
+	state WorkloadLifecycleState,
+	grant SignedWorkloadAdmissionGrant,
+	restart SignedWorkloadRestartDecision,
+	lifecycleAuthorityPublicKey ed25519.PublicKey,
+	now time.Time,
+) error {
+	if err := VerifySignedWorkloadRestartDecision(
+		restart,
+		lifecycleAuthorityPublicKey,
+		now,
+	); err != nil {
+		return err
+	}
+	decision := restart.Decision
+	if decision.Outcome != RestartOutcomeRequireFreshGrant {
+		return ErrRestartDecisionRejected
+	}
+	if state.Version != WorkloadLifecycleStateVersion ||
+		state.State != LifecycleStateExited ||
+		state.Generation == 0 ||
+		decision.DeviceID != state.DeviceID ||
+		decision.WorkloadID != state.WorkloadID ||
+		decision.PreviousGeneration != state.Generation ||
+		decision.PreviousActivationDigest != state.ActivationDigest ||
+		decision.PreviousExitDigest != state.ExitDigest ||
+		decision.CurrentRemoteDecisionDigest != grant.Grant.RemoteDecisionDigest ||
+		grant.Grant.DeviceID != state.DeviceID ||
+		grant.Grant.WorkloadID != state.WorkloadID {
+		return ErrLifecycleInvalidLineage
+	}
+	return nil
+}
+
 func SignWorkloadRestartDecision(
 	decision WorkloadRestartDecision,
 	privateKey ed25519.PrivateKey,
