@@ -273,3 +273,27 @@ func TestFileReplayGuardAtomicClaimAllowsExactlyOneWinner(t *testing.T) {
 		t.Fatalf("expected one winner and one replay rejection, got successes=%d replays=%d", successes, replays)
 	}
 }
+
+
+func TestFileReplayGuardIssueIsIdempotentOnlyBeforeClaim(t *testing.T) {
+	guard, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := lifecycleTestAuthorization()
+	auth.ActionID = "cap-idempotent-issue"
+	ctx := context.Background()
+
+	if err := guard.Issue(ctx, auth); err != nil {
+		t.Fatalf("first issue failed: %v", err)
+	}
+	if err := guard.Issue(ctx, auth); err != nil {
+		t.Fatalf("identical unclaimed re-issue should be idempotent, got %v", err)
+	}
+	if err := guard.Claim(ctx, auth); err != nil {
+		t.Fatalf("claim failed: %v", err)
+	}
+	if err := guard.Issue(ctx, auth); !errors.Is(err, ErrExecutionReplay) {
+		t.Fatalf("claimed capability must not be re-issued, got %v", err)
+	}
+}
