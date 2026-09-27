@@ -79,6 +79,14 @@ func StartAttestedWorkload(
 		return AttestedWorkloadProcess{}, fmt.Errorf("open target cgroup: %w", err)
 	}
 	defer unix.Close(cgroupFD)
+	var cgroupStat unix.Stat_t
+	if err := unix.Fstat(cgroupFD, &cgroupStat); err != nil {
+		return AttestedWorkloadProcess{}, fmt.Errorf("stat opened target cgroup: %w", err)
+	}
+	if cgroupStat.Ino == 0 || uint64(cgroupStat.Ino) != grant.TargetCgroupID {
+		return AttestedWorkloadProcess{}, ErrAdmissionBindingMismatch
+	}
+	cgroupID := uint64(cgroupStat.Ino)
 
 	executable := filepath.Clean(req.LaunchSpec.Executable)
 	info, err := os.Stat(executable)
@@ -107,6 +115,7 @@ func StartAttestedWorkload(
 		req.IssuerPublicKey,
 		req.LaunchSpec,
 		targetCgroup,
+		cgroupID,
 		req.DeviceID,
 		now,
 	)
@@ -147,6 +156,7 @@ func StartAttestedWorkload(
 			WorkloadID:         grant.WorkloadID,
 			WorkloadSpecDigest: grant.WorkloadSpecDigest,
 			TargetCgroup:       targetCgroup,
+			TargetCgroupID:     cgroupID,
 			ProcessID:          cmd.Process.Pid,
 			StartedAt:          time.Now().UTC(),
 		},
@@ -173,4 +183,31 @@ func workloadEnvironment(env []WorkloadEnvironmentVariable) []string {
 		out = append(out, item.Name+"="+item.Value)
 	}
 	return out
+}
+
+func ResolveCgroupV2ID(path string) (uint64, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "." || !filepath.IsAbs(path) {
+		return 0, errors.New("cgroup path must be absolute")
+	}
+	var statfs unix.Statfs_t
+	if err := unix.Statfs(path, &statfs); err != nil {
+		return 0, fmt.Errorf("stat cgroup filesystem: %w", err)
+	}
+	if uint64(statfs.Type) != uint64(cgroup2FSMagic) {
+		return 0, fmt.Errorf("%s is not on cgroup v2", path)
+	}
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return 0, fmt.Errorf("open cgroup path: %w", err)
+	}
+	defer unix.Close(fd)
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return 0, fmt.Errorf("stat cgroup path: %w", err)
+	}
+	if stat.Ino == 0 {
+		return 0, errors.New("cgroup identity is zero")
+	}
+	return uint64(stat.Ino), nil
 }
