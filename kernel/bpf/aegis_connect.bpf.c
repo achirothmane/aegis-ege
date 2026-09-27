@@ -80,8 +80,7 @@ static __always_inline void emit_evidence(
 	struct aegis_decision_capsule *capsule,
 	struct aegis_scope_fence_state *fence,
 	__u32 verdict,
-	__u32 reason,
-	__u64 observed_at_mono_ns)
+	__u32 reason)
 {
 	__u32 zero = 0;
 	struct aegis_evidence_accounting *accounting =
@@ -98,7 +97,7 @@ static __always_inline void emit_evidence(
 	}
 
 	event->sequence = sequence;
-	event->observed_at_mono_ns = observed_at_mono_ns;
+	event->observed_at_mono_ns = bpf_ktime_get_ns();
 	event->cgroup_id = scope->cgroup_id;
 	event->action_class = scope->action_class;
 	event->verdict = verdict;
@@ -184,7 +183,7 @@ static __always_inline int enforce_connect(struct bpf_sock_addr *ctx)
 			scope.destination_addr[i] = ctx->user_ip6[i];
 	} else {
 		bump_stat(AEGIS_STAT_BLOCKED);
-		emit_evidence(&scope, 0, 0, AEGIS_VERDICT_DENY, AEGIS_STAT_BLOCKED, now);
+		emit_evidence(&scope, 0, 0, AEGIS_VERDICT_DENY, AEGIS_STAT_BLOCKED);
 		return 0;
 	}
 
@@ -196,51 +195,51 @@ static __always_inline int enforce_connect(struct bpf_sock_addr *ctx)
 		bpf_map_lookup_elem(&aegis_fences, &fence_key);
 	if (!fence) {
 		bump_stat(AEGIS_STAT_MISSING_FENCE);
-		emit_evidence(&scope, 0, 0, AEGIS_VERDICT_DENY, AEGIS_STAT_MISSING_FENCE, now);
+		emit_evidence(&scope, 0, 0, AEGIS_VERDICT_DENY, AEGIS_STAT_MISSING_FENCE);
 		return 0;
 	}
 
 	struct aegis_decision_capsule *capsule = lookup_capsule(&scope);
 	if (!capsule) {
 		bump_stat(AEGIS_STAT_MISSING_CAPSULE);
-		emit_evidence(&scope, 0, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_MISSING_CAPSULE, now);
+		emit_evidence(&scope, 0, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_MISSING_CAPSULE);
 		return 0;
 	}
 
 	if (!hash_equal(capsule->boot_id_hash, fence->boot_id_hash)) {
 		bump_stat(AEGIS_STAT_BOOT_MISMATCH);
-		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_BOOT_MISMATCH, now);
+		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_BOOT_MISMATCH);
 		return 0;
 	}
 	if (capsule->authority_term != fence->authority_term) {
 		bump_stat(AEGIS_STAT_AUTHORITY_MISMATCH);
-		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_AUTHORITY_MISMATCH, now);
+		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_AUTHORITY_MISMATCH);
 		return 0;
 	}
 	if (capsule->decision_epoch != fence->decision_epoch) {
 		bump_stat(AEGIS_STAT_DECISION_SUPERSEDED);
-		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_DECISION_SUPERSEDED, now);
+		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_DECISION_SUPERSEDED);
 		return 0;
 	}
 	if (capsule->revocation_epoch != fence->revocation_epoch) {
 		bump_stat(AEGIS_STAT_REVOKED);
-		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_REVOKED, now);
+		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_REVOKED);
 		return 0;
 	}
 
 	if (!capsule->deadline_mono_ns || now > capsule->deadline_mono_ns) {
 		bump_stat(AEGIS_STAT_EXPIRED);
-		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_EXPIRED, now);
+		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_EXPIRED);
 		return 0;
 	}
 	if (capsule->decision != AEGIS_DECISION_ALLOW) {
 		bump_stat(AEGIS_STAT_BLOCKED);
-		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_BLOCKED, now);
+		emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_DENY, AEGIS_STAT_BLOCKED);
 		return 0;
 	}
 
 	bump_stat(AEGIS_STAT_ALLOW);
-	emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_ALLOW, AEGIS_STAT_ALLOW, now);
+	emit_evidence(&scope, capsule, fence, AEGIS_VERDICT_ALLOW, AEGIS_STAT_ALLOW);
 	return 1;
 }
 
