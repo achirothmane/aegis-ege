@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Aegis-EGE — Evidence before action</title>
+  <desc id="desc">Evidence-gated execution for AI agents and high-consequence automation.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" rx="36" fill="url(#bg)"/>
+  <g opacity="0.16" stroke="#94a3b8" fill="none">
+    <path d="M0 500 C250 420 380 600 640 500 S1030 420 1280 500"/>
+    <path d="M0 540 C250 460 380 640 640 540 S1030 460 1280 540"/>
+  </g>
+  <g transform="translate(96 120)">
+    <path d="M130 0 245 44v91c0 101-59 175-115 206C74 310 15 236 15 135V44Z" fill="none" stroke="url(#accent)" stroke-width="14"/>
+    <path d="m72 165 39 39 78-88" fill="none" stroke="#e2e8f0" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="410" y="210" fill="#f8fafc" font-size="76" font-weight="800" letter-spacing="-2">Aegis-EGE</text>
+    <text x="412" y="282" fill="#cbd5e1" font-size="34" font-weight="600">Evidence before action.</text>
+    <text x="412" y="350" fill="#94a3b8" font-size="27">Evidence-gated execution for AI agents</text>
+    <text x="412" y="390" fill="#94a3b8" font-size="27">and high-consequence automation.</text>
+    <rect x="412" y="454" width="560" height="64" rx="16" fill="#0f172a" stroke="#334155"/>
+    <text x="442" y="495" fill="#67e8f9" font-size="24" font-weight="700">INTENT → EVIDENCE → PERMIT → REVALIDATE → EXECUTE</text>
+  </g>
+</svg>

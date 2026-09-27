@@ -1,5 +1,9 @@
 # Aegis-EGE
 
+<p align="center">
+  <img src="docs/assets/aegis-ege-readme-hero.svg" alt="Aegis-EGE — Evidence before action" width="100%">
+</p>
+
 **Do not let automation mutate infrastructure on stale or contradictory evidence.**
 
 Aegis-EGE is an experimental evidence-gated execution layer for AI agents and high-consequence automation.
