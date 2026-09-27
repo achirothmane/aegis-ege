@@ -301,6 +301,41 @@ func canonicalTPMEnrollmentRequestPayload(req TPMEnrollmentRequest) ([]byte, err
 	return append([]byte("aegis-ege/tpm-enrollment-request/v1\x00"), body...), nil
 }
 
+func ValidateTPMEnrollmentChallengeForRequest(
+	req TPMEnrollmentRequest,
+	challenge TPMEnrollmentChallenge,
+	now time.Time,
+) error {
+	if challenge.Version != TPMEnrollmentChallengeVersion ||
+		strings.TrimSpace(challenge.EnrollmentID) == "" ||
+		strings.TrimSpace(challenge.DeviceID) == "" ||
+		strings.TrimSpace(challenge.EKSPKISHA256) == "" ||
+		strings.TrimSpace(challenge.EnrollmentRequestDigest) == "" {
+		return ErrEnrollmentActivationFailed
+	}
+	if req.Version != TPMEnrollmentRequestVersion ||
+		req.DeviceID != challenge.DeviceID {
+		return fmt.Errorf("%w: enrollment device/request mismatch", ErrEnrollmentActivationFailed)
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if !now.Before(challenge.ExpiresAt) {
+		return ErrRemoteChallengeExpired
+	}
+	requestDigest, err := TPMEnrollmentRequestDigest(req)
+	if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare(
+		[]byte(requestDigest),
+		[]byte(challenge.EnrollmentRequestDigest),
+	) != 1 {
+		return fmt.Errorf("%w: enrollment request transcript mismatch", ErrEnrollmentActivationFailed)
+	}
+	return nil
+}
+
 func enrollmentTranscriptPayload(challenge TPMEnrollmentChallenge) ([]byte, error) {
 	normalized := challenge
 	normalized.IssuedAt = normalized.IssuedAt.UTC()
