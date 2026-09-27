@@ -1,7 +1,6 @@
 package kernelfabric
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -9,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -237,10 +237,7 @@ func VerifyBootstrapArtifact(path string, manifest BootstrapManifest) error {
 		)
 	}
 	hasher := sha256.New()
-	if _, err := hasher.Read(nil); err != nil {
-		return err
-	}
-	if _, err := ioCopyHash(hasher, file); err != nil {
+	if _, err := io.Copy(hasher, file); err != nil {
 		return fmt.Errorf("hash BPF artifact: %w", err)
 	}
 	actual := "sha256:" + hex.EncodeToString(hasher.Sum(nil))
@@ -253,37 +250,6 @@ func VerifyBootstrapArtifact(path string, manifest BootstrapManifest) error {
 		)
 	}
 	return nil
-}
-
-type hashWriter interface {
-	Write([]byte) (int, error)
-}
-
-func ioCopyHash(dst hashWriter, src *os.File) (int64, error) {
-	buf := make([]byte, 128*1024)
-	var total int64
-	for {
-		n, readErr := src.Read(buf)
-		if n > 0 {
-			written, writeErr := dst.Write(buf[:n])
-			total += int64(written)
-			if writeErr != nil {
-				return total, writeErr
-			}
-			if written != n {
-				return total, errors.New("short hash write")
-			}
-		}
-		if errors.Is(readErr, os.ErrClosed) {
-			return total, readErr
-		}
-		if readErr != nil {
-			if readErr.Error() == "EOF" {
-				return total, nil
-			}
-			return total, readErr
-		}
-	}
 }
 
 func BootstrapManifestDigest(manifest BootstrapManifest) (string, error) {
@@ -428,4 +394,3 @@ func WriteSignedBootstrapReceipt(path string, signed SignedBootstrapReceipt) err
 	return os.WriteFile(path, payload, 0o600)
 }
 
-func _bootstrapContextAnchor(context.Context) {}
