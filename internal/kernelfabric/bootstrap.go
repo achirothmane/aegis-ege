@@ -18,6 +18,7 @@ import (
 const (
 	BootstrapManifestVersion = "aegis.ege/bpf-bootstrap/v1"
 	BootstrapReceiptVersion  = "aegis.ege/bpf-bootstrap-receipt/v1"
+	BPFObjectNameMaxLength   = 15
 )
 
 var (
@@ -197,6 +198,12 @@ func ValidateBootstrapManifest(manifest BootstrapManifest, now time.Time) error 
 			strings.TrimSpace(program.AttachType) == "" {
 			return errors.New("bootstrap program declaration is incomplete")
 		}
+		if len(program.Name) > BPFObjectNameMaxLength {
+			return fmt.Errorf("bootstrap program name %q exceeds kernel BPF object-name limit", program.Name)
+		}
+		if strings.ContainsAny(program.PinName, "/.") {
+			return fmt.Errorf("bootstrap program pin name %q is not a safe bpffs filename", program.PinName)
+		}
 		if _, exists := programPins[program.PinName]; exists {
 			return fmt.Errorf("duplicate bootstrap program pin %q", program.PinName)
 		}
@@ -206,6 +213,12 @@ func ValidateBootstrapManifest(manifest BootstrapManifest, now time.Time) error 
 	for _, m := range manifest.Maps {
 		if strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Type) == "" {
 			return errors.New("bootstrap map declaration is incomplete")
+		}
+		if len(m.Name) > BPFObjectNameMaxLength {
+			return fmt.Errorf("bootstrap map name %q exceeds kernel BPF object-name limit", m.Name)
+		}
+		if strings.ContainsAny(m.Name, "/.") {
+			return fmt.Errorf("bootstrap map name %q is not a safe bpffs filename", m.Name)
 		}
 		if _, exists := mapNames[m.Name]; exists {
 			return fmt.Errorf("duplicate bootstrap map %q", m.Name)
