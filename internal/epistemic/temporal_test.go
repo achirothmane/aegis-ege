@@ -152,3 +152,42 @@ func TestTemporalValidityFailsUnknownWithoutPolicy(t *testing.T) {
 		t.Fatalf("undefined temporal window must fail unknown, got %+v", got)
 	}
 }
+
+func TestTemporalValidityExpiresAtExactBoundaryViaEASL(t *testing.T) {
+	evaluatedAt := time.Date(2026, 9, 27, 2, 45, 0, 0, time.UTC)
+	now := evaluatedAt.Add(5 * time.Second)
+
+	got := AssessTemporalValidity(
+		Assumption{
+			ID:          "A-BOUNDARY",
+			Status:      AssumptionSupported,
+			EvaluatedAt: evaluatedAt,
+		},
+		now,
+		SensitivityCritical,
+		TemporalPolicy{CriticalMaxAge: 5 * time.Second},
+	)
+
+	if got.Validity != ValidityExpired || got.Reason != TemporalReasonAgeExceeded {
+		t.Fatalf("exact EASL validity boundary must be expired, got %+v", got)
+	}
+}
+
+func TestFixedTTLExpiresAtExactBoundaryViaEASL(t *testing.T) {
+	evaluatedAt := time.Date(2026, 9, 27, 2, 45, 0, 0, time.UTC)
+	now := evaluatedAt.Add(5 * time.Second)
+
+	got := AssessFixedTTL(
+		Assumption{
+			ID:          "A-FIXED-BOUNDARY",
+			Status:      AssumptionSupported,
+			EvaluatedAt: evaluatedAt,
+		},
+		now,
+		5*time.Second,
+	)
+
+	if got.Valid || got.Reason != TemporalReasonAgeExceeded {
+		t.Fatalf("exact EASL fixed-TTL boundary must be expired, got %+v", got)
+	}
+}
