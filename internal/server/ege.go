@@ -55,14 +55,17 @@ type egeExecuteRequest struct {
 }
 
 type egeExecuteResponse struct {
-	APIVersion  string                `json:"api_version"`
-	IntentID    string                `json:"intent_id"`
-	Kind        string                `json:"kind"`
-	Target      egeTargetDTO          `json:"target"`
-	Decision    decision.Decision     `json:"decision"`
-	ReasonCodes []decision.ReasonCode `json:"reason_codes,omitempty"`
-	PlanDigest  string                `json:"plan_digest,omitempty"`
-	Steps       []mutationStepDTO     `json:"steps,omitempty"`
+	APIVersion      string                       `json:"api_version"`
+	IntentID        string                       `json:"intent_id"`
+	Kind            string                       `json:"kind"`
+	Target          egeTargetDTO                 `json:"target"`
+	Decision        decision.Decision            `json:"decision"`
+	ReasonCodes     []decision.ReasonCode        `json:"reason_codes,omitempty"`
+	PlanDigest      string                       `json:"plan_digest,omitempty"`
+	Steps           []mutationStepDTO            `json:"steps,omitempty"`
+	ExecutionReceipt *egeproto.ExecutionReceipt  `json:"execution_receipt,omitempty"`
+	ProducedEvidence *egeproto.ReceiptEvidence   `json:"produced_evidence,omitempty"`
+	FeedbackError   string                       `json:"feedback_error,omitempty"`
 }
 
 func normalizeEGEIntent(intentID, kind string, target egeTargetDTO) (string, string, egeTargetDTO, error) {
@@ -271,11 +274,13 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	executionStartedAt := s.config.Clock().UTC()
 	execution, err := adapter.Execute(ctx, auth, target)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "EXECUTION_FAILED", err)
 		return
 	}
+	executionFinishedAt := s.config.Clock().UTC()
 
 	response := egeExecuteResponse{
 		APIVersion:  egeAPIVersion,
@@ -288,6 +293,66 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		Steps:       append([]mutationStepDTO(nil), execution.Steps...),
 	}
 
-	s.auditDecision(r, PermissionExecute, string(execution.Decision), intentID, target.Name, execution.ReasonCodes)
+	reasonStrings := make([]string, 0, len(execution.ReasonCodes))
+	for _, reason := range execution.ReasonCodes {
+		reasonStrings = append(reasonStrings, string(reason))
+	}
+	resourceChanges := make([]egeproto.ReceiptResourceChange, 0, len(execution.Steps))
+	for _, step := range execution.Steps {
+		result := "NOT_APPLIED"
+		if step.Applied {
+			result = "APPLIED"
+		} else if step.Error != "" {
+			result = "FAILED"
+		}
+		resourceChanges = append(resourceChanges, egeproto.ReceiptResourceChange{
+			Resource:  "kubernetes://node/" + target.Name,
+			Operation: string(step.Kind),
+			Result:    result,
+			Error:     step.Error,
+		})
+	}
+
+	receipt, producedEvidence, feedbackErr := egeproto.BuildExecutionReceiptFeedback(
+		egeproto.ExecutionReceiptInput{
+			Permit:          req.Permit,
+			Decision:        string(execution.Decision),
+			ReasonCodes:     reasonStrings,
+			PlanDigest:      execution.PlanDigest,
+			StartedAt:       executionStartedAt,
+			FinishedAt:      executionFinishedAt,
+			ResourceChanges: resourceChanges,
+		},
+	)
+	if feedbackErr != nil {
+		response.FeedbackError = feedbackErr.Error()
+		s.auditDecision(r, PermissionExecute, string(execution.Decision), intentID, target.Name, execution.ReasonCodes)
+		s.auditSecurity(r.Context(), SecurityAuditRecord{
+			OccurredAt: s.config.Clock().UTC(),
+			Principal:  principalFromContext(r.Context()).ID,
+			Permission: PermissionExecute,
+			Method:     r.Method,
+			Path:       r.URL.Path,
+			Allowed:    true,
+			Decision:   string(execution.Decision),
+			ActionID:   intentID,
+			NodeName:   target.Name,
+			Reason:     "EXECUTION_FEEDBACK_ERROR:" + feedbackErr.Error(),
+		})
+	} else {
+		response.ExecutionReceipt = &receipt
+		response.ProducedEvidence = &producedEvidence
+		s.auditDecision(
+			r,
+			PermissionExecute,
+			string(execution.Decision),
+			intentID,
+			target.Name,
+			execution.ReasonCodes,
+			receipt.ID,
+			producedEvidence.ID,
+		)
+	}
+
 	writeJSON(w, http.StatusOK, response)
 }
