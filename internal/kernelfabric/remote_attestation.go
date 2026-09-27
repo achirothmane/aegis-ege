@@ -8,12 +8,14 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -88,8 +90,9 @@ type TPMEnrollmentChallenge struct {
 	DeviceID            string `json:"device_id"`
 	EncryptedCredential []byte `json:"encrypted_credential"`
 	EncryptedSecret     []byte `json:"encrypted_secret"`
-	EKSPKISHA256        string `json:"ek_spki_sha256"`
-	IssuedAt            time.Time `json:"issued_at"`
+	EKSPKISHA256           string `json:"ek_spki_sha256"`
+	EnrollmentRequestDigest string `json:"enrollment_request_digest"`
+	IssuedAt               time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 }
 
@@ -104,8 +107,9 @@ type TPMEnrollmentProof struct {
 	Version      string `json:"version"`
 	EnrollmentID string `json:"enrollment_id"`
 	DeviceID     string `json:"device_id"`
-	Secret       []byte `json:"secret"`
-	CompletedAt  time.Time `json:"completed_at"`
+	Secret              []byte `json:"secret"`
+	TranscriptSignature []byte `json:"transcript_signature"`
+	CompletedAt         time.Time `json:"completed_at"`
 }
 
 type EnrolledTPMIdentity struct {
@@ -167,6 +171,10 @@ func BeginTPMEnrollment(
 	if policy.Now != nil {
 		now = policy.Now().UTC()
 	}
+	requestDigest, err := TPMEnrollmentRequestDigest(req)
+	if err != nil {
+		return TPMEnrollmentChallenge{}, PendingTPMEnrollment{}, err
+	}
 	enrollmentID, err := randomToken(24)
 	if err != nil {
 		return TPMEnrollmentChallenge{}, PendingTPMEnrollment{}, err
@@ -177,8 +185,9 @@ func BeginTPMEnrollment(
 		DeviceID:            req.DeviceID,
 		EncryptedCredential: append([]byte(nil), encrypted.Credential...),
 		EncryptedSecret:     append([]byte(nil), encrypted.Secret...),
-		EKSPKISHA256:        ekSPKI,
-		IssuedAt:            now,
+		EKSPKISHA256:           ekSPKI,
+		EnrollmentRequestDigest: requestDigest,
+		IssuedAt:               now,
 		ExpiresAt:           now.Add(ttl),
 	}
 	return challenge, PendingTPMEnrollment{
@@ -212,7 +221,11 @@ func verifyEKTrust(
 	if policy.Now != nil {
 		now = policy.Now()
 	}
-	if _, err := cert.Verify(x509.VerifyOptions{Roots: policy.EKRoots, CurrentTime: now}); err != nil {
+	if _, err := cert.Verify(x509.VerifyOptions{
+		Roots:      policy.EKRoots,
+		CurrentTime: now,
+		KeyUsages:  []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	}); err != nil {
 		return fmt.Errorf("%w: EK certificate verify: %v", ErrEnrollmentTrustRejected, err)
 	}
 	return nil
@@ -236,6 +249,17 @@ func CompleteTPMEnrollment(
 	if !now.Before(pending.Challenge.ExpiresAt) {
 		return EnrolledTPMIdentity{}, ErrRemoteChallengeExpired
 	}
+	transcript, err := enrollmentTranscriptPayload(pending.Challenge)
+	if err != nil {
+		return EnrolledTPMIdentity{}, err
+	}
+	if err := verifyAKMessageSignature(
+		pending.Request.AK.Public,
+		transcript,
+		proof.TranscriptSignature,
+	); err != nil {
+		return EnrolledTPMIdentity{}, fmt.Errorf("%w: enrollment transcript signature: %v", ErrEnrollmentActivationFailed, err)
+	}
 	if subtle.ConstantTimeCompare(proof.Secret, pending.ExpectedSecret) != 1 {
 		return EnrolledTPMIdentity{}, ErrEnrollmentActivationFailed
 	}
@@ -256,6 +280,62 @@ func CompleteTPMEnrollment(
 		TPMFirmwareMinor:   pending.Request.TPMFirmwareMinor,
 		EnrolledAt:         now.UTC(),
 	}, nil
+}
+
+func TPMEnrollmentRequestDigest(req TPMEnrollmentRequest) (string, error) {
+	payload, err := canonicalTPMEnrollmentRequestPayload(req)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func canonicalTPMEnrollmentRequestPayload(req TPMEnrollmentRequest) ([]byte, error) {
+	normalized := req
+	normalized.CreatedAt = normalized.CreatedAt.UTC()
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal TPM enrollment request: %w", err)
+	}
+	return append([]byte("aegis-ege/tpm-enrollment-request/v1\x00"), body...), nil
+}
+
+func enrollmentTranscriptPayload(challenge TPMEnrollmentChallenge) ([]byte, error) {
+	normalized := challenge
+	normalized.IssuedAt = normalized.IssuedAt.UTC()
+	normalized.ExpiresAt = normalized.ExpiresAt.UTC()
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal TPM enrollment transcript: %w", err)
+	}
+	return append([]byte("aegis-ege/tpm-enrollment-transcript/v1\x00"), body...), nil
+}
+
+func verifyAKMessageSignature(akPublicBlob, message, signature []byte) error {
+	if len(signature) == 0 {
+		return errors.New("AK transcript signature is required")
+	}
+	parsed, err := attest.ParseAKPublic(akPublicBlob)
+	if err != nil {
+		return fmt.Errorf("parse AK public: %w", err)
+	}
+	digest := sha256.Sum256(message)
+	switch pub := parsed.Public.(type) {
+	case *rsa.PublicKey:
+		return rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest[:], signature)
+	case *ecdsa.PublicKey:
+		var sig struct{ R, S *big.Int }
+		if _, err := asn1.Unmarshal(signature, &sig); err != nil {
+			return fmt.Errorf("decode ECDSA AK signature: %w", err)
+		}
+		if sig.R == nil || sig.S == nil || !ecdsa.Verify(pub, digest[:], sig.R, sig.S) {
+			return errors.New("ECDSA AK transcript signature is invalid")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported AK public key type %T", parsed.Public)
+	}
 }
 
 type RemoteAttestationChallenge struct {
