@@ -200,7 +200,9 @@ verifier_id
 
 The verifier signs the decision with its own Ed25519 authority key.
 
-Deployment should consume this signed decision, not infer trust from the mere existence of attestation files.
+Deployment should consume this signed decision through the workload-admission layer, not infer trust from the mere existence of attestation files.
+
+See [attested-workload-admission.md](attested-workload-admission.md).
 
 ## File-protocol workflow
 
@@ -339,7 +341,6 @@ automatic TPM manufacturer EK root distribution
 OCSP / CRL checking for EK certificate chains
 network HTTP/gRPC transport
 durable multi-host verifier database for enrollment/challenge state
-remote decision integration into workload admission
 confidential-computing TEE attestation
 runtime memory integrity
 IMA policy installation / enforcement automation

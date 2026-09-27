@@ -236,6 +236,24 @@ The quote nonce binds the signed bootstrap receipt and both measurement logs to 
 
 See [remote-tpm-ima-attestation.md](remote-tpm-ima-attestation.md).
 
+## Attested workload admission
+
+A remote attestation ALLOW is now converted into a separate workload-specific one-shot grant:
+
+```text
+signed remote ALLOW
+-> workload admission request
+-> signed admission grant
+-> exact cgroup identity check
+-> atomic one-shot consumption
+-> CLONE_INTO_CGROUP
+-> signed activation receipt
+```
+
+The workload starts inside the protected cgroup; Aegis does not intentionally start it first and move the PID later.
+
+See [attested-workload-admission.md](attested-workload-admission.md).
+
 ## Governing invariant
 
 > A stale, revoked, expired, superseded, reboot-crossing, or absent DecisionCapsule must fail closed before the protected kernel operation is allowed.
