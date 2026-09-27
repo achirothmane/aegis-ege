@@ -42,6 +42,11 @@ func (s WorkloadLifecycleStore) withLockedState(
 	workloadID string,
 	fn func(path string, state WorkloadLifecycleState, exists bool) error,
 ) error {
+	deviceID = strings.TrimSpace(deviceID)
+	workloadID = strings.TrimSpace(workloadID)
+	if deviceID == "" || workloadID == "" {
+		return errors.New("device id and workload id are required for lifecycle state")
+	}
 	dir := filepath.Clean(strings.TrimSpace(s.Dir))
 	if dir == "." || !filepath.IsAbs(dir) {
 		return errors.New("workload lifecycle directory must be absolute")
@@ -90,26 +95,16 @@ func readLifecycleState(path string) (WorkloadLifecycleState, bool, error) {
 	if err := json.Unmarshal(payload, &state); err != nil {
 		return WorkloadLifecycleState{}, false, fmt.Errorf("decode workload lifecycle state: %w", err)
 	}
-	if state.Version != WorkloadLifecycleStateVersion ||
-		strings.TrimSpace(state.DeviceID) == "" ||
-		strings.TrimSpace(state.WorkloadID) == "" ||
-		state.Generation == 0 ||
-		(state.State != LifecycleStateRunning && state.State != LifecycleStateExited) ||
-		state.UpdatedAt.IsZero() {
-		return WorkloadLifecycleState{}, false, errors.New("workload lifecycle state is invalid")
-	}
-	if _, err := ParseSHA256Digest(state.ActivationDigest); err != nil {
-		return WorkloadLifecycleState{}, false, fmt.Errorf("lifecycle activation digest: %w", err)
-	}
-	if state.State == LifecycleStateExited {
-		if _, err := ParseSHA256Digest(state.ExitDigest); err != nil {
-			return WorkloadLifecycleState{}, false, fmt.Errorf("lifecycle exit digest: %w", err)
-		}
+	if err := ValidateWorkloadLifecycleState(state); err != nil {
+		return WorkloadLifecycleState{}, false, err
 	}
 	return state, true, nil
 }
 
 func writeLifecycleState(path string, state WorkloadLifecycleState) error {
+	if err := ValidateWorkloadLifecycleState(state); err != nil {
+		return err
+	}
 	payload, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
