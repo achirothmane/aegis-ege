@@ -59,14 +59,14 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 1 << 20);
-} aegis_evidence_events SEC(".maps");
+} aegis_ev_events SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
 	__type(value, struct aegis_evidence_accounting);
-} aegis_evidence_accounting SEC(".maps");
+} aegis_ev_acct SEC(".maps");
 
 static __always_inline void bump_stat(__u32 index)
 {
@@ -84,13 +84,13 @@ static __always_inline void emit_evidence(
 {
 	__u32 zero = 0;
 	struct aegis_evidence_accounting *accounting =
-		bpf_map_lookup_elem(&aegis_evidence_accounting, &zero);
+		bpf_map_lookup_elem(&aegis_ev_acct, &zero);
 	if (!accounting)
 		return;
 
 	__u64 sequence = __sync_fetch_and_add(&accounting->sequence, 1) + 1;
 	struct aegis_evidence_event *event =
-		bpf_ringbuf_reserve(&aegis_evidence_events, sizeof(*event), 0);
+		bpf_ringbuf_reserve(&aegis_ev_events, sizeof(*event), 0);
 	if (!event) {
 		__sync_fetch_and_add(&accounting->lost, 1);
 		return;

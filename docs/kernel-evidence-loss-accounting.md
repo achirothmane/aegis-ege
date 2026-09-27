@@ -64,8 +64,8 @@ The second signal catches trailing loss even when no later event exists to revea
 Default paths:
 
 ```text
-/sys/fs/bpf/aegis-ege/maps/aegis_evidence_events
-/sys/fs/bpf/aegis-ege/maps/aegis_evidence_accounting
+/sys/fs/bpf/aegis-ege/maps/aegis_ev_events
+/sys/fs/bpf/aegis-ege/maps/aegis_ev_acct
 ```
 
 The reader tracks:

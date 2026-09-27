@@ -24,15 +24,40 @@ The program first checks an exact destination scope and then a cgroup-wide wildc
 make -C kernel/bpf
 ```
 
-## Load and attach
+## Signed load and attach
 
-Root privileges and a mounted bpffs are required:
+Direct unsigned loading is disabled. Root privileges and a mounted bpffs are required, but the artifact must first be authorized by a release signer.
+
+Generate keys and sign the compiled object:
 
 ```bash
-sudo kernel/bpf/load.sh \
-  kernel/bpf/build/aegis_connect.bpf.o \
-  /sys/fs/cgroup/<protected-cgroup>
+go run ./cmd/aegis-bpf-keygen \
+  -private-out release-signing.key \
+  -public-out release-signing.pub
+
+go run ./cmd/aegis-bpf-sign \
+  -artifact kernel/bpf/build/aegis_connect.bpf.o \
+  -private-key release-signing.key \
+  -out aegis-bpf-bootstrap.signed.json
 ```
+
+Generate a separate host attestation key and bootstrap:
+
+```bash
+go run ./cmd/aegis-bpf-keygen \
+  -private-out host-attestation.key \
+  -public-out host-attestation.pub
+
+sudo go run ./cmd/aegis-bpf-loader \
+  -artifact kernel/bpf/build/aegis_connect.bpf.o \
+  -manifest aegis-bpf-bootstrap.signed.json \
+  -trust-key release-signing.pub \
+  -attestation-key host-attestation.key \
+  -cgroup /sys/fs/cgroup/<protected-cgroup> \
+  -receipt aegis-bpf-bootstrap.receipt.json
+```
+
+The legacy `kernel/bpf/load.sh` exits non-zero so signature verification cannot be bypassed accidentally.
 
 The loader pins programs under:
 
@@ -51,10 +76,13 @@ Userspace installs scope fences and DecisionCapsules through the pinned maps. Th
 The object also pins:
 
 ```text
-/sys/fs/bpf/aegis-ege/maps/aegis_evidence_events
-/sys/fs/bpf/aegis-ege/maps/aegis_evidence_accounting
+/sys/fs/bpf/aegis-ege/maps/aegis_ev_events
+/sys/fs/bpf/aegis-ege/maps/aegis_ev_acct
 ```
 
 `EvidenceReader` consumes the ring buffer and compares its observed sequence with the kernel accounting map. Ring-buffer reservation failures increment the kernel `lost` counter and consume a sequence number, making evidence loss detectable even under backpressure.
 
 This is the cgroup network adapter only. XDP and BPF-LSM are separate enforcement adapters and are not implied by this directory.
+
+
+For the trust model, TOCTOU staging, post-load verification, partial-attach rollback, and local-attestation boundary, see [../../docs/signed-bpf-loader-bootstrap.md](../../docs/signed-bpf-loader-bootstrap.md).

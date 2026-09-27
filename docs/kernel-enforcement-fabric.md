@@ -191,6 +191,11 @@ sequenced ring-buffer enforcement evidence
 kernel emitted/lost accounting
 userspace continuity tracker
 EASL contradiction bridge for degraded continuity
+signed BPF release manifest
+verified staged artifact loading
+post-load program/map attestation
+signed host-bound bootstrap receipt
+legacy unsigned loader disabled
 ```
 
 Not yet implemented:
@@ -198,12 +203,21 @@ Not yet implemented:
 ```text
 BPF-LSM filesystem/process enforcement
 XDP ingress enforcement
-signed/attested BPF loader bootstrap
+TPM/IMA hardware-rooted remote attestation
+hot-upgrade protocol for already-pinned BPF state
 kernel-side constraint classes beyond network connect
 runtime verifier test on a privileged CI host
 ```
 
 Those are subsequent adapters/layers; they should not be simulated inside this v1 network hook.
+
+## Signed bootstrap
+
+Kernel attachment now flows through a signed release manifest and a separate host attestation receipt. The loader verifies the artifact bytes from a private staged copy, checks all expected pinned program/map metadata before attach, rolls back partial attach, and binds the resulting receipt to the current boot id and kernel release.
+
+This is local cryptographic attestation. TPM quote, IMA verification, Secure Boot proof, and remote challenge/nonce are not yet claimed.
+
+See [signed-bpf-loader-bootstrap.md](signed-bpf-loader-bootstrap.md).
 
 ## Governing invariant
 

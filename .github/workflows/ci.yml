@@ -29,6 +29,14 @@ jobs:
             -Ikernel/bpf \
             -c kernel/bpf/aegis_connect.bpf.c \
             -o "$RUNNER_TEMP/aegis_connect.bpf.o"
+      - name: Assert legacy unsigned BPF loader is disabled
+        run: |
+          if bash kernel/bpf/load.sh >"$RUNNER_TEMP/legacy-loader.out" 2>&1; then
+            echo "legacy unsigned loader unexpectedly succeeded"
+            cat "$RUNNER_TEMP/legacy-loader.out"
+            exit 1
+          fi
+          grep -q "Unsigned BPF loading" "$RUNNER_TEMP/legacy-loader.out"
       - run: go test ./...
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
