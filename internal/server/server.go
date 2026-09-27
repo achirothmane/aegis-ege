@@ -30,6 +30,9 @@ type Config struct {
 	ReplayGuard           ReplayGuard
 	AuditSink             AuditSink
 	Clock                 func() time.Time
+	RequireEBAConformance bool
+	EBAApprovalAuthority  egeproto.PermitAuthority
+	EBAExecutionPrincipal string
 	EGEPermitAuthority                egeproto.PermitAuthority
 	EGEPrometheusNodeHealthURL         string
 	EGEPrometheusNodeHealthTrustDomain string
@@ -41,7 +44,8 @@ type Server struct {
 	store           kubeadapter.DrainCheckpointStore
 	config          Config
 	mux             *http.ServeMux
-	permitAuthority egeproto.PermitAuthority
+	permitAuthority   egeproto.PermitAuthority
+	approvalAuthority egeproto.PermitAuthority
 	egeAdapters         *egeAdapterRegistry
 	egeEvidenceComposer *egeEvidenceComposer
 }
@@ -70,6 +74,14 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.MutationsEnabled && config.ReplayGuard == nil {
 		return nil, fmt.Errorf("replay guard is required when mutations are enabled")
+	}
+	if config.RequireEBAConformance && config.EBAApprovalAuthority == nil {
+		return nil, fmt.Errorf("EBA approval authority is required when EBA conformance enforcement is enabled")
+	}
+	if strings.TrimSpace(config.EBAExecutionPrincipal) == "" {
+		config.EBAExecutionPrincipal = "aegis-ege"
+	} else {
+		config.EBAExecutionPrincipal = strings.TrimSpace(config.EBAExecutionPrincipal)
 	}
 	permitAuthority := config.EGEPermitAuthority
 	if permitAuthority == nil {
@@ -146,6 +158,7 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		config:              config,
 		mux:                 http.NewServeMux(),
 		permitAuthority:     permitAuthority,
+		approvalAuthority:   config.EBAApprovalAuthority,
 		egeAdapters:         egeAdapters,
 		egeEvidenceComposer: egeEvidenceComposer,
 	}
