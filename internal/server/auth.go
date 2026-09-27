@@ -136,6 +136,8 @@ type SecurityAuditRecord struct {
 	ActionID   string
 	NodeName   string
 	Reason     string
+	ReceiptID  string
+	EvidenceID string
 }
 
 type AuditSink interface {
@@ -157,5 +159,7 @@ func (SlogAuditSink) Record(_ context.Context, record SecurityAuditRecord) {
 		"action_id", record.ActionID,
 		"node_name", record.NodeName,
 		"reason", record.Reason,
+		"receipt_id", record.ReceiptID,
+		"evidence_id", record.EvidenceID,
 	)
 }
