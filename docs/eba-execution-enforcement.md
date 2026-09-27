@@ -104,3 +104,38 @@ conformance harness
 → measured adoption
 → only then consider stronger defaults
 ```
+
+
+## Key generation and custody
+
+A compatible durable Ed25519 key pair can be generated with OpenSSL:
+
+```bash
+openssl genpkey -algorithm ED25519 -out approval-private-key.pem
+openssl pkey -in approval-private-key.pem -pubout -out approval-public-key.pem
+```
+
+The private file is PKCS#8 and can be loaded by approval-issuer code with:
+
+```go
+signer, err := ege.NewEd25519AuthorityPKCS8PEM(privatePEM)
+```
+
+The execution daemon receives only `approval-public-key.pem`.
+
+Do **not** deploy `approval-private-key.pem` with the Aegis execution daemon.
+The security boundary is deliberate:
+
+```text
+approval issuer
+  holds private key
+  → signs ApprovalAttestation
+
+Aegis daemon
+  holds public key only
+  → verifies ApprovalAttestation
+  → cannot mint approvals
+```
+
+The derived `key_id` is stable across process restarts because it is based on
+the Ed25519 public-key SHA-256 fingerprint.
