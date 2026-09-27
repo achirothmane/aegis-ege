@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/cliio"
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
@@ -16,6 +17,7 @@ func main() {
 	evidencePath := flag.String("evidence", "", "remote attestation evidence")
 	verifierKeyPath := flag.String("verifier-key", "", "Ed25519 verifier private key (0600)")
 	verifierID := flag.String("verifier-id", "", "verifier authority identifier")
+	consumptionDir := flag.String("consumption-dir", "", "durable one-time challenge consumption directory")
 	lockdown := flag.String("require-lockdown", "integrity,confidentiality", "comma-separated accepted kernel lockdown modes; empty disables check")
 	requireEventLog := flag.Bool("require-event-log", true, "require TCG platform event-log replay")
 	requireIMA := flag.Bool("require-ima", true, "require IMA PCR10 replay")
@@ -23,8 +25,8 @@ func main() {
 	out := flag.String("out", "remote-attestation-decision.json", "signed decision output")
 	flag.Parse()
 	if *identityPath == "" || *challengePath == "" || *evidencePath == "" ||
-		*verifierKeyPath == "" || *verifierID == "" {
-		fatalf("-identity, -challenge, -evidence, -verifier-key and -verifier-id are required")
+		*verifierKeyPath == "" || *verifierID == "" || *consumptionDir == "" {
+		fatalf("-identity, -challenge, -evidence, -verifier-key, -verifier-id and -consumption-dir are required")
 	}
 	identity, err := cliio.ReadJSON[kernelfabric.EnrolledTPMIdentity](*identityPath)
 	if err != nil { fatalf("%v", err) }
@@ -40,6 +42,14 @@ func main() {
 		mode = strings.TrimSpace(mode)
 		if mode != "" { modes[mode] = struct{}{} }
 	}
+	if err := kernelfabric.ConsumeRemoteAttestationChallenge(
+		*consumptionDir,
+		challenge,
+		time.Now().UTC(),
+	); err != nil {
+		fatalf("consume challenge: %v", err)
+	}
+
 	decision, err := kernelfabric.VerifyRemoteAttestation(
 		challenge, identity, evidence,
 		kernelfabric.RemoteAttestationPolicy{
