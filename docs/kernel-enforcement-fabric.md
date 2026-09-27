@@ -157,7 +157,7 @@ Once attached to a protected cgroup, a connect attempt is blocked when any of th
 - local monotonic lease expired;
 - capsule decision is BLOCK.
 
-The adapter exports per-CPU denial/allow counters. It does not yet emit ring-buffer evidence events.
+The adapter exports per-CPU denial/allow counters and emits sequenced enforcement evidence through a shared ring buffer. Reservation failures are counted in a separate kernel accounting map so telemetry loss is observable rather than silent. See [kernel-evidence-loss-accounting.md](kernel-evidence-loss-accounting.md).
 
 ## Pinned-map installer
 
@@ -187,6 +187,10 @@ pinned-map userspace installer
 fail-closed install ordering
 reference evaluator + ABI tests
 BPF compile gate in CI
+sequenced ring-buffer enforcement evidence
+kernel emitted/lost accounting
+userspace continuity tracker
+EASL contradiction bridge for degraded continuity
 ```
 
 Not yet implemented:
@@ -194,7 +198,6 @@ Not yet implemented:
 ```text
 BPF-LSM filesystem/process enforcement
 XDP ingress enforcement
-ring-buffer Evidence Loss Accounting
 signed/attested BPF loader bootstrap
 kernel-side constraint classes beyond network connect
 runtime verifier test on a privileged CI host

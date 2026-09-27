@@ -21,10 +21,18 @@ const (
 	AddressFamilyIPv4     uint32 = 2
 	AddressFamilyIPv6     uint32 = 10
 
-	ScopeKeySize         = 40
-	ScopeFenceKeySize    = 16
-	ScopeFenceStateSize  = 56
-	DecisionCapsuleSize  = 240
+	EvidenceEventVersion     uint32 = 1
+	EvidenceEventEnforcement uint32 = 1
+
+	EvidenceVerdictDeny  uint32 = 0
+	EvidenceVerdictAllow uint32 = 1
+
+	ScopeKeySize           = 40
+	ScopeFenceKeySize      = 16
+	ScopeFenceStateSize    = 56
+	DecisionCapsuleSize    = 240
+	EvidenceEventSize      = 128
+	EvidenceAccountingSize = 24
 )
 
 var (
@@ -58,19 +66,44 @@ type ScopeFenceState struct {
 }
 
 type DecisionCapsule struct {
-	DecisionIDHash   [32]byte
-	SubjectHash      [32]byte
-	ActionHash       [32]byte
-	PolicyHash       [32]byte
-	EvidenceHash     [32]byte
-	BootIDHash       [32]byte
-	AuthorityTerm    uint64
-	DecisionEpoch    uint64
-	RevocationEpoch  uint64
+	DecisionIDHash    [32]byte
+	SubjectHash       [32]byte
+	ActionHash        [32]byte
+	PolicyHash        [32]byte
+	EvidenceHash      [32]byte
+	BootIDHash        [32]byte
+	AuthorityTerm     uint64
+	DecisionEpoch     uint64
+	RevocationEpoch   uint64
 	InstalledAtMonoNS uint64
 	DeadlineMonoNS    uint64
 	Decision          uint32
 	Constraints       uint32
+}
+
+type EvidenceEvent struct {
+	Sequence           uint64
+	ObservedAtMonoNS   uint64
+	CgroupID           uint64
+	AuthorityTerm      uint64
+	DecisionEpoch      uint64
+	RevocationEpoch    uint64
+	DecisionIDHash     [32]byte
+	ActionClass        uint32
+	Verdict            uint32
+	Reason             uint32
+	AddressFamily      uint32
+	DestinationAddr    [16]byte
+	DestinationPort    uint32
+	Protocol           uint32
+	ABIVersion         uint32
+	EventType          uint32
+}
+
+type EvidenceAccounting struct {
+	Sequence uint64
+	Emitted  uint64
+	Lost     uint64
 }
 
 type NetworkScope struct {
