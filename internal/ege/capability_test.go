@@ -37,6 +37,7 @@ func TestCapabilityFenceAcceptsMatchingAuthorityAndState(t *testing.T) {
 	current := CapabilityAuthoritySnapshot{
 		AuthorityDomain: claims.AuthorityDomain,
 		AuthorityTerm:   claims.AuthorityTerm,
+		DecisionEpoch:   claims.DecisionEpoch,
 		RevocationEpoch: claims.RevocationEpoch,
 	}
 	if err := ValidateCapabilityFence(claims, current, testCapabilityStateBinding()); err != nil {
@@ -49,10 +50,25 @@ func TestCapabilityFenceRejectsAuthorityTermChange(t *testing.T) {
 	current := CapabilityAuthoritySnapshot{
 		AuthorityDomain: claims.AuthorityDomain,
 		AuthorityTerm:   claims.AuthorityTerm + 1,
+		DecisionEpoch:   claims.DecisionEpoch,
 		RevocationEpoch: claims.RevocationEpoch,
 	}
 	if err := ValidateCapabilityFence(claims, current, testCapabilityStateBinding()); !errors.Is(err, ErrCapabilityAuthorityChanged) {
 		t.Fatalf("expected authority change, got %v", err)
+	}
+}
+
+
+func TestCapabilityFenceRejectsSupersededDecisionEpoch(t *testing.T) {
+	claims := testCapabilityClaims(t)
+	current := CapabilityAuthoritySnapshot{
+		AuthorityDomain: claims.AuthorityDomain,
+		AuthorityTerm:   claims.AuthorityTerm,
+		DecisionEpoch:   claims.DecisionEpoch + 1,
+		RevocationEpoch: claims.RevocationEpoch,
+	}
+	if err := ValidateCapabilityFence(claims, current, testCapabilityStateBinding()); !errors.Is(err, ErrCapabilityDecisionSuperseded) {
+		t.Fatalf("expected superseded decision rejection, got %v", err)
 	}
 }
 
@@ -73,6 +89,7 @@ func TestCapabilityFenceRejectsTargetReplacementWithSameName(t *testing.T) {
 	current := CapabilityAuthoritySnapshot{
 		AuthorityDomain: claims.AuthorityDomain,
 		AuthorityTerm:   claims.AuthorityTerm,
+		DecisionEpoch:   claims.DecisionEpoch,
 		RevocationEpoch: claims.RevocationEpoch,
 	}
 	state := testCapabilityStateBinding()
@@ -87,6 +104,7 @@ func TestCapabilityFenceRejectsStateBindingChange(t *testing.T) {
 	current := CapabilityAuthoritySnapshot{
 		AuthorityDomain: claims.AuthorityDomain,
 		AuthorityTerm:   claims.AuthorityTerm,
+		DecisionEpoch:   claims.DecisionEpoch,
 		RevocationEpoch: claims.RevocationEpoch,
 	}
 	state := testCapabilityStateBinding()
