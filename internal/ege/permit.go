@@ -54,6 +54,7 @@ type PermitClaims struct {
 	EvidenceDigest         string    `json:"evidence_digest"`
 	EvidenceManifestDigest string    `json:"evidence_manifest_digest"`
 	PlanDigest             string    `json:"plan_digest"`
+	ApprovalRefs           []string  `json:"approval_refs,omitempty"`
 	ValidUntil             time.Time `json:"valid_until"`
 }
 
@@ -183,6 +184,8 @@ func VerifyPermit(ctx context.Context, authority PermitAuthority, permit Permit)
 
 func canonicalPermitPayload(claims PermitClaims) ([]byte, error) {
 	claims.ValidUntil = claims.ValidUntil.UTC()
+	claims.ApprovalRefs = append([]string(nil), claims.ApprovalRefs...)
+	sort.Strings(claims.ApprovalRefs)
 	body, err := json.Marshal(claims)
 	if err != nil {
 		return nil, fmt.Errorf("marshal EGE permit claims: %w", err)
