@@ -51,9 +51,14 @@ func (l BootstrapLoader) LoadAndAttach(
 	if err := VerifySignedBootstrapManifest(req.SignedManifest, req.Trust, now); err != nil {
 		return BootstrapLoadResult{}, err
 	}
-	if err := VerifyBootstrapArtifact(req.ArtifactPath, req.SignedManifest.Manifest); err != nil {
+	stagedArtifact, cleanupArtifact, err := StageVerifiedBootstrapArtifact(
+		stagedArtifact,
+		req.SignedManifest.Manifest,
+	)
+	if err != nil {
 		return BootstrapLoadResult{}, err
 	}
+	defer cleanupArtifact()
 
 	cgroupPath := filepath.Clean(strings.TrimSpace(req.CgroupPath))
 	info, err := os.Stat(cgroupPath)
@@ -96,9 +101,16 @@ func (l BootstrapLoader) LoadAndAttach(
 	}
 
 	runner := l.runner()
-	bpftoolPath := strings.TrimSpace(l.BPFToolPath)
-	if bpftoolPath == "" {
-		bpftoolPath = "bpftool"
+	bpftoolPath := filepath.Clean(strings.TrimSpace(l.BPFToolPath))
+	if bpftoolPath == "." || !filepath.IsAbs(bpftoolPath) {
+		return BootstrapLoadResult{}, errors.New("absolute bpftool path is required")
+	}
+	bpftoolInfo, err := os.Stat(bpftoolPath)
+	if err != nil {
+		return BootstrapLoadResult{}, fmt.Errorf("stat bpftool executable: %w", err)
+	}
+	if !bpftoolInfo.Mode().IsRegular() || bpftoolInfo.Mode().Perm()&0o111 == 0 {
+		return BootstrapLoadResult{}, errors.New("bpftool path is not an executable regular file")
 	}
 
 	output, err := runner.Run(
