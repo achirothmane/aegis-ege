@@ -156,6 +156,15 @@ func TestSignedBootstrapReceiptRoundTrip(t *testing.T) {
 	}
 }
 
+type fakeBootstrapHostProvider struct {
+	snapshot BootstrapHostSnapshot
+	err      error
+}
+
+func (p fakeBootstrapHostProvider) Snapshot(string) (BootstrapHostSnapshot, error) {
+	return p.snapshot, p.err
+}
+
 type fakeBootstrapRunner struct {
 	calls          [][]string
 	failAttachType string
@@ -231,18 +240,18 @@ func signedBootstrapTestRequest(
 	return BootstrapLoader{
 			BPFToolPath: "/usr/sbin/bpftool",
 			Runner:      runner,
+			HostProvider: fakeBootstrapHostProvider{snapshot: BootstrapHostSnapshot{
+				BootIDHash:    "sha256:" + strings.Repeat("d", 64),
+				KernelRelease: "6.18-test",
+				LockdownMode:  "integrity",
+				BPFFSRoot:     root,
+			}},
 		}, BootstrapLoadRequest{
 			ArtifactPath:   artifact,
 			CgroupPath:     cgroup,
 			BPFFSRoot:      root,
 			SignedManifest: signed,
-			Trust:          BootstrapTrustStore{signerKeyID: signerPub},
-			Host: BootstrapHostSnapshot{
-				BootIDHash:    "sha256:" + strings.Repeat("d", 64),
-				KernelRelease: "6.18-test",
-				LockdownMode:  "integrity",
-				BPFFSRoot:     root,
-			},
+			Trust:                 BootstrapTrustStore{signerKeyID: signerPub},
 			AttestationPrivateKey: attestPriv,
 			Now:                   time.Date(2026, 9, 27, 22, 0, 0, 0, time.UTC),
 		}, attestPub
