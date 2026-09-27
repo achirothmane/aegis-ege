@@ -32,6 +32,13 @@ func evaluateEASL(snapshot easl.Snapshot) *Result {
 		}
 	}
 
+	if hasEASLInvalidationReason(evaluation, easl.ReasonAssumptionExpired) {
+		return &Result{
+			Decision:    Block,
+			ReasonCodes: []ReasonCode{AssumptionExpired},
+		}
+	}
+
 	if hasEASLInvalidationReason(evaluation, easl.ReasonDependencyInvalid) {
 		return &Result{
 			Decision:    Block,
