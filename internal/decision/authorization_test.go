@@ -93,6 +93,36 @@ func TestChangedExecutionPlanInvalidatesAuthorization(t *testing.T) {
 	}
 }
 
+
+func TestMultipleSubjectStateChangesPreserveCauseSpecificReasons(t *testing.T) {
+	auth, attempt := validAuthorizationFixture(t)
+	attempt.ResourceVersion = "928442"
+	attempt.PlanDigest = "sha256:plan-b"
+
+	got := ValidateAuthorization(auth, attempt)
+
+	if got.Valid {
+		t.Fatalf("expected invalid authorization after subject-state drift")
+	}
+	if !containsReason(got.ReasonCodes, ResourceVersionChanged) {
+		t.Fatalf("expected %s, got reasons=%v", ResourceVersionChanged, got.ReasonCodes)
+	}
+	if !containsReason(got.ReasonCodes, ExecutionPlanChanged) {
+		t.Fatalf("expected %s, got reasons=%v", ExecutionPlanChanged, got.ReasonCodes)
+	}
+}
+
+func TestSubjectStateBindingFailsClosedWithoutEvaluationTime(t *testing.T) {
+	auth, attempt := validAuthorizationFixture(t)
+	attempt.Now = time.Time{}
+
+	got := ValidateAuthorization(auth, attempt)
+
+	if got.Valid || !containsReason(got.ReasonCodes, InsufficientStateBinding) {
+		t.Fatalf("expected %s, got valid=%v reasons=%v", InsufficientStateBinding, got.Valid, got.ReasonCodes)
+	}
+}
+
 func TestChangedActionInvalidatesAuthorization(t *testing.T) {
 	auth, attempt := validAuthorizationFixture(t)
 	attempt.Action = "delete"
