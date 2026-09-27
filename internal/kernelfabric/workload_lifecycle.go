@@ -424,6 +424,13 @@ func EvaluateWorkloadRestart(
 	if err != nil {
 		return SignedWorkloadRestartDecision{}, err
 	}
+	notBefore := now
+	if outcome != RestartOutcomeBlock {
+		backoffDeadline := exit.Receipt.ExitedAt.UTC().Add(delay)
+		if backoffDeadline.After(notBefore) {
+			notBefore = backoffDeadline
+		}
+	}
 	decision := WorkloadRestartDecision{
 		Version:                     WorkloadRestartDecisionVersion,
 		DecisionID:                  decisionID,
@@ -441,8 +448,8 @@ func EvaluateWorkloadRestart(
 		ReasonCodes:                 reasons,
 		RestartCountInWindow:        restartCount,
 		RestartWindowStartedAt:      windowStart,
-		NotBefore:                   now.Add(delay),
-		ExpiresAt:                   now.Add(ttl),
+		NotBefore:                   notBefore,
+		ExpiresAt:                   notBefore.Add(ttl),
 		EvaluatedAt:                 now,
 		AuthorityID:                 policy.LifecycleAuthorityID,
 	}
@@ -553,6 +560,9 @@ func ValidateRestartForLifecycleState(
 	lifecycleAuthorityPublicKey ed25519.PublicKey,
 	now time.Time,
 ) error {
+	if err := ValidateWorkloadLifecycleState(state); err != nil {
+		return err
+	}
 	if err := VerifySignedWorkloadRestartDecision(
 		restart,
 		lifecycleAuthorityPublicKey,
@@ -657,7 +667,7 @@ func ValidateWorkloadRestartDecision(
 		decision.RestartWindowStartedAt.IsZero() ||
 		decision.NotBefore.IsZero() ||
 		decision.ExpiresAt.IsZero() ||
-		!decision.ExpiresAt.After(decision.EvaluatedAt) {
+		!decision.ExpiresAt.After(decision.NotBefore) {
 		return errors.New("workload restart decision is incomplete")
 	}
 	for field, digest := range map[string]string{
