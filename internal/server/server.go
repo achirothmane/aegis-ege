@@ -43,14 +43,15 @@ type Config struct {
 }
 
 type Server struct {
-	controller      NodeDrainController
-	store           kubeadapter.DrainCheckpointStore
-	config          Config
-	mux             *http.ServeMux
+	controller        NodeDrainController
+	store             kubeadapter.DrainCheckpointStore
+	config            Config
+	mux               *http.ServeMux
 	permitAuthority   egeproto.PermitAuthority
 	approvalAuthority egeproto.SignatureVerifier
 	consequencePolicy *egeproto.ConsequencePolicy
-	egeAdapters         *egeAdapterRegistry
+	capabilityClaims  CapabilityClaimLifecycle
+	egeAdapters       *egeAdapterRegistry
 	egeEvidenceComposer *egeEvidenceComposer
 }
 
@@ -84,6 +85,17 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.RequireCapabilityFencing && config.CapabilityFenceAuthority == nil {
 		return nil, fmt.Errorf("capability fence authority is required when capability fencing is enabled")
+	}
+	var capabilityClaims CapabilityClaimLifecycle
+	if config.RequireCapabilityFencing {
+		if config.ReplayGuard == nil {
+			return nil, fmt.Errorf("execution claim store is required when capability fencing is enabled")
+		}
+		lifecycle, ok := config.ReplayGuard.(CapabilityClaimLifecycle)
+		if !ok {
+			return nil, fmt.Errorf("replay guard must implement capability claim lifecycle when capability fencing is enabled")
+		}
+		capabilityClaims = lifecycle
 	}
 	var consequencePolicy *egeproto.ConsequencePolicy
 	if config.RequireEBAConformance {
@@ -180,6 +192,7 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		permitAuthority:     permitAuthority,
 		approvalAuthority:   config.EBAApprovalAuthority,
 		consequencePolicy:   consequencePolicy,
+		capabilityClaims:    capabilityClaims,
 		egeAdapters:         egeAdapters,
 		egeEvidenceComposer: egeEvidenceComposer,
 	}

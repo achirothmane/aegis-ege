@@ -67,6 +67,8 @@ type egeExecuteResponse struct {
 	ExecutionReceipt     *egeproto.ExecutionReceipt     `json:"execution_receipt,omitempty"`
 	ProducedEvidence     *egeproto.ReceiptEvidence      `json:"produced_evidence,omitempty"`
 	FeedbackError        string                         `json:"feedback_error,omitempty"`
+	CapabilityClaimState ExecutionClaimState            `json:"capability_claim_state,omitempty"`
+	CapabilityClaimError string                         `json:"capability_claim_error,omitempty"`
 }
 
 func normalizeEGEIntent(intentID, kind string, target egeTargetDTO) (string, string, egeTargetDTO, error) {
@@ -102,6 +104,12 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 	intentID, kind, target, err := normalizeEGEIntent(req.IntentID, req.Kind, req.Target)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
+		return
+	}
+
+	adapter, err := s.egeAdapters.Resolve(kind, target.Type)
+	if err != nil {
+		writeEGEAdapterResolutionError(w, err)
 		return
 	}
 
@@ -176,6 +184,14 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 		permit, err := egeproto.SignPermit(ctx, s.permitAuthority, permitClaims)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "PERMIT_SIGNING_FAILED", err)
+			return
+		}
+		if err := s.issueCapabilityClaim(ctx, adapter, intentID, target, permit.Claims); err != nil {
+			if errors.Is(err, ErrExecutionReplay) {
+				writeError(w, http.StatusConflict, "CAPABILITY_ALREADY_ISSUED", err)
+				return
+			}
+			writeError(w, http.StatusServiceUnavailable, "CAPABILITY_CLAIM_ISSUANCE_FAILED", err)
 			return
 		}
 		response.EvidenceManifest = &manifest
@@ -377,9 +393,30 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := ctx.Err(); err != nil {
+		abortErr := s.abortCapabilityClaim(auth, "request context ended before mutation controller")
+		if abortErr != nil {
+			writeError(w, http.StatusServiceUnavailable, "CAPABILITY_CLAIM_FINALIZATION_FAILED", abortErr)
+			return
+		}
+		writeError(w, http.StatusRequestTimeout, "EXECUTION_ABORTED_BEFORE_MUTATION", err)
+		return
+	}
+
 	executionStartedAt := s.config.Clock().UTC()
 	execution, err := adapter.Execute(ctx, auth, target)
 	if err != nil {
+		// Once the mutation controller has been entered, an error may represent
+		// an ambiguous external write. Keep the capability CLAIMED and require
+		// reconciliation rather than making it reusable.
+		s.auditDecision(
+			r,
+			PermissionExecute,
+			string(decision.Escalate),
+			intentID,
+			target.Name,
+			[]decision.ReasonCode{"EXECUTION_OUTCOME_UNCONFIRMED"},
+		)
 		writeError(w, http.StatusBadGateway, "EXECUTION_FAILED", err)
 		return
 	}
@@ -395,6 +432,29 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		PlanDigest:           execution.PlanDigest,
 		Steps:                append([]mutationStepDTO(nil), execution.Steps...),
 		ConsequenceAdmission: consequenceAdmission,
+	}
+
+	if s.capabilityClaims != nil {
+		if err := s.consumeCapabilityClaim(auth, string(execution.Decision)); err != nil {
+			response.CapabilityClaimError = err.Error()
+			if state, stateErr := s.capabilityClaimState(auth); stateErr == nil {
+				response.CapabilityClaimState = state
+			}
+			s.auditSecurity(r.Context(), SecurityAuditRecord{
+				OccurredAt: s.config.Clock().UTC(),
+				Principal:  principalFromContext(r.Context()).ID,
+				Permission: PermissionExecute,
+				Method:     r.Method,
+				Path:       r.URL.Path,
+				Allowed:    true,
+				Decision:   string(execution.Decision),
+				ActionID:   intentID,
+				NodeName:   target.Name,
+				Reason:     "CAPABILITY_CLAIM_FINALIZATION_ERROR:" + err.Error(),
+			})
+		} else {
+			response.CapabilityClaimState = ExecutionClaimConsumed
+		}
 	}
 
 	reasonStrings := make([]string, 0, len(execution.ReasonCodes))

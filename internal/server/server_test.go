@@ -23,6 +23,8 @@ func (allowAuthorizer) Authorize(*http.Request, Permission) (Principal, error) {
 type fakeController struct {
 	preparation  kubeadapter.NodeDrainPreparation
 	report       kubeadapter.GuardedDrainExecutionReport
+	prepareErr   error
+	executeErr   error
 	prepareCalls int
 	executeCalls int
 }
@@ -34,7 +36,7 @@ func (f *fakeController) PrepareNodeDrainExecution(
 	kubeadapter.NodeDrainPolicy,
 ) (kubeadapter.NodeDrainPreparation, error) {
 	f.prepareCalls++
-	return f.preparation, nil
+	return f.preparation, f.prepareErr
 }
 
 func (f *fakeController) ExecuteAuthorizedNodeDrainWithCheckpointStore(
@@ -45,7 +47,7 @@ func (f *fakeController) ExecuteAuthorizedNodeDrainWithCheckpointStore(
 	kubeadapter.DrainCheckpointStore,
 ) (kubeadapter.GuardedDrainExecutionReport, error) {
 	f.executeCalls++
-	return f.report, nil
+	return f.report, f.executeErr
 }
 
 func TestPrepareReturnsStableDecisionDTO(t *testing.T) {
