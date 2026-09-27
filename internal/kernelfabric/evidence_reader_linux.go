@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	DefaultEvidenceEventsMapPath     = "/sys/fs/bpf/aegis-ege/maps/aegis_evidence_events"
-	DefaultEvidenceAccountingMapPath = "/sys/fs/bpf/aegis-ege/maps/aegis_evidence_accounting"
+	DefaultEvidenceEventsMapPath     = "/sys/fs/bpf/aegis-ege/maps/aegis_ev_events"
+	DefaultEvidenceAccountingMapPath = "/sys/fs/bpf/aegis-ege/maps/aegis_ev_acct"
 )
 
 type EvidenceReader struct {
