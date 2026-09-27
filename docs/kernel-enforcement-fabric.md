@@ -254,6 +254,23 @@ The workload starts inside the protected cgroup; Aegis does not intentionally st
 
 See [attested-workload-admission.md](attested-workload-admission.md).
 
+## Workload lifecycle and restart governance
+
+A successful activation is now one generation in a durable lifecycle:
+
+```text
+RUNNING
+-> signed exit receipt
+-> EXITED
+-> BLOCK | REQUIRE_REATTESTATION | REQUIRE_FRESH_GRANT
+-> fresh one-shot grant
+-> next generation
+```
+
+Restart decisions bind prior activation/exit lineage, immutable workload identity, cgroup identity, bootstrap identity, restart budget, and failure-anchored backoff.
+
+See [workload-lifecycle-governance.md](workload-lifecycle-governance.md).
+
 ## Governing invariant
 
 > A stale, revoked, expired, superseded, reboot-crossing, or absent DecisionCapsule must fail closed before the protected kernel operation is allowed.
