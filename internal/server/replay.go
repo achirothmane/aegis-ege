@@ -96,6 +96,9 @@ func (g *FileReplayGuard) Issue(ctx context.Context, auth decision.Authorization
 		}
 		return fmt.Errorf("issue execution capability: %w", err)
 	}
+	if err := syncDirectory(g.dir); err != nil {
+		return fmt.Errorf("sync issued execution capability directory: %w", err)
+	}
 	return nil
 }
 
@@ -125,6 +128,9 @@ func (g *FileReplayGuard) Claim(ctx context.Context, auth decision.Authorization
 	}
 	if err := marker.Close(); err != nil {
 		return fmt.Errorf("close execution claim marker: %w", err)
+	}
+	if err := syncDirectory(g.dir); err != nil {
+		return fmt.Errorf("sync execution claim marker directory: %w", err)
 	}
 
 	record, err := readExecutionClaimRecord(g.statePath(key))
@@ -243,6 +249,9 @@ func (g *FileReplayGuard) finalize(
 		}
 		if err := marker.Close(); err != nil {
 			return fmt.Errorf("close execution finalization marker: %w", err)
+		}
+		if err := syncDirectory(g.dir); err != nil {
+			return fmt.Errorf("sync execution finalization marker directory: %w", err)
 		}
 	}
 
@@ -412,6 +421,10 @@ func writeExecutionClaimRecordAtomic(
 	if err := os.Rename(tempPath, path); err != nil {
 		return err
 	}
+	return syncDirectory(dir)
+}
+
+func syncDirectory(dir string) error {
 	dirFile, err := os.Open(dir)
 	if err != nil {
 		return err
