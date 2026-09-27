@@ -29,9 +29,10 @@ consequence class: operational_state_change
 The policy is identified by:
 
 ```text
-policy_ref
+admissibility_policy_ref
 policy_version
 policy_hash
+policy_owner
 ```
 
 The admission record also carries:
@@ -41,7 +42,7 @@ evaluated_at
 action_scope_digest
 ```
 
-so the execution receipt can prove which policy admitted which exact action scope.
+so the execution receipt can prove which policy admitted which exact action scope and who owns that policy. The owner is included in the policy hash, so changing policy ownership changes the admitted policy identity rather than only its display metadata.
 
 ## Commit-boundary ordering
 
@@ -81,12 +82,13 @@ A successful evaluation produces:
 
 ```json
 {
-  "api_version": "aegis.ege/consequence/v0alpha1",
+  "api_version": "aegis.ege/consequence/v0alpha2",
   "decision": "ADMISSIBLE",
   "consequence_class": "operational_state_change",
-  "policy_ref": "aegis-ege/policy/kubernetes-node-drain-consequence",
+  "admissibility_policy_ref": "aegis-ege/policy/kubernetes-node-drain-consequence",
   "policy_version": "v1",
   "policy_hash": "sha256:...",
+  "policy_owner": "aegis-ege",
   "evaluated_at": "2026-09-27T19:00:00Z",
   "action_scope_digest": "sha256:..."
 }
@@ -148,7 +150,7 @@ The existing `eba.integration/v0.1` artifacts are not rewritten by this change.
 Consequence admission is an additive Aegis-EGE boundary record with its own version:
 
 ```text
-aegis.ege/consequence/v0alpha1
+aegis.ege/consequence/v0alpha2
 ```
 
 Legacy execution behavior remains unchanged when EBA conformance enforcement is disabled.
