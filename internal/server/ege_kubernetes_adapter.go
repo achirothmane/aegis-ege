@@ -120,7 +120,7 @@ func (a *kubernetesNodeDrainEGEAdapter) AuthorizationFromPermit(
 		return decision.Authorization{}, errors.New("kubernetes node-drain permit is missing required state bindings")
 	}
 
-	return decision.Authorization{
+	auth := decision.Authorization{
 		ActionID:        intentID,
 		Action:          claims.Action,
 		Target:          "node/" + target.Name,
@@ -128,7 +128,16 @@ func (a *kubernetesNodeDrainEGEAdapter) AuthorizationFromPermit(
 		EvidenceDigest:  claims.EvidenceDigest,
 		PlanDigest:      claims.PlanDigest,
 		ValidUntil:      claims.ValidUntil,
-	}, nil
+	}
+	if claims.CapabilityFence != nil {
+		auth.AuthorityDomain = claims.CapabilityFence.AuthorityDomain
+		auth.AuthorityTerm = claims.CapabilityFence.AuthorityTerm
+		auth.DecisionEpoch = claims.CapabilityFence.DecisionEpoch
+		auth.RevocationEpoch = claims.CapabilityFence.RevocationEpoch
+		auth.TargetIdentity = claims.CapabilityFence.TargetIdentity
+		auth.StateBindingDigest = claims.CapabilityFence.StateBindingDigest
+	}
+	return auth, nil
 }
 
 func (a *kubernetesNodeDrainEGEAdapter) Execute(
