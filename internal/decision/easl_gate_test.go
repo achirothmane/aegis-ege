@@ -61,6 +61,32 @@ func TestEvaluateBlocksContradictedEASLState(t *testing.T) {
 	}
 }
 
+
+func TestEvaluateBlocksExpiredEASLAssumption(t *testing.T) {
+	now := time.Date(2026, 9, 27, 2, 45, 0, 0, time.UTC)
+	validUntil := now
+
+	req := validEASLGatedRequest(now)
+	req.EpistemicSnapshot = &easl.Snapshot{
+		At: now,
+		Assumptions: []easl.Assumption{{
+			ID:         "safe-to-execute",
+			ValidUntil: &validUntil,
+		}},
+	}
+
+	got := Evaluate(req)
+	if got.Decision != Block {
+		t.Fatalf("expected %s for expired EASL assumption, got %s", Block, got.Decision)
+	}
+	if !slices.Contains(got.ReasonCodes, AssumptionExpired) {
+		t.Fatalf("expected %s, got %v", AssumptionExpired, got.ReasonCodes)
+	}
+	if got.Authorization != nil {
+		t.Fatal("expired EASL assumption must not mint an authorization")
+	}
+}
+
 func TestEvaluateEscalatesMissingEASLEvidence(t *testing.T) {
 	now := time.Date(2026, 9, 27, 2, 0, 0, 0, time.UTC)
 
