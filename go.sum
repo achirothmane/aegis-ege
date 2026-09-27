@@ -1,7 +1,7 @@
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
-github.com/achirothmane/easl v0.0.0-20260927025051-2ca05e994d02 h1:sXXElAiML4IAZcA94fxyqsfkwN3DRqMqeoQNyN2KQb4=
-github.com/achirothmane/easl v0.0.0-20260927025051-2ca05e994d02/go.mod h1:0gnbqSCoBCuHiv732ic1U16kpz4UX8dfbYXm+ogJm+E=
+github.com/achirothmane/easl v0.0.0-20260927123125-7432c6a8bd09 h1:mXM3h42B7dskQSDVD+99f7LaK/a1zoWLfqOfRFYFS+U=
+github.com/achirothmane/easl v0.0.0-20260927123125-7432c6a8bd09/go.mod h1:0gnbqSCoBCuHiv732ic1U16kpz4UX8dfbYXm+ogJm+E=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
