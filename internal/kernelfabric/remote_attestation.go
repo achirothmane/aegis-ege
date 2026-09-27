@@ -87,6 +87,7 @@ type TPMEnrollmentChallenge struct {
 	DeviceID            string `json:"device_id"`
 	EncryptedCredential []byte `json:"encrypted_credential"`
 	EncryptedSecret     []byte `json:"encrypted_secret"`
+	EKSPKISHA256        string `json:"ek_spki_sha256"`
 	IssuedAt            time.Time `json:"issued_at"`
 	ExpiresAt           time.Time `json:"expires_at"`
 }
@@ -171,6 +172,7 @@ func BeginTPMEnrollment(
 		DeviceID:            req.DeviceID,
 		EncryptedCredential: append([]byte(nil), encrypted.Credential...),
 		EncryptedSecret:     append([]byte(nil), encrypted.Secret...),
+		EKSPKISHA256:        ekSPKI,
 		IssuedAt:            now,
 		ExpiresAt:           now.Add(ttl),
 	}
