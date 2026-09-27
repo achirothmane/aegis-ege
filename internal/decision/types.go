@@ -1,6 +1,10 @@
 package decision
 
-import "time"
+import (
+	"time"
+
+	"github.com/achirothmane/easl"
+)
 
 type Decision string
 
@@ -47,6 +51,7 @@ type Request struct {
 	BlastRadius         int
 	MaxBlastRadius      int
 	Evidence            []EvidenceObservation
+	EpistemicSnapshot   *easl.Snapshot
 }
 
 type Authorization struct {
