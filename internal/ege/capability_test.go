@@ -77,6 +77,7 @@ func TestCapabilityFenceRejectsRevocationEpochChange(t *testing.T) {
 	current := CapabilityAuthoritySnapshot{
 		AuthorityDomain: claims.AuthorityDomain,
 		AuthorityTerm:   claims.AuthorityTerm,
+		DecisionEpoch:   claims.DecisionEpoch,
 		RevocationEpoch: claims.RevocationEpoch + 1,
 	}
 	if err := ValidateCapabilityFence(claims, current, testCapabilityStateBinding()); !errors.Is(err, ErrCapabilityRevoked) {
