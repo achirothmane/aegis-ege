@@ -65,7 +65,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
-	__type(value, struct aegis_ev_acct);
+	__type(value, struct aegis_evidence_accounting);
 } aegis_ev_acct SEC(".maps");
 
 static __always_inline void bump_stat(__u32 index)
@@ -83,7 +83,7 @@ static __always_inline void emit_evidence(
 	__u32 reason)
 {
 	__u32 zero = 0;
-	struct aegis_ev_acct *accounting =
+	struct aegis_evidence_accounting *accounting =
 		bpf_map_lookup_elem(&aegis_ev_acct, &zero);
 	if (!accounting)
 		return;
