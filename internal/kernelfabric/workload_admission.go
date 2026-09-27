@@ -463,6 +463,53 @@ type SignedWorkloadActivationReceipt struct {
 	Signature string                    `json:"signature"`
 }
 
+
+func VerifySignedWorkloadActivationReceipt(
+	signed SignedWorkloadActivationReceipt,
+	publicKey ed25519.PublicKey,
+) error {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("host activation attestor public key is invalid")
+	}
+	receipt := signed.Receipt
+	if receipt.Version != WorkloadActivationReceiptVersion ||
+		strings.TrimSpace(receipt.ActivationID) == "" ||
+		strings.TrimSpace(receipt.GrantID) == "" ||
+		receipt.TargetCgroupID == 0 ||
+		receipt.ProcessID <= 0 ||
+		receipt.StartedAt.IsZero() {
+		return errors.New("workload activation receipt is incomplete")
+	}
+	if _, err := ParseSHA256Digest(receipt.GrantDigest); err != nil {
+		return fmt.Errorf("grant digest: %w", err)
+	}
+	if _, err := ParseSHA256Digest(receipt.WorkloadSpecDigest); err != nil {
+		return fmt.Errorf("workload spec digest: %w", err)
+	}
+	keyID, err := BootstrapKeyID(publicKey)
+	if err != nil {
+		return err
+	}
+	if signed.KeyID != keyID {
+		return ErrBootstrapSignatureInvalid
+	}
+	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
+	if err != nil {
+		return ErrBootstrapSignatureInvalid
+	}
+	normalized := receipt
+	normalized.StartedAt = normalized.StartedAt.UTC()
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return err
+	}
+	payload := append([]byte("aegis-ege/workload-activation-receipt/v1\x00"), body...)
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return ErrBootstrapSignatureInvalid
+	}
+	return nil
+}
+
 func SignWorkloadActivationReceipt(
 	receipt WorkloadActivationReceipt,
 	privateKey ed25519.PrivateKey,
