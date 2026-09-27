@@ -267,7 +267,9 @@ remote verifier challenge/nonce
 hardware-backed host identity
 ```
 
-Those belong to the next attestation layer and should not be implied by this v1 receipt.
+Those properties are now addressed by the separate remote-attestation layer. The local receipt remains intentionally distinct from the TPM quote so the bootstrapper and remote verifier have separate responsibilities.
+
+See [remote-tpm-ima-attestation.md](remote-tpm-ima-attestation.md).
 
 ## Threat model
 
@@ -283,3 +285,5 @@ This layer is designed to stop or expose:
 - kernel object-name truncation mismatches.
 
 It does not claim to survive a fully privileged attacker that can replace the loader, bpftool, kernel, trusted public key, and host attestation key simultaneously.
+
+For remotely verified boot and measured-state claims, use the TPM + IMA protocol rather than treating this local receipt as hardware evidence.
