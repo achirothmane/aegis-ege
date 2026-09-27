@@ -12,6 +12,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
 	"github.com/achirothmane/aegis-ege/internal/prometheusprobe"
@@ -103,20 +104,34 @@ func prepareM2ReadyNode(
 	env := newKindIntegrationEnv(t, suffix)
 	ctx := context.Background()
 
-	node, err := env.client.CoreV1().Nodes().Get(ctx, env.nodeName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get synthetic node: %v", err)
-	}
-	nowMeta := metav1.Now()
-	node.Status.Conditions = []corev1.NodeCondition{{
-		Type:               corev1.NodeReady,
-		Status:             corev1.ConditionTrue,
-		LastHeartbeatTime:  nowMeta,
-		LastTransitionTime: nowMeta,
-	}}
-	node, err = env.client.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
+	var node *corev1.Node
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, getErr := env.client.CoreV1().Nodes().Get(ctx, env.nodeName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		nowMeta := metav1.Now()
+		current.Status.Conditions = []corev1.NodeCondition{{
+			Type:               corev1.NodeReady,
+			Status:             corev1.ConditionTrue,
+			LastHeartbeatTime:  nowMeta,
+			LastTransitionTime: nowMeta,
+		}}
+		updated, updateErr := env.client.CoreV1().Nodes().UpdateStatus(
+			ctx,
+			current,
+			metav1.UpdateOptions{},
+		)
+		if updateErr == nil {
+			node = updated
+		}
+		return updateErr
+	})
 	if err != nil {
 		t.Fatalf("mark synthetic node Ready: %v", err)
+	}
+	if node == nil {
+		t.Fatal("mark synthetic node Ready returned no updated node")
 	}
 	return env, node, time.Now().UTC().Truncate(time.Second)
 }
