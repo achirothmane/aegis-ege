@@ -14,6 +14,7 @@ const CapabilityFenceVersion = "aegis.ege/capability-fence/v0alpha1"
 var (
 	ErrCapabilityFenceInvalid        = errors.New("capability fence is invalid")
 	ErrCapabilityAuthorityChanged    = errors.New("capability authority term changed")
+	ErrCapabilityDecisionSuperseded  = errors.New("capability decision epoch was superseded")
 	ErrCapabilityRevoked             = errors.New("capability revocation epoch changed")
 	ErrCapabilityTargetChanged       = errors.New("capability target identity changed")
 	ErrCapabilityStateChanged        = errors.New("capability state binding changed")
@@ -32,6 +33,7 @@ type CapabilityFenceClaims struct {
 type CapabilityAuthoritySnapshot struct {
 	AuthorityDomain string
 	AuthorityTerm   uint64
+	DecisionEpoch   uint64
 	RevocationEpoch uint64
 }
 
@@ -95,11 +97,14 @@ func ValidateCapabilityFence(
 	if err := ValidateCapabilityFenceClaims(claims); err != nil {
 		return err
 	}
-	if strings.TrimSpace(current.AuthorityDomain) == "" || current.AuthorityTerm == 0 {
+	if strings.TrimSpace(current.AuthorityDomain) == "" || current.AuthorityTerm == 0 || current.DecisionEpoch == 0 {
 		return fmt.Errorf("%w: current authority snapshot is incomplete", ErrCapabilityFenceInvalid)
 	}
 	if claims.AuthorityDomain != current.AuthorityDomain || claims.AuthorityTerm != current.AuthorityTerm {
 		return ErrCapabilityAuthorityChanged
+	}
+	if claims.DecisionEpoch != current.DecisionEpoch {
+		return ErrCapabilityDecisionSuperseded
 	}
 	if claims.RevocationEpoch != current.RevocationEpoch {
 		return ErrCapabilityRevoked
