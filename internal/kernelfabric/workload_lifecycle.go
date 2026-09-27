@@ -244,6 +244,7 @@ type WorkloadRestartDecision struct {
 	Outcome                     string    `json:"outcome"`
 	ReasonCodes                 []string  `json:"reason_codes,omitempty"`
 	RestartCountInWindow        uint32    `json:"restart_count_in_window"`
+	RestartWindowStartedAt      time.Time `json:"restart_window_started_at"`
 	NotBefore                   time.Time `json:"not_before"`
 	ExpiresAt                   time.Time `json:"expires_at"`
 	EvaluatedAt                 time.Time `json:"evaluated_at"`
@@ -411,6 +412,7 @@ func EvaluateWorkloadRestart(
 		Outcome:                     outcome,
 		ReasonCodes:                 reasons,
 		RestartCountInWindow:        restartCount,
+		RestartWindowStartedAt:      windowStart,
 		NotBefore:                   now.Add(delay),
 		ExpiresAt:                   now.Add(ttl),
 		EvaluatedAt:                 now,
@@ -553,6 +555,7 @@ func ValidateWorkloadRestartDecision(
 		decision.PreviousGeneration == 0 ||
 		strings.TrimSpace(decision.AuthorityID) == "" ||
 		decision.EvaluatedAt.IsZero() ||
+		decision.RestartWindowStartedAt.IsZero() ||
 		decision.NotBefore.IsZero() ||
 		decision.ExpiresAt.IsZero() ||
 		!decision.ExpiresAt.After(decision.EvaluatedAt) {
@@ -590,6 +593,7 @@ func canonicalWorkloadRestartDecisionPayload(
 	normalized := decision
 	normalized.ReasonCodes = append([]string(nil), decision.ReasonCodes...)
 	sort.Strings(normalized.ReasonCodes)
+	normalized.RestartWindowStartedAt = normalized.RestartWindowStartedAt.UTC()
 	normalized.NotBefore = normalized.NotBefore.UTC()
 	normalized.ExpiresAt = normalized.ExpiresAt.UTC()
 	normalized.EvaluatedAt = normalized.EvaluatedAt.UTC()
