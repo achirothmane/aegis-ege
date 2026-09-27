@@ -194,8 +194,8 @@ func (f *fakeBootstrapRunner) Run(
 		name := filepath.Base(args[4])
 		typ := map[string]string{
 			"aegis_capsules":            "hash",
-			"aegis_evidence_accounting": "array",
-			"aegis_evidence_events":     "ringbuf",
+			"aegis_ev_acct": "array",
+			"aegis_ev_events":     "ringbuf",
 			"aegis_fences":              "hash",
 			"aegis_stats":               "percpu_array",
 		}[name]
