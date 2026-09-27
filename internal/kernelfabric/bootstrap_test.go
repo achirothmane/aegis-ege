@@ -237,8 +237,13 @@ func signedBootstrapTestRequest(
 		t.Fatal(err)
 	}
 
+	bpftoolPath := filepath.Join(t.TempDir(), "bpftool")
+	if err := os.WriteFile(bpftoolPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
 	return BootstrapLoader{
-			BPFToolPath: "/usr/sbin/bpftool",
+			BPFToolPath: bpftoolPath,
 			Runner:      runner,
 			HostProvider: fakeBootstrapHostProvider{snapshot: BootstrapHostSnapshot{
 				BootIDHash:    "sha256:" + strings.Repeat("d", 64),
@@ -325,4 +330,25 @@ func TestBootstrapLoaderRollsBackPartialAttach(t *testing.T) {
 	if !attach4 || !attach6 || !detach4 {
 		t.Fatalf("partial attach was not rolled back: %v", runner.calls)
 	}
+}
+
+func TestBootstrapLoaderUsesVerifiedStagedArtifact(t *testing.T) {
+	runner := &fakeBootstrapRunner{}
+	loader, req, _ := signedBootstrapTestRequest(t, runner)
+	original := req.ArtifactPath
+	if _, err := loader.LoadAndAttach(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range runner.calls {
+		if len(call) >= 5 && call[1] == "prog" && call[2] == "loadall" {
+			if call[3] == original {
+				t.Fatalf("loader passed original mutable artifact path to bpftool: %v", call)
+			}
+			if !strings.Contains(call[3], "aegis-bpf-bootstrap-") {
+				t.Fatalf("loader did not use secure staged artifact: %v", call)
+			}
+			return
+		}
+	}
+	t.Fatalf("no bpftool loadall call observed: %v", runner.calls)
 }
