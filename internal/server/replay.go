@@ -91,10 +91,20 @@ func (g *FileReplayGuard) Issue(ctx context.Context, auth decision.Authorization
 
 	record := newExecutionClaimRecord(auth, ExecutionClaimIssued)
 	if err := writeNewExecutionClaimRecord(g.statePath(key), record); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return ErrExecutionReplay
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("issue execution capability: %w", err)
 		}
-		return fmt.Errorf("issue execution capability: %w", err)
+		existing, readErr := readExecutionClaimRecord(g.statePath(key))
+		if readErr != nil {
+			return fmt.Errorf("read existing issued execution capability: %w", readErr)
+		}
+		if validationErr := validateExecutionClaimRecord(existing, auth); validationErr != nil {
+			return validationErr
+		}
+		if existing.State == ExecutionClaimIssued {
+			return nil
+		}
+		return ErrExecutionReplay
 	}
 	if err := syncDirectory(g.dir); err != nil {
 		return fmt.Errorf("sync issued execution capability directory: %w", err)
