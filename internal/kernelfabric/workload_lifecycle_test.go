@@ -262,8 +262,8 @@ func TestRestartPostExitReattestationAllowsFreshGrantPath(t *testing.T) {
 	if decision.Decision.Outcome != RestartOutcomeRequireFreshGrant {
 		t.Fatalf("expected fresh grant path, got %+v", decision.Decision)
 	}
-	if !decision.Decision.NotBefore.Equal(f.evalNow.Add(time.Second)) {
-		t.Fatalf("unexpected restart backoff: %s", decision.Decision.NotBefore)
+	if !decision.Decision.NotBefore.Equal(f.evalNow) {
+		t.Fatalf("unexpected restart eligibility time: %s", decision.Decision.NotBefore)
 	}
 }
 
@@ -295,7 +295,7 @@ func TestRestartWindowResetClearsBudgetAndBackoff(t *testing.T) {
 	if decision.Decision.Outcome != RestartOutcomeRequireFreshGrant ||
 		decision.Decision.RestartCountInWindow != 0 ||
 		!decision.Decision.RestartWindowStartedAt.Equal(f.evalNow) ||
-		!decision.Decision.NotBefore.Equal(f.evalNow.Add(time.Second)) {
+		!decision.Decision.NotBefore.Equal(f.evalNow) {
 		t.Fatalf("window did not reset correctly: %+v", decision.Decision)
 	}
 }
@@ -452,5 +452,100 @@ func TestBoundedRestartBackoffCapsWithoutOverflow(t *testing.T) {
 	}
 	if got := boundedRestartBackoff(time.Second, 30*time.Second, 1000); got != 30*time.Second {
 		t.Fatalf("large count did not cap: %s", got)
+	}
+}
+
+
+func TestIssueRestartGrantRejectsWorkloadSpecMutation(t *testing.T) {
+	base := time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC)
+	f := newLifecycleFixture(t, ExitClassNonZero, base.Add(5*time.Second), 0)
+	decision, err := EvaluateWorkloadRestart(
+		f.state, f.priorGrant, f.activation, f.exit, f.remote, f.policy(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issueAt := decision.Decision.NotBefore.Add(time.Millisecond)
+	mutated := f.spec
+	mutated.Args = []string{"changed"}
+	req, err := NewWorkloadAdmissionRequest(
+		"device-1",
+		"workload-1",
+		mutated,
+		f.priorGrant.Grant.TargetCgroup,
+		f.priorGrant.Grant.TargetCgroupID,
+		f.bootstrap,
+		issueAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = IssueRestartWorkloadAdmissionGrant(
+		req,
+		f.remote,
+		decision,
+		f.lifecyclePub,
+		WorkloadAdmissionPolicy{
+			RemoteVerifierPublicKey: f.verifierPub,
+			AdmissionIssuerKey:      f.issuerPriv,
+			AdmissionIssuerID:       "issuer",
+			MaxAttestationAge:       2 * time.Minute,
+			Now:                     func() time.Time { return issueAt },
+		},
+		issueAt,
+	)
+	if !errors.Is(err, ErrLifecycleInvalidLineage) {
+		t.Fatalf("expected immutable workload spec rejection, got %v", err)
+	}
+}
+
+func TestValidateRestartStateRejectsCgroupMutation(t *testing.T) {
+	base := time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC)
+	f := newLifecycleFixture(t, ExitClassNonZero, base.Add(5*time.Second), 0)
+	decision, err := EvaluateWorkloadRestart(
+		f.state, f.priorGrant, f.activation, f.exit, f.remote, f.policy(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issueAt := decision.Decision.NotBefore.Add(time.Millisecond)
+	req, err := NewWorkloadAdmissionRequest(
+		"device-1",
+		"workload-1",
+		f.spec,
+		f.priorGrant.Grant.TargetCgroup,
+		f.priorGrant.Grant.TargetCgroupID,
+		f.bootstrap,
+		issueAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := IssueRestartWorkloadAdmissionGrant(
+		req,
+		f.remote,
+		decision,
+		f.lifecyclePub,
+		WorkloadAdmissionPolicy{
+			RemoteVerifierPublicKey: f.verifierPub,
+			AdmissionIssuerKey:      f.issuerPriv,
+			AdmissionIssuerID:       "issuer",
+			MaxAttestationAge:       2 * time.Minute,
+			Now:                     func() time.Time { return issueAt },
+		},
+		issueAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant.Grant.TargetCgroupID++
+	if err := ValidateRestartForLifecycleState(
+		f.state,
+		grant,
+		decision,
+		f.lifecyclePub,
+		issueAt,
+	); err == nil {
+		t.Fatal("expected cgroup mutation to be rejected")
 	}
 }
