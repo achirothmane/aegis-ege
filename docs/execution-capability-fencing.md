@@ -38,6 +38,7 @@ Embedded deployments enable the layer with:
 server.Config{
     RequireCapabilityFencing: true,
     CapabilityFenceAuthority: authority,
+    ReplayGuard:              executionClaimStore,
 }
 ```
 
@@ -68,16 +69,32 @@ authenticate
 -> compare revocation epoch
 -> compare stable target identity
 -> compare state-binding digest
--> atomically claim replay state
+-> transition ISSUED -> CLAIMED atomically
 -> guarded mutation execution
+-> transition CLAIMED -> CONSUMED on known completion
 ```
 
-The replay claim remains atomic:
+The capability claim is now a durable state machine:
 
-- filesystem guard: `O_CREATE|O_EXCL`
-- Kubernetes shared guard: atomic ConfigMap create
+```text
+ISSUED
+  |
+  v
+CLAIMED
+  |\
+  | \__ proven no mutation started -> ABORTED
+  |
+  +---- known execution return ----> CONSUMED
+```
 
-The replay key now includes all capability fencing coordinates. Two concurrent attempts using the same capability converge on the same claim key.
+Both `CONSUMED` and `ABORTED` are terminal. `ABORTED` records that the mutation controller was never entered; it does **not** make the same capability reusable.
+
+Atomicity is enforced by the backing store:
+
+- filesystem: an `O_CREATE|O_EXCL` claim marker admits exactly one claimant and state transitions are persisted with fsync + atomic rename;
+- Kubernetes: the shared ConfigMap moves from `ISSUED` to `CLAIMED` through a resourceVersion-protected update, so concurrent replicas cannot both win.
+
+The replay key includes all capability fencing coordinates. Two concurrent attempts using the same capability therefore converge on the same lifecycle record.
 
 ## Fail-closed transitions
 
@@ -90,7 +107,11 @@ Execution is rejected when:
 - resource-version or plan binding changes: `CAPABILITY_STATE_CHANGED`
 - the authority/state refresh cannot be completed: `CAPABILITY_FENCE_UNAVAILABLE`
 
-No replay claim is consumed before these checks pass.
+No capability is moved from `ISSUED` to `CLAIMED` before these checks pass.
+
+If the request context is canceled after the atomic claim but before the mutation controller is entered, Aegis records `ABORTED` using a detached finalization context.
+
+Once the mutation controller has been entered, an execution error is treated as potentially ambiguous. The capability remains `CLAIMED` rather than being reopened. Recovery must reconcile external reality and obtain fresh authority for any remaining work.
 
 ## What this does not claim yet
 
@@ -100,7 +121,6 @@ It does **not** yet claim that:
 
 - the kernel independently enforces the capability;
 - a non-cooperating external actor is fenced;
-- a capability claim has a durable `ISSUED -> CLAIMED -> CONSUMED/ABORTED` state machine;
 - authority terms are persisted by a built-in Raft/etcd implementation;
 - execution receipts independently prove the resulting effect.
 
@@ -113,6 +133,8 @@ control-plane capability fence
 -> independent EffectReceipt
 ```
 
-The current guarantee is narrower and testable:
+The current guarantees are testable:
 
 > A capability-fenced EGE execution cannot enter the mutation controller when its trusted authority term, scoped decision epoch, revocation epoch, stable target identity, resource version, or plan binding no longer matches the current execution context.
+
+> A capability can move from `ISSUED` to `CLAIMED` at most once across cooperating executors. After a known execution return it becomes `CONSUMED`; if and only if Aegis proves the mutation controller was never entered it may become terminal `ABORTED`. Ambiguous post-entry failures remain fail-closed in `CLAIMED`.
