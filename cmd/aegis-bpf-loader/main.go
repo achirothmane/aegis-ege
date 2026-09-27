@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"os/exec"
+	"path/filepath"
 	"syscall"
 
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
@@ -21,7 +23,7 @@ func main() {
 		attestKeyPath  = flag.String("attestation-key", "", "base64 Ed25519 local attestation private key (0600)")
 		cgroupPath     = flag.String("cgroup", "", "protected cgroup v2 path")
 		bpffsRoot      = flag.String("bpffs-root", "/sys/fs/bpf/aegis-ege", "Aegis bpffs root")
-		bpftoolPath    = flag.String("bpftool", "bpftool", "bpftool executable")
+		bpftoolPath    = flag.String("bpftool", "", "absolute bpftool executable path (default: resolve bpftool from PATH once)")
 		receiptPath    = flag.String("receipt", "aegis-bpf-bootstrap.receipt.json", "signed bootstrap receipt output")
 		bootIDPath     = flag.String("boot-id", kernelfabric.DefaultBootIDPath, "boot id path")
 		lockdownPath   = flag.String("lockdown", kernelfabric.DefaultKernelLockdownPath, "kernel lockdown status path")
@@ -51,11 +53,23 @@ func main() {
 	if err != nil {
 		fatalf("load attestation key: %v", err)
 	}
+	resolvedBPFTool := *bpftoolPath
+	if resolvedBPFTool == "" {
+		resolvedBPFTool, err = exec.LookPath("bpftool")
+		if err != nil {
+			fatalf("resolve bpftool: %v", err)
+		}
+	}
+	resolvedBPFTool, err = filepath.Abs(resolvedBPFTool)
+	if err != nil {
+		fatalf("resolve absolute bpftool path: %v", err)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	loader := kernelfabric.BootstrapLoader{
-		BPFToolPath: *bpftoolPath,
+		BPFToolPath: resolvedBPFTool,
 		HostProvider: kernelfabric.LinuxBootstrapHostProvider{
 			BootIDPath:   *bootIDPath,
 			LockdownPath: *lockdownPath,
