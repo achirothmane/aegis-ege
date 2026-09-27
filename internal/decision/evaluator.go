@@ -9,6 +9,12 @@ package decision
 //  4. the configured number of distinct evidence sources must be present;
 //  5. ALLOW requires enough state-binding data to mint a short-lived authorization.
 func Evaluate(req Request) Result {
+	if req.EpistemicSnapshot != nil {
+		if gated := evaluateEASL(*req.EpistemicSnapshot); gated != nil {
+			return *gated
+		}
+	}
+
 	for _, observation := range req.Evidence {
 		age := req.RequestedAt.Sub(observation.ObservedAt)
 		if age > req.MaxEvidenceAge {
