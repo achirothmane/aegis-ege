@@ -20,9 +20,31 @@ server.Config{
 When enforcement is enabled, `EBAApprovalAuthority` is mandatory. Aegis will
 not silently reuse an unrelated key or generate an ephemeral approval identity.
 
-The standalone daemon does not expose a CLI flag yet because it does not have a
-real approval-key loading path. Adding a flag without durable/verifiable key
-configuration would create a mode that cannot be operated correctly.
+The standalone daemon can load a durable Ed25519 approval **public key** and
+enable the same enforcement mode without holding the approval private key.
+
+```text
+--enable-mutations
+--require-eba-conformance
+--eba-approval-public-key-file=/etc/aegis/approval-public-key.pem
+--eba-execution-principal=aegis-ege
+```
+
+The public key must be PKIX PEM with a `PUBLIC KEY` block containing an
+Ed25519 key. Aegis derives the approval `key_id` from the public key using
+the same SHA-256 fingerprint scheme as the signer.
+
+The daemon refuses to start when:
+
+- `--require-eba-conformance` is used without `--enable-mutations`;
+- the approval public-key path is missing;
+- the file is unreadable;
+- the PEM is malformed, contains trailing non-whitespace data, is not a
+  `PUBLIC KEY` block, or does not contain an Ed25519 key.
+
+The daemon receives verification material only. Approval signing remains
+outside the execution service, preserving separation between approval issuance
+and mutation execution.
 
 ## Execution request
 
