@@ -55,13 +55,19 @@ type Request struct {
 }
 
 type Authorization struct {
-	ActionID        string
-	Action          string
-	Target          string
-	ResourceVersion string
-	EvidenceDigest  string
-	PlanDigest      string
-	ValidUntil      time.Time
+	ActionID           string
+	Action             string
+	Target             string
+	ResourceVersion    string
+	EvidenceDigest     string
+	PlanDigest         string
+	AuthorityDomain    string
+	AuthorityTerm      uint64
+	DecisionEpoch      uint64
+	RevocationEpoch    uint64
+	TargetIdentity     string
+	StateBindingDigest string
+	ValidUntil         time.Time
 }
 
 type Result struct {
