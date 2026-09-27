@@ -15,8 +15,9 @@ import (
 )
 
 type BootstrapLoader struct {
-	BPFToolPath string
-	Runner      BPFToolRunner
+	BPFToolPath  string
+	Runner       BPFToolRunner
+	HostProvider BootstrapHostProvider
 }
 
 type BootstrapLoadRequest struct {
@@ -25,7 +26,6 @@ type BootstrapLoadRequest struct {
 	BPFFSRoot             string
 	SignedManifest        SignedBootstrapManifest
 	Trust                 BootstrapTrustStore
-	Host                  BootstrapHostSnapshot
 	AttestationPrivateKey ed25519.PrivateKey
 	Now                   time.Time
 }
@@ -68,10 +68,18 @@ func (l BootstrapLoader) LoadAndAttach(
 	if root == "." || root == "" {
 		return BootstrapLoadResult{}, errors.New("bootstrap bpffs root is required")
 	}
-	if filepath.Clean(req.Host.BPFFSRoot) != root {
+	hostProvider := l.HostProvider
+	if hostProvider == nil {
+		hostProvider = LinuxBootstrapHostProvider{}
+	}
+	host, err := hostProvider.Snapshot(root)
+	if err != nil {
+		return BootstrapLoadResult{}, fmt.Errorf("capture bootstrap host snapshot: %w", err)
+	}
+	if filepath.Clean(host.BPFFSRoot) != root {
 		return BootstrapLoadResult{}, errors.New("bootstrap host snapshot bpffs root mismatch")
 	}
-	if strings.TrimSpace(req.Host.BootIDHash) == "" || strings.TrimSpace(req.Host.KernelRelease) == "" {
+	if strings.TrimSpace(host.BootIDHash) == "" || strings.TrimSpace(host.KernelRelease) == "" {
 		return BootstrapLoadResult{}, errors.New("bootstrap host snapshot is incomplete")
 	}
 
@@ -163,7 +171,7 @@ func (l BootstrapLoader) LoadAndAttach(
 		ManifestSignerKeyID: req.SignedManifest.KeyID,
 		ArtifactSHA256: req.SignedManifest.Manifest.ArtifactSHA256,
 		ArtifactSize:   req.SignedManifest.Manifest.ArtifactSize,
-		Host:           req.Host,
+		Host:           host,
 		CgroupPath:     cgroupPath,
 		Programs:       programs,
 		Maps:           maps,
