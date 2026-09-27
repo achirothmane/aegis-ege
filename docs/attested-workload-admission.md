@@ -290,13 +290,17 @@ Not yet implemented:
 
 ```text
 Kubernetes scheduler/admission-controller integration
-automatic service restart policy
 distributed/linearizable grant-consumption backend
 container image digest / OCI manifest specialization
 systemd unit specialization
-workload exit/effect receipt
-automatic remote re-attestation before restart
+
 ```
+
+## Lifecycle continuation
+
+Workload exits are now governed by a separate lifecycle layer. Every governed run emits a signed exit receipt and moves a durable ledger from RUNNING to EXITED. Any later activation requires an explicit signed restart decision and a newly issued one-shot admission grant.
+
+See [workload-lifecycle-governance.md](workload-lifecycle-governance.md).
 
 ## Governing invariant
 
