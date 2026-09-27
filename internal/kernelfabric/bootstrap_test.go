@@ -352,3 +352,14 @@ func TestBootstrapLoaderUsesVerifiedStagedArtifact(t *testing.T) {
 	}
 	t.Fatalf("no bpftool loadall call observed: %v", runner.calls)
 }
+
+
+func TestBootstrapManifestRejectsOverlongKernelObjectName(t *testing.T) {
+	artifact := bootstrapTestArtifact(t)
+	manifest := bootstrapTestManifest(t, artifact)
+	manifest.Maps = append([]BootstrapMap(nil), manifest.Maps...)
+	manifest.Maps[0].Name = "aegis_name_longer_than_kernel_limit"
+	if err := ValidateBootstrapManifest(manifest, time.Time{}); err == nil {
+		t.Fatal("expected overlong BPF map name to be rejected")
+	}
+}
