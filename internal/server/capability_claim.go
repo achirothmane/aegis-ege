@@ -13,7 +13,7 @@ const capabilityClaimFinalizationTimeout = 5 * time.Second
 
 func (s *Server) issueCapabilityClaim(
 	ctx context.Context,
-	adapter egeAdapter,
+	adapter egeExecutionAdapter,
 	intentID string,
 	target egeTargetDTO,
 	claims egeproto.PermitClaims,
