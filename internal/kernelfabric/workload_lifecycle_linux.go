@@ -60,7 +60,9 @@ func StartGovernedWorkload(
 				if len(req.LifecycleAuthorityPublicKey) != ed25519.PublicKeySize {
 					return errors.New("lifecycle authority public key is required for restart")
 				}
-				if err := VerifySignedWorkloadRestartDecision(
+				if err := ValidateRestartForLifecycleState(
+					state,
+					req.LaunchRequest.SignedGrant,
 					*req.RestartDecision,
 					req.LifecycleAuthorityPublicKey,
 					now,
@@ -68,17 +70,6 @@ func StartGovernedWorkload(
 					return err
 				}
 				decision := req.RestartDecision.Decision
-				if decision.Outcome != RestartOutcomeRequireFreshGrant {
-					return ErrRestartDecisionRejected
-				}
-				if decision.DeviceID != state.DeviceID ||
-					decision.WorkloadID != state.WorkloadID ||
-					decision.PreviousGeneration != state.Generation ||
-					decision.PreviousActivationDigest != state.ActivationDigest ||
-					decision.PreviousExitDigest != state.ExitDigest ||
-					decision.CurrentRemoteDecisionDigest != grant.RemoteDecisionDigest {
-					return ErrLifecycleInvalidLineage
-				}
 				nextState = state
 				nextState.Generation = state.Generation + 1
 				nextState.State = LifecycleStateRunning
