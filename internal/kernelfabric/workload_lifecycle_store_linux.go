@@ -19,6 +19,24 @@ type WorkloadLifecycleStore struct {
 	Dir string
 }
 
+func (s WorkloadLifecycleStore) Read(
+	deviceID string,
+	workloadID string,
+) (WorkloadLifecycleState, bool, error) {
+	var out WorkloadLifecycleState
+	var exists bool
+	err := s.withLockedState(
+		deviceID,
+		workloadID,
+		func(_ string, state WorkloadLifecycleState, found bool) error {
+			out = state
+			exists = found
+			return nil
+		},
+	)
+	return out, exists, err
+}
+
 func (s WorkloadLifecycleStore) withLockedState(
 	deviceID string,
 	workloadID string,
