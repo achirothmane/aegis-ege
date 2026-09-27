@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"time"
@@ -391,15 +390,7 @@ func EvaluateWorkloadRestart(
 
 	delay := time.Duration(0)
 	if outcome != RestartOutcomeBlock {
-		exponent := restartCount
-		if exponent > 30 {
-			exponent = 30
-		}
-		multiplier := math.Pow(2, float64(exponent))
-		delay = time.Duration(float64(baseBackoff) * multiplier)
-		if delay > maxBackoff {
-			delay = maxBackoff
-		}
+		delay = boundedRestartBackoff(baseBackoff, maxBackoff, restartCount)
 	}
 	decisionID, err := randomToken(24)
 	if err != nil {
@@ -424,6 +415,33 @@ func EvaluateWorkloadRestart(
 		AuthorityID:                 policy.LifecycleAuthorityID,
 	}
 	return SignWorkloadRestartDecision(decision, policy.LifecycleAuthorityKey)
+}
+
+func boundedRestartBackoff(
+	base time.Duration,
+	max time.Duration,
+	restartCount uint32,
+) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	if max <= 0 {
+		max = time.Minute
+	}
+	if base >= max {
+		return max
+	}
+	delay := base
+	for i := uint32(0); i < restartCount; i++ {
+		if delay >= max-delay {
+			return max
+		}
+		delay *= 2
+		if delay >= max {
+			return max
+		}
+	}
+	return delay
 }
 
 func validateLifecycleRestartLineage(
