@@ -9,6 +9,7 @@ import (
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
 	"github.com/achirothmane/aegis-ege/internal/prometheusprobe"
+	"github.com/achirothmane/easl"
 )
 
 const (
@@ -109,16 +110,53 @@ func (c *prometheusNodeHealthEvidenceContributor) Contribute(
 			ReasonCodes: []decision.ReasonCode{decision.InsufficientEvidence},
 		}, nil
 	}
-	if now.Sub(observation.ObservedAt) > c.maxAge {
+
+	const assumptionID easl.AssumptionID = "prometheus-node-health-agrees-with-primary"
+	const evidenceID easl.EvidenceID = "prometheus-node-health"
+	expiresAt := observation.ObservedAt.UTC().Add(c.maxAge)
+
+	var contradicts []easl.AssumptionID
+	if observation.Value != primary.Snapshot.NodeHealth {
+		contradicts = []easl.AssumptionID{assumptionID}
+	}
+
+	evaluation, err := easl.Evaluate(easl.Snapshot{
+		At: now,
+		Evidence: []easl.Evidence{{
+			ID:          evidenceID,
+			ObservedAt:  observation.ObservedAt.UTC(),
+			ExpiresAt:   &expiresAt,
+			Contradicts: contradicts,
+		}},
+		Assumptions: []easl.Assumption{{
+			ID:       assumptionID,
+			Requires: []easl.EvidenceID{evidenceID},
+		}},
+	})
+	if err != nil {
 		return egeEvidenceContribution{
-			Decision:    decision.Block,
-			ReasonCodes: []decision.ReasonCode{decision.EvidenceStale},
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{decision.InsufficientEvidence},
 		}, nil
 	}
-	if observation.Value != primary.Snapshot.NodeHealth {
+	if evaluation.EvidenceStatus == easl.EvidenceContradictory {
 		return egeEvidenceContribution{
 			Decision:    decision.Block,
 			ReasonCodes: []decision.ReasonCode{decision.EvidenceContradicted},
+		}, nil
+	}
+	for _, invalidation := range evaluation.Invalidations {
+		if invalidation.Reason == easl.ReasonStaleEvidence {
+			return egeEvidenceContribution{
+				Decision:    decision.Block,
+				ReasonCodes: []decision.ReasonCode{decision.EvidenceStale},
+			}, nil
+		}
+	}
+	if evaluation.State != easl.StateValid {
+		return egeEvidenceContribution{
+			Decision:    decision.Escalate,
+			ReasonCodes: []decision.ReasonCode{decision.InsufficientEvidence},
 		}, nil
 	}
 
