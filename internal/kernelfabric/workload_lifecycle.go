@@ -374,12 +374,16 @@ func EvaluateWorkloadRestart(
 			!now.Before(remote.Decision.VerifiedAt.UTC().Add(reattestAfter)) {
 			outcome = RestartOutcomeRequireReattestation
 			reasons = append(reasons, "REMOTE_ATTESTATION_TOO_OLD")
-		} else if exit.Receipt.ExitClass == ExitClassNonZero && policy.ReattestOnNonZero {
+		} else if exit.Receipt.ExitClass == ExitClassNonZero &&
+			policy.ReattestOnNonZero &&
+			!remote.Decision.VerifiedAt.UTC().After(exit.Receipt.ExitedAt.UTC()) {
 			outcome = RestartOutcomeRequireReattestation
-			reasons = append(reasons, "NONZERO_EXIT_REQUIRES_REATTESTATION")
-		} else if exit.Receipt.ExitClass == ExitClassSignal && policy.ReattestOnSignal {
+			reasons = append(reasons, "NONZERO_EXIT_REQUIRES_POST_EXIT_REATTESTATION")
+		} else if exit.Receipt.ExitClass == ExitClassSignal &&
+			policy.ReattestOnSignal &&
+			!remote.Decision.VerifiedAt.UTC().After(exit.Receipt.ExitedAt.UTC()) {
 			outcome = RestartOutcomeRequireReattestation
-			reasons = append(reasons, "SIGNAL_EXIT_REQUIRES_REATTESTATION")
+			reasons = append(reasons, "SIGNAL_EXIT_REQUIRES_POST_EXIT_REATTESTATION")
 		} else {
 			reasons = append(reasons, "FRESH_GRANT_REQUIRED")
 		}
