@@ -75,12 +75,21 @@ func TestTPMSimulatorEnrollmentAndRemoteAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	transcript, err := enrollmentTranscriptPayload(enrollChallenge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcriptSignature, err := ak.SignMsg(tpm, transcript, crypto.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
 	identity, err := CompleteTPMEnrollment(pending, TPMEnrollmentProof{
-		Version:      TPMEnrollmentProofVersion,
-		EnrollmentID: enrollChallenge.EnrollmentID,
-		DeviceID:     enrollChallenge.DeviceID,
-		Secret:       secret,
-		CompletedAt:  now,
+		Version:             TPMEnrollmentProofVersion,
+		EnrollmentID:        enrollChallenge.EnrollmentID,
+		DeviceID:            enrollChallenge.DeviceID,
+		Secret:              secret,
+		TranscriptSignature: transcriptSignature,
+		CompletedAt:         now,
 	}, now)
 	if err != nil {
 		t.Fatal(err)
