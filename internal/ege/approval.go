@@ -57,7 +57,7 @@ func SignApproval(ctx context.Context, authority PermitAuthority, claims Approva
 	}, nil
 }
 
-func VerifyApproval(ctx context.Context, authority PermitAuthority, approval ApprovalAttestation) error {
+func VerifyApproval(ctx context.Context, authority SignatureVerifier, approval ApprovalAttestation) error {
 	if authority == nil {
 		return errors.New("approval authority is required")
 	}
@@ -97,7 +97,7 @@ func ApprovalRef(approval ApprovalAttestation) (string, error) {
 
 func ValidateApprovalForPermit(
 	ctx context.Context,
-	authority PermitAuthority,
+	authority SignatureVerifier,
 	approval ApprovalAttestation,
 	claims PermitClaims,
 	now time.Time,
@@ -133,7 +133,7 @@ func ValidateApprovalForPermit(
 func SignPermitWithApprovals(
 	ctx context.Context,
 	permitAuthority PermitAuthority,
-	approvalAuthority PermitAuthority,
+	approvalAuthority SignatureVerifier,
 	claims PermitClaims,
 	approvals []ApprovalAttestation,
 	now time.Time,
@@ -148,8 +148,8 @@ func SignPermitWithApprovals(
 
 func VerifyPermitWithApprovals(
 	ctx context.Context,
-	permitAuthority PermitAuthority,
-	approvalAuthority PermitAuthority,
+	permitAuthority SignatureVerifier,
+	approvalAuthority SignatureVerifier,
 	permit Permit,
 	approvals []ApprovalAttestation,
 	now time.Time,
@@ -176,7 +176,7 @@ func VerifyPermitWithApprovals(
 
 func validatedApprovalRefs(
 	ctx context.Context,
-	authority PermitAuthority,
+	authority SignatureVerifier,
 	approvals []ApprovalAttestation,
 	claims PermitClaims,
 	now time.Time,

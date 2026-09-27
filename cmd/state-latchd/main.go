@@ -35,11 +35,28 @@ func main() {
 		insecureReadOnly = flag.Bool("insecure-read-only", false, "allow HTTP without mTLS; mutations are forbidden")
 		prometheusNodeHealthURL = flag.String("prometheus-node-health-url", "", "optional Prometheus base URL for independent node-health evidence")
 		prometheusTrustDomain = flag.String("prometheus-trust-domain", "", "trust-domain name for Prometheus evidence; required with prometheus-node-health-url and must differ from kubernetes-control-plane")
+		requireEBAConformance = flag.Bool("require-eba-conformance", false, "require the full EBA bundle before real EGE mutations")
+		ebaApprovalPublicKeyFile = flag.String("eba-approval-public-key-file", "", "PEM Ed25519 public key used to verify signed EBA approval attestations")
+		ebaExecutionPrincipal = flag.String("eba-execution-principal", "aegis-ege", "principal id expected in EBA AuthorityGrant artifacts")
 	)
 	flag.Parse()
 
 	if *insecureReadOnly && *enableMutations {
 		fatal("invalid configuration", fmt.Errorf("insecure-read-only cannot be combined with enable-mutations"))
+	}
+	if err := validateEBADaemonConfig(
+		*requireEBAConformance,
+		*enableMutations,
+		*ebaApprovalPublicKeyFile,
+	); err != nil {
+		fatal("invalid EBA configuration", err)
+	}
+	approvalVerifier, err := loadEBAApprovalVerifier(
+		*requireEBAConformance,
+		*ebaApprovalPublicKeyFile,
+	)
+	if err != nil {
+		fatal("configure EBA approval verifier", err)
 	}
 
 	kubeConfig, err := kubernetesConfig(*kubeconfig)
@@ -139,6 +156,9 @@ func main() {
 		RequireAuthentication: requireAuthentication,
 		Authorizer:            authorizer,
 		ReplayGuard:           replay,
+		RequireEBAConformance: *requireEBAConformance,
+		EBAApprovalAuthority:  approvalVerifier,
+		EBAExecutionPrincipal: *ebaExecutionPrincipal,
 		AuditSink:                         server.SlogAuditSink{},
 		EGEPrometheusNodeHealthURL:         *prometheusNodeHealthURL,
 		EGEPrometheusNodeHealthTrustDomain: *prometheusTrustDomain,
@@ -178,6 +198,7 @@ func main() {
 			"address", *listenAddress,
 			"mutations_enabled", *enableMutations,
 			"authentication_required", requireAuthentication,
+			"eba_conformance_required", *requireEBAConformance,
 		)
 		var serveErr error
 		if tlsConfigured {
