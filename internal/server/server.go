@@ -30,10 +30,12 @@ type Config struct {
 	ReplayGuard           ReplayGuard
 	AuditSink             AuditSink
 	Clock                 func() time.Time
-	RequireEBAConformance bool
-	EBAApprovalAuthority  egeproto.SignatureVerifier
-	EBAExecutionPrincipal string
-	EGEConsequencePolicy *egeproto.ConsequencePolicy
+	RequireEBAConformance      bool
+	EBAApprovalAuthority       egeproto.SignatureVerifier
+	EBAExecutionPrincipal      string
+	RequireCapabilityFencing   bool
+	CapabilityFenceAuthority   CapabilityFenceAuthority
+	EGEConsequencePolicy       *egeproto.ConsequencePolicy
 	EGEPermitAuthority                egeproto.PermitAuthority
 	EGEPrometheusNodeHealthURL         string
 	EGEPrometheusNodeHealthTrustDomain string
