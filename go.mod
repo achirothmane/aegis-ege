@@ -3,6 +3,7 @@ module github.com/achirothmane/aegis-ege
 go 1.25.0
 
 require (
+	github.com/achirothmane/easl v0.0.0-20260927015333-57993793afb9
 	k8s.io/api v0.35.8
 	k8s.io/apimachinery v0.35.8
 	k8s.io/client-go v0.35.8
