@@ -8,6 +8,23 @@ import (
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
+func validateEBADaemonConfig(
+	requireConformance bool,
+	mutationsEnabled bool,
+	publicKeyFile string,
+) error {
+	if !requireConformance {
+		return nil
+	}
+	if !mutationsEnabled {
+		return fmt.Errorf("require-eba-conformance requires enable-mutations")
+	}
+	if strings.TrimSpace(publicKeyFile) == "" {
+		return fmt.Errorf("eba-approval-public-key-file is required when require-eba-conformance is enabled")
+	}
+	return nil
+}
+
 func loadEBAApprovalVerifier(
 	requireConformance bool,
 	publicKeyFile string,
