@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
@@ -225,8 +226,9 @@ type WorkloadRestartPolicy struct {
 	DecisionTTL          time.Duration
 	LifecycleAuthorityKey ed25519.PrivateKey
 	LifecycleAuthorityID  string
-	RemoteVerifierPublicKey ed25519.PublicKey
-	HostAttestorPublicKey ed25519.PublicKey
+	RemoteVerifierPublicKey  ed25519.PublicKey
+	AdmissionIssuerPublicKey ed25519.PublicKey
+	HostAttestorPublicKey    ed25519.PublicKey
 	Now func() time.Time
 }
 
@@ -256,6 +258,7 @@ type SignedWorkloadRestartDecision struct {
 
 func EvaluateWorkloadRestart(
 	state WorkloadLifecycleState,
+	priorGrant SignedWorkloadAdmissionGrant,
 	activation SignedWorkloadActivationReceipt,
 	exit SignedWorkloadExitReceipt,
 	remote SignedRemoteAttestationDecision,
@@ -272,8 +275,12 @@ func EvaluateWorkloadRestart(
 		return SignedWorkloadRestartDecision{}, errors.New("lifecycle authority id is required")
 	}
 	if len(policy.RemoteVerifierPublicKey) != ed25519.PublicKeySize ||
+		len(policy.AdmissionIssuerPublicKey) != ed25519.PublicKeySize ||
 		len(policy.HostAttestorPublicKey) != ed25519.PublicKeySize {
-		return SignedWorkloadRestartDecision{}, errors.New("trusted remote verifier and host attestor public keys are required")
+		return SignedWorkloadRestartDecision{}, errors.New("trusted remote verifier, admission issuer, and host attestor public keys are required")
+	}
+	if err := VerifySignedWorkloadAdmissionGrant(priorGrant, policy.AdmissionIssuerPublicKey, activation.Receipt.StartedAt); err != nil {
+		return SignedWorkloadRestartDecision{}, err
 	}
 	if err := VerifySignedWorkloadActivationReceipt(activation, policy.HostAttestorPublicKey); err != nil {
 		return SignedWorkloadRestartDecision{}, err
@@ -283,6 +290,18 @@ func EvaluateWorkloadRestart(
 	}
 	if err := VerifySignedRemoteAttestationDecision(remote, policy.RemoteVerifierPublicKey); err != nil {
 		return SignedWorkloadRestartDecision{}, err
+	}
+	priorGrantDigest, err := SignedWorkloadAdmissionGrantDigest(priorGrant)
+	if err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	if activation.Receipt.GrantID != priorGrant.Grant.GrantID ||
+		activation.Receipt.GrantDigest != priorGrantDigest ||
+		activation.Receipt.DeviceID != priorGrant.Grant.DeviceID ||
+		activation.Receipt.WorkloadID != priorGrant.Grant.WorkloadID ||
+		activation.Receipt.WorkloadSpecDigest != priorGrant.Grant.WorkloadSpecDigest ||
+		activation.Receipt.TargetCgroupID != priorGrant.Grant.TargetCgroupID {
+		return SignedWorkloadRestartDecision{}, ErrLifecycleInvalidLineage
 	}
 	activationDigest, err := SignedWorkloadActivationReceiptDigest(activation)
 	if err != nil {
@@ -329,7 +348,6 @@ func EvaluateWorkloadRestart(
 	windowStart := state.RestartWindowStartedAt
 	if windowStart.IsZero() || !now.Before(windowStart.Add(window)) {
 		restartCount = 0
-		windowStart = now
 	}
 
 	outcome := RestartOutcomeRequireFreshGrant
@@ -343,7 +361,10 @@ func EvaluateWorkloadRestart(
 		reasons = append(reasons, "RESTART_BUDGET_EXHAUSTED")
 	}
 	if outcome != RestartOutcomeBlock {
-		if remote.Decision.Decision != "ALLOW" ||
+		if remote.Decision.BootstrapDigest != priorGrant.Grant.BootstrapDigest {
+			outcome = RestartOutcomeBlock
+			reasons = append(reasons, "BOOTSTRAP_CHANGED_REQUIRES_NEW_LIFECYCLE")
+		} else if remote.Decision.Decision != "ALLOW" ||
 			remote.Decision.DeviceID != state.DeviceID {
 			outcome = RestartOutcomeRequireReattestation
 			reasons = append(reasons, "REMOTE_ATTESTATION_NOT_CURRENT_ALLOW")
@@ -424,6 +445,44 @@ func validateLifecycleRestartLineage(
 		return ErrLifecycleInvalidLineage
 	}
 	return nil
+}
+
+func IssueRestartWorkloadAdmissionGrant(
+	req WorkloadAdmissionRequest,
+	remote SignedRemoteAttestationDecision,
+	restart SignedWorkloadRestartDecision,
+	lifecycleAuthorityPublicKey ed25519.PublicKey,
+	policy WorkloadAdmissionPolicy,
+	now time.Time,
+) (SignedWorkloadAdmissionGrant, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if err := VerifySignedWorkloadRestartDecision(
+		restart,
+		lifecycleAuthorityPublicKey,
+		now,
+	); err != nil {
+		return SignedWorkloadAdmissionGrant{}, err
+	}
+	if restart.Decision.Outcome != RestartOutcomeRequireFreshGrant {
+		return SignedWorkloadAdmissionGrant{}, ErrRestartDecisionRejected
+	}
+	if restart.Decision.DeviceID != req.DeviceID ||
+		restart.Decision.WorkloadID != req.WorkloadID {
+		return SignedWorkloadAdmissionGrant{}, ErrLifecycleInvalidLineage
+	}
+	remoteDigest, err := SignedRemoteAttestationDecisionDigest(remote)
+	if err != nil {
+		return SignedWorkloadAdmissionGrant{}, err
+	}
+	if restart.Decision.CurrentRemoteDecisionDigest != remoteDigest {
+		return SignedWorkloadAdmissionGrant{}, ErrLifecycleInvalidLineage
+	}
+	if policy.Now == nil {
+		policy.Now = func() time.Time { return now }
+	}
+	return IssueWorkloadAdmissionGrant(req, remote, policy)
 }
 
 func SignWorkloadRestartDecision(
