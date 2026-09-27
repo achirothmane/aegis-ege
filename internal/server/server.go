@@ -31,7 +31,7 @@ type Config struct {
 	AuditSink             AuditSink
 	Clock                 func() time.Time
 	RequireEBAConformance bool
-	EBAApprovalAuthority  egeproto.PermitAuthority
+	EBAApprovalAuthority  egeproto.SignatureVerifier
 	EBAExecutionPrincipal string
 	EGEPermitAuthority                egeproto.PermitAuthority
 	EGEPrometheusNodeHealthURL         string
@@ -45,7 +45,7 @@ type Server struct {
 	config          Config
 	mux             *http.ServeMux
 	permitAuthority   egeproto.PermitAuthority
-	approvalAuthority egeproto.PermitAuthority
+	approvalAuthority egeproto.SignatureVerifier
 	egeAdapters         *egeAdapterRegistry
 	egeEvidenceComposer *egeEvidenceComposer
 }
