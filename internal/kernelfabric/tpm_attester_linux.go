@@ -26,11 +26,17 @@ const (
 func ProvisionTPMEnrollmentRequest(
 	deviceID string,
 	akBlobPath string,
+	bootstrapAttestorPublicKeyPath string,
 	now time.Time,
 ) (TPMEnrollmentRequest, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		return TPMEnrollmentRequest{}, errors.New("device id is required")
 	}
+	bootstrapAttestorKey, err := LoadEd25519PublicKey(bootstrapAttestorPublicKeyPath)
+	if err != nil {
+		return TPMEnrollmentRequest{}, fmt.Errorf("load bootstrap attestor public key: %w", err)
+	}
+
 	tpm, err := attest.OpenTPM(nil)
 	if err != nil {
 		return TPMEnrollmentRequest{}, fmt.Errorf("open TPM: %w", err)
@@ -63,8 +69,9 @@ func ProvisionTPMEnrollmentRequest(
 		DeviceID:         deviceID,
 		AK:               attestationParametersToWire(ak.AttestationParameters()),
 		EKPublicDER:      ekDER,
-		EKCertificateDER: certDER,
-		TPMManufacturer:  info.Manufacturer.String(),
+		EKCertificateDER:           certDER,
+		BootstrapAttestorPublicKey: append([]byte(nil), bootstrapAttestorKey...),
+		TPMManufacturer:            info.Manufacturer.String(),
 		TPMVendorInfo:    info.VendorInfo,
 		TPMFirmwareMajor: info.FirmwareVersionMajor,
 		TPMFirmwareMinor: info.FirmwareVersionMinor,
