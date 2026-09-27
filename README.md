@@ -320,6 +320,7 @@ That feedback is the gate for major product expansion.
 - [Guarded experimental execution](docs/guarded-real-execution.md)
 - [Execution locking](docs/execution-locking.md)
 - [Partial failure and recovery](docs/partial-failure-recovery.md)
+- [Ambiguous mutation outcome boundary](docs/ambiguous-mutation-outcome.md)
 - [Tamper-evident execution journal](docs/tamper-evident-journal.md)
 - [mTLS authentication and authorization](docs/mtls-authz.md)
 - [Shared HA state](docs/shared-ha-state.md)
