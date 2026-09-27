@@ -52,7 +52,7 @@ func (l BootstrapLoader) LoadAndAttach(
 		return BootstrapLoadResult{}, err
 	}
 	stagedArtifact, cleanupArtifact, err := StageVerifiedBootstrapArtifact(
-		stagedArtifact,
+		req.ArtifactPath,
 		req.SignedManifest.Manifest,
 	)
 	if err != nil {
@@ -101,23 +101,16 @@ func (l BootstrapLoader) LoadAndAttach(
 	}
 
 	runner := l.runner()
-	bpftoolPath := filepath.Clean(strings.TrimSpace(l.BPFToolPath))
-	if bpftoolPath == "." || !filepath.IsAbs(bpftoolPath) {
-		return BootstrapLoadResult{}, errors.New("absolute bpftool path is required")
-	}
-	bpftoolInfo, err := os.Stat(bpftoolPath)
+	bpftoolPath, err := l.resolvedBPFToolPath()
 	if err != nil {
-		return BootstrapLoadResult{}, fmt.Errorf("stat bpftool executable: %w", err)
-	}
-	if !bpftoolInfo.Mode().IsRegular() || bpftoolInfo.Mode().Perm()&0o111 == 0 {
-		return BootstrapLoadResult{}, errors.New("bpftool path is not an executable regular file")
+		return BootstrapLoadResult{}, err
 	}
 
 	output, err := runner.Run(
 		ctx,
 		bpftoolPath,
 		"prog", "loadall",
-		req.ArtifactPath,
+		stagedArtifact,
 		programDir,
 		"pinmaps", mapDir,
 	)
@@ -218,9 +211,9 @@ func (l BootstrapLoader) detachAttached(
 	programs []BootstrapProgram,
 ) error {
 	runner := l.runner()
-	bpftoolPath := strings.TrimSpace(l.BPFToolPath)
-	if bpftoolPath == "" {
-		bpftoolPath = "bpftool"
+	bpftoolPath, pathErr := l.resolvedBPFToolPath()
+	if pathErr != nil {
+		return pathErr
 	}
 	var errs []error
 	for i := len(programs) - 1; i >= 0; i-- {
@@ -253,9 +246,9 @@ func (l BootstrapLoader) inspectLoadedState(
 	mapDir string,
 ) ([]PinnedProgramAttestation, []PinnedMapAttestation, error) {
 	runner := l.runner()
-	bpftoolPath := strings.TrimSpace(l.BPFToolPath)
-	if bpftoolPath == "" {
-		bpftoolPath = "bpftool"
+	bpftoolPath, err := l.resolvedBPFToolPath()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	programs := make([]PinnedProgramAttestation, 0, len(manifest.Programs))
@@ -336,6 +329,21 @@ func (l BootstrapLoader) inspectLoadedState(
 		})
 	}
 	return programs, maps, nil
+}
+
+func (l BootstrapLoader) resolvedBPFToolPath() (string, error) {
+	path := filepath.Clean(strings.TrimSpace(l.BPFToolPath))
+	if path == "." || !filepath.IsAbs(path) {
+		return "", errors.New("absolute bpftool path is required")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("stat bpftool executable: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return "", errors.New("bpftool path is not an executable regular file")
+	}
+	return path, nil
 }
 
 func (l BootstrapLoader) runner() BPFToolRunner {
