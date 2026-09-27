@@ -126,3 +126,44 @@ func TestEvidenceManifestDigestIsStableAcrossSourceOrder(t *testing.T) {
 		t.Fatalf("manifest digest changed with source order: %s != %s", leftDigest, rightDigest)
 	}
 }
+
+
+func TestSignedPermitRejectsCapabilityFenceTampering(t *testing.T) {
+	authority, err := NewEphemeralEd25519Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := testCapabilityStateBinding()
+	stateDigest, err := DigestCapabilityStateBinding(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := PermitClaims{
+		IntentID:               "intent-cap-1",
+		Kind:                   "kubernetes.node_drain",
+		Target:                 Target{Type: "kubernetes.node", Name: "node-7"},
+		Action:                 "drain",
+		ResourceVersion:        "100",
+		EvidenceDigest:         "sha256:evidence",
+		EvidenceManifestDigest: "sha256:manifest",
+		PlanDigest:             "sha256:plan",
+		CapabilityFence: &CapabilityFenceClaims{
+			Version:            CapabilityFenceVersion,
+			AuthorityDomain:    "cluster-a/control-plane",
+			AuthorityTerm:      5,
+			DecisionEpoch:      9,
+			RevocationEpoch:    2,
+			TargetIdentity:     "uid-7",
+			StateBindingDigest: stateDigest,
+		},
+		ValidUntil: time.Now().UTC().Add(time.Minute),
+	}
+	permit, err := SignPermit(context.Background(), authority, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit.Claims.CapabilityFence.DecisionEpoch++
+	if err := VerifyPermit(context.Background(), authority, permit); err == nil {
+		t.Fatal("tampered capability fence unexpectedly verified")
+	}
+}

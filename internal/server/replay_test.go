@@ -64,3 +64,66 @@ func TestReplayKeyChangesWhenAuthorizationBindingChanges(t *testing.T) {
 		t.Fatal("state-bound authorization change must change replay key")
 	}
 }
+
+
+func TestReplayKeyChangesWhenCapabilityEpochChanges(t *testing.T) {
+	base := decision.Authorization{
+		ActionID:           "act-1",
+		Action:             "drain",
+		Target:             "node/node-7",
+		ResourceVersion:    "100",
+		EvidenceDigest:     "sha256:evidence",
+		PlanDigest:         "sha256:plan",
+		AuthorityDomain:    "cluster-a/control-plane",
+		AuthorityTerm:      4,
+		DecisionEpoch:      21,
+		RevocationEpoch:    2,
+		TargetIdentity:     "uid-7",
+		StateBindingDigest: "sha256:state",
+		ValidUntil:         time.Date(2026, 9, 23, 20, 0, 0, 0, time.UTC),
+	}
+	first, err := authorizationReplayKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := base
+	changed.DecisionEpoch++
+	second, err := authorizationReplayKey(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("decision epoch change must produce a distinct capability replay key")
+	}
+}
+
+func TestReplayKeyChangesWhenAuthorityTermChanges(t *testing.T) {
+	base := decision.Authorization{
+		ActionID:           "act-1",
+		Action:             "drain",
+		Target:             "node/node-7",
+		ResourceVersion:    "100",
+		EvidenceDigest:     "sha256:evidence",
+		PlanDigest:         "sha256:plan",
+		AuthorityDomain:    "cluster-a/control-plane",
+		AuthorityTerm:      4,
+		DecisionEpoch:      21,
+		RevocationEpoch:    2,
+		TargetIdentity:     "uid-7",
+		StateBindingDigest: "sha256:state",
+		ValidUntil:         time.Date(2026, 9, 23, 20, 0, 0, 0, time.UTC),
+	}
+	first, err := authorizationReplayKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := base
+	changed.AuthorityTerm++
+	second, err := authorizationReplayKey(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("authority term change must produce a distinct capability replay key")
+	}
+}

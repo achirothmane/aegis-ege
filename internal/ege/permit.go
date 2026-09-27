@@ -46,16 +46,17 @@ type EvidenceManifest struct {
 }
 
 type PermitClaims struct {
-	IntentID               string    `json:"intent_id"`
-	Kind                   string    `json:"kind"`
-	Target                 Target    `json:"target"`
-	Action                 string    `json:"action"`
-	ResourceVersion        string    `json:"resource_version"`
-	EvidenceDigest         string    `json:"evidence_digest"`
-	EvidenceManifestDigest string    `json:"evidence_manifest_digest"`
-	PlanDigest             string    `json:"plan_digest"`
-	ApprovalRefs           []string  `json:"approval_refs,omitempty"`
-	ValidUntil             time.Time `json:"valid_until"`
+	IntentID               string                 `json:"intent_id"`
+	Kind                   string                 `json:"kind"`
+	Target                 Target                 `json:"target"`
+	Action                 string                 `json:"action"`
+	ResourceVersion        string                 `json:"resource_version"`
+	EvidenceDigest         string                 `json:"evidence_digest"`
+	EvidenceManifestDigest string                 `json:"evidence_manifest_digest"`
+	PlanDigest             string                 `json:"plan_digest"`
+	ApprovalRefs           []string               `json:"approval_refs,omitempty"`
+	CapabilityFence        *CapabilityFenceClaims `json:"capability_fence,omitempty"`
+	ValidUntil             time.Time              `json:"valid_until"`
 }
 
 type Permit struct {

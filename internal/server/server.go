@@ -30,10 +30,12 @@ type Config struct {
 	ReplayGuard           ReplayGuard
 	AuditSink             AuditSink
 	Clock                 func() time.Time
-	RequireEBAConformance bool
-	EBAApprovalAuthority  egeproto.SignatureVerifier
-	EBAExecutionPrincipal string
-	EGEConsequencePolicy *egeproto.ConsequencePolicy
+	RequireEBAConformance      bool
+	EBAApprovalAuthority       egeproto.SignatureVerifier
+	EBAExecutionPrincipal      string
+	RequireCapabilityFencing   bool
+	CapabilityFenceAuthority   CapabilityFenceAuthority
+	EGEConsequencePolicy       *egeproto.ConsequencePolicy
 	EGEPermitAuthority                egeproto.PermitAuthority
 	EGEPrometheusNodeHealthURL         string
 	EGEPrometheusNodeHealthTrustDomain string
@@ -79,6 +81,9 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.RequireEBAConformance && config.EBAApprovalAuthority == nil {
 		return nil, fmt.Errorf("EBA approval authority is required when EBA conformance enforcement is enabled")
+	}
+	if config.RequireCapabilityFencing && config.CapabilityFenceAuthority == nil {
+		return nil, fmt.Errorf("capability fence authority is required when capability fencing is enabled")
 	}
 	var consequencePolicy *egeproto.ConsequencePolicy
 	if config.RequireEBAConformance {

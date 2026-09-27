@@ -74,16 +74,28 @@ func authorizationReplayKey(auth decision.Authorization) (string, error) {
 		Target          string
 		ResourceVersion string
 		EvidenceDigest  string
-		PlanDigest      string
-		ValidUntil      string
+		PlanDigest         string
+		AuthorityDomain    string
+		AuthorityTerm      uint64
+		DecisionEpoch      uint64
+		RevocationEpoch    uint64
+		TargetIdentity     string
+		StateBindingDigest string
+		ValidUntil         string
 	}{
-		ActionID:        auth.ActionID,
-		Action:          auth.Action,
-		Target:          auth.Target,
-		ResourceVersion: auth.ResourceVersion,
-		EvidenceDigest:  auth.EvidenceDigest,
-		PlanDigest:      auth.PlanDigest,
-		ValidUntil:      auth.ValidUntil.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+		ActionID:           auth.ActionID,
+		Action:             auth.Action,
+		Target:             auth.Target,
+		ResourceVersion:    auth.ResourceVersion,
+		EvidenceDigest:     auth.EvidenceDigest,
+		PlanDigest:         auth.PlanDigest,
+		AuthorityDomain:    auth.AuthorityDomain,
+		AuthorityTerm:      auth.AuthorityTerm,
+		DecisionEpoch:      auth.DecisionEpoch,
+		RevocationEpoch:    auth.RevocationEpoch,
+		TargetIdentity:     auth.TargetIdentity,
+		StateBindingDigest: auth.StateBindingDigest,
+		ValidUntil:         auth.ValidUntil.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode authorization replay key: %w", err)
