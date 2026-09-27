@@ -68,3 +68,91 @@ func TestKindM9SharedReplayGuardRejectsAcrossInstances(t *testing.T) {
 		t.Fatalf("replica B must observe shared replay claim, got %v", err)
 	}
 }
+
+
+func TestKindSharedCapabilityClaimLifecycleAcrossInstances(t *testing.T) {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		t.Skip("KUBECONFIG is required")
+	}
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	namespace := "state-latch-capability-lifecycle"
+	if _, err := client.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("create lifecycle namespace: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = client.CoreV1().Namespaces().Delete(context.Background(), namespace, metav1.DeleteOptions{})
+	})
+
+	guardA, err := NewKubernetesReplayGuard(client, namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardB, err := NewKubernetesReplayGuard(client, namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	auth := decision.Authorization{
+		ActionID:           "shared-capability-lifecycle",
+		Action:             "drain",
+		Target:             "node/node-7",
+		ResourceVersion:    "100",
+		EvidenceDigest:     "sha256:evidence",
+		PlanDigest:         "sha256:plan",
+		AuthorityDomain:    "kind/control-plane",
+		AuthorityTerm:      3,
+		DecisionEpoch:      11,
+		RevocationEpoch:    2,
+		TargetIdentity:     "uid-node-7",
+		StateBindingDigest: "sha256:state",
+		ValidUntil:         time.Now().UTC().Add(time.Minute),
+	}
+
+	if err := guardA.Issue(ctx, auth); err != nil {
+		t.Fatalf("replica A issue: %v", err)
+	}
+	record, err := guardB.State(ctx, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != ExecutionClaimIssued {
+		t.Fatalf("replica B expected ISSUED, got %+v", record)
+	}
+
+	if err := guardB.Claim(ctx, auth); err != nil {
+		t.Fatalf("replica B claim: %v", err)
+	}
+	record, err = guardA.State(ctx, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != ExecutionClaimClaimed {
+		t.Fatalf("replica A expected CLAIMED, got %+v", record)
+	}
+
+	if err := guardA.Consume(ctx, auth, "ALLOW"); err != nil {
+		t.Fatalf("replica A consume: %v", err)
+	}
+	record, err = guardB.State(ctx, auth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != ExecutionClaimConsumed || record.Outcome != "ALLOW" {
+		t.Fatalf("replica B expected CONSUMED/ALLOW, got %+v", record)
+	}
+	if err := guardB.Claim(ctx, auth); !errors.Is(err, ErrExecutionReplay) {
+		t.Fatalf("consumed shared capability must reject replay, got %v", err)
+	}
+}
