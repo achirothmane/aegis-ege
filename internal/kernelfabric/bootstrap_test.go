@@ -1,6 +1,7 @@
 package kernelfabric
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -120,7 +121,7 @@ func TestBootstrapPrivateKeyRequiresRestrictedPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !loaded.Equal(priv) {
+	if !bytes.Equal(loaded, priv) {
 		t.Fatal("loaded private key differs")
 	}
 }
@@ -181,7 +182,7 @@ func (f *fakeBootstrapRunner) Run(
 	if len(args) >= 6 && args[0] == "prog" && args[1] == "loadall" {
 		return nil, nil
 	}
-	if len(args) >= 6 && args[0] == "-j" && args[1] == "prog" && args[2] == "show" && args[3] == "pinned" {
+	if len(args) >= 5 && args[0] == "-j" && args[1] == "prog" && args[2] == "show" && args[3] == "pinned" {
 		pin := filepath.Base(args[4])
 		typ := "cgroup_sock_addr"
 		if f.badProgramType && pin == "aegis_connect4" {
@@ -189,7 +190,7 @@ func (f *fakeBootstrapRunner) Run(
 		}
 		return []byte(`{"id":11,"type":"` + typ + `","name":"` + pin + `","tag":"0123456789abcdef"}`), nil
 	}
-	if len(args) >= 6 && args[0] == "-j" && args[1] == "map" && args[2] == "show" && args[3] == "pinned" {
+	if len(args) >= 5 && args[0] == "-j" && args[1] == "map" && args[2] == "show" && args[3] == "pinned" {
 		name := filepath.Base(args[4])
 		typ := map[string]string{
 			"aegis_capsules":            "hash",
