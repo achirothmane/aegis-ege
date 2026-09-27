@@ -1,0 +1,20 @@
+{
+  "contract_version": "eba.integration/v0.1",
+  "kind": "AssumptionState",
+  "id": "as_k8s_node7_ready",
+  "trace_id": "tr_k8s_drain_001",
+  "producer": "assumption-gate/kubernetes-drain-profile",
+  "created_at": "2026-09-27T18:00:00Z",
+  "assumption_id": "kubernetes.node-drain-preconditions-hold",
+  "proposition": "The observed node and workload state still satisfies the drain preconditions.",
+  "status": "VALID",
+  "evidence_refs": ["sha256:evidence-manifest"],
+  "dependencies": ["node-resource-version", "pod-set", "pdb-state"],
+  "checked_at": "2026-09-27T18:00:00Z",
+  "valid_until": "2026-09-27T18:05:00Z",
+  "invalidation_reasons": [],
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "c329739e75268b2405a403585baa6e8d9ccd9420d5cc55303d3a9beda9ce8fdf"
+  }
+}
