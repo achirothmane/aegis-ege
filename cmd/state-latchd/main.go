@@ -16,7 +16,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 	"github.com/achirothmane/aegis-ege/internal/server"
 )
@@ -45,11 +44,19 @@ func main() {
 	if *insecureReadOnly && *enableMutations {
 		fatal("invalid configuration", fmt.Errorf("insecure-read-only cannot be combined with enable-mutations"))
 	}
-	if *requireEBAConformance && !*enableMutations {
-		fatal("invalid configuration", fmt.Errorf("require-eba-conformance requires enable-mutations"))
+	if err := validateEBADaemonConfig(
+		*requireEBAConformance,
+		*enableMutations,
+		*ebaApprovalPublicKeyFile,
+	); err != nil {
+		fatal("invalid EBA configuration", err)
 	}
-	if *requireEBAConformance && *ebaApprovalPublicKeyFile == "" {
-		fatal("invalid configuration", fmt.Errorf("eba-approval-public-key-file is required when require-eba-conformance is enabled"))
+	approvalVerifier, err := loadEBAApprovalVerifier(
+		*requireEBAConformance,
+		*ebaApprovalPublicKeyFile,
+	)
+	if err != nil {
+		fatal("configure EBA approval verifier", err)
 	}
 
 	kubeConfig, err := kubernetesConfig(*kubeconfig)
@@ -106,18 +113,6 @@ func main() {
 		adapter, err = kubeadapter.NewForConfig(kubeConfig)
 		if err != nil {
 			fatal("create Kubernetes adapter", err)
-		}
-	}
-
-	var approvalVerifier egeproto.SignatureVerifier
-	if *requireEBAConformance {
-		approvalPublicKeyPEM, readErr := os.ReadFile(*ebaApprovalPublicKeyFile)
-		if readErr != nil {
-			fatal("read EBA approval public key", readErr)
-		}
-		approvalVerifier, err = egeproto.NewEd25519PublicKeyVerifierPEM(approvalPublicKeyPEM)
-		if err != nil {
-			fatal("load EBA approval public key", err)
 		}
 	}
 
