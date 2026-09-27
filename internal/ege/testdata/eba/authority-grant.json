@@ -1,0 +1,24 @@
+{
+  "contract_version": "eba.integration/v0.1",
+  "kind": "AuthorityGrant",
+  "id": "auth_k8s_node7_drain",
+  "trace_id": "tr_k8s_drain_001",
+  "producer": "agent-action-guard/kubernetes-drain-profile",
+  "created_at": "2026-09-27T18:00:00Z",
+  "principal": {"type": "agent", "id": "aegis-ege"},
+  "allowed_actions": [{"tool": "kubernetes", "operation": "drain", "side_effect": true}],
+  "resource_scope": ["kubernetes://node/node-7"],
+  "context_constraints": {"kind": ["kubernetes.node_drain"]},
+  "issued_by": "policy:kubernetes-drain-authority-v1",
+  "not_before": "2026-09-27T17:59:00Z",
+  "expires_at": "2026-09-27T18:05:00Z",
+  "revoked": false,
+  "policy_ref": "kubernetes-drain-authority-v1",
+  "matched_allow_rule_ids": ["allow-aegis-node-drain"],
+  "action_id": "intent-1",
+  "action_scope_digest": "d1864d09ee530d1d7e4f1a7bf54bed73ac6b973cc39904e4a3e96dc40ce01388",
+  "integrity": {
+    "algorithm": "sha256",
+    "digest": "c5fe9f507ef6dec1e8401bbfadd85010c1ef510e0d99c8a4b08dbf3ff54f3174"
+  }
+}
