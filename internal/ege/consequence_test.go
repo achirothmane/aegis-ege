@@ -1,6 +1,7 @@
 package ege
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +53,12 @@ func TestEvaluateConsequenceAdmissionAllowsBoundFreshNodeDrain(t *testing.T) {
 	}
 	if admission.ConsequenceClass != ConsequenceClassOperationalStateChange {
 		t.Fatalf("unexpected consequence class %q", admission.ConsequenceClass)
+	}
+	if admission.AdmissibilityPolicyRef != policy.Ref {
+		t.Fatalf("expected admissibility policy ref %q, got %q", policy.Ref, admission.AdmissibilityPolicyRef)
+	}
+	if admission.PolicyOwner != policy.Owner {
+		t.Fatalf("expected policy owner %q, got %q", policy.Owner, admission.PolicyOwner)
 	}
 	if admission.PolicyHash == "" || admission.ActionScopeDigest == "" {
 		t.Fatal("expected policy and action digests")
@@ -138,5 +145,77 @@ func TestConsequenceActionScopeDigestChangesWithBoundTarget(t *testing.T) {
 	}
 	if leftDigest == rightDigest {
 		t.Fatal("materially changed target retained the same action-scope digest")
+	}
+}
+
+
+func TestConsequenceAdmissionWireSchemaUsesExplicitPolicyProvenance(t *testing.T) {
+	now := time.Date(2026, 9, 27, 20, 0, 0, 0, time.UTC)
+	claims := consequenceTestClaims(now)
+	policy := KubernetesNodeDrainConsequencePolicy(15 * time.Second)
+
+	admission, err := EvaluateConsequenceAdmission(
+		policy,
+		claims,
+		consequenceTestManifest(claims, now.Add(-time.Second)),
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := json.Marshal(admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(body, &wire); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, key := range []string{
+		"admissibility_policy_ref",
+		"policy_version",
+		"policy_hash",
+		"policy_owner",
+		"evaluated_at",
+		"consequence_class",
+		"action_scope_digest",
+	} {
+		if _, ok := wire[key]; !ok {
+			t.Fatalf("missing wire field %q in %s", key, string(body))
+		}
+	}
+	if _, legacy := wire["policy_ref"]; legacy {
+		t.Fatalf("legacy policy_ref must not appear in v0alpha2 wire schema: %s", string(body))
+	}
+	if wire["api_version"] != ConsequenceAdmissionVersion {
+		t.Fatalf("unexpected api version %v", wire["api_version"])
+	}
+}
+
+func TestConsequencePolicyHashChangesWithPolicyOwner(t *testing.T) {
+	left := KubernetesNodeDrainConsequencePolicy(15 * time.Second)
+	right := left
+	right.Owner = "different-policy-owner"
+
+	leftHash, err := consequencePolicyHash(left)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightHash, err := consequencePolicyHash(right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leftHash == rightHash {
+		t.Fatal("policy owner changed without changing policy hash")
+	}
+}
+
+func TestValidateConsequencePolicyRequiresOwner(t *testing.T) {
+	policy := KubernetesNodeDrainConsequencePolicy(15 * time.Second)
+	policy.Owner = ""
+	if err := ValidateConsequencePolicy(policy); err == nil {
+		t.Fatal("consequence policy without owner unexpectedly validated")
 	}
 }

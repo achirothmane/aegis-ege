@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	ConsequenceAdmissionVersion = "aegis.ege/consequence/v0alpha1"
+	ConsequenceAdmissionVersion = "aegis.ege/consequence/v0alpha2"
 
 	ConsequenceDecisionAdmissible = "ADMISSIBLE"
 	ConsequenceDecisionBlocked    = "BLOCKED"
@@ -22,6 +22,7 @@ const (
 type ConsequencePolicy struct {
 	Ref                string
 	Version            string
+	Owner              string
 	ConsequenceClass   string
 	AllowedKinds       []string
 	AllowedActions     []string
@@ -30,20 +31,22 @@ type ConsequencePolicy struct {
 }
 
 type ConsequenceAdmission struct {
-	APIVersion        string    `json:"api_version"`
-	Decision          string    `json:"decision"`
-	ConsequenceClass  string    `json:"consequence_class"`
-	PolicyRef         string    `json:"policy_ref"`
-	PolicyVersion     string    `json:"policy_version"`
-	PolicyHash        string    `json:"policy_hash"`
-	EvaluatedAt       time.Time `json:"evaluated_at"`
-	ActionScopeDigest string    `json:"action_scope_digest"`
+	APIVersion             string    `json:"api_version"`
+	Decision               string    `json:"decision"`
+	ConsequenceClass       string    `json:"consequence_class"`
+	AdmissibilityPolicyRef string    `json:"admissibility_policy_ref"`
+	PolicyVersion          string    `json:"policy_version"`
+	PolicyHash             string    `json:"policy_hash"`
+	PolicyOwner            string    `json:"policy_owner"`
+	EvaluatedAt            time.Time `json:"evaluated_at"`
+	ActionScopeDigest      string    `json:"action_scope_digest"`
 }
 
 func KubernetesNodeDrainConsequencePolicy(maxEvidenceAge time.Duration) ConsequencePolicy {
 	return ConsequencePolicy{
 		Ref:                "aegis-ege/policy/kubernetes-node-drain-consequence",
 		Version:            "v1",
+		Owner:              "aegis-ege",
 		ConsequenceClass:   ConsequenceClassOperationalStateChange,
 		AllowedKinds:       []string{"kubernetes.node_drain"},
 		AllowedActions:     []string{"drain"},
@@ -53,7 +56,7 @@ func KubernetesNodeDrainConsequencePolicy(maxEvidenceAge time.Duration) Conseque
 }
 
 func ValidateConsequencePolicy(policy ConsequencePolicy) error {
-	if policy.Ref == "" || policy.Version == "" || policy.ConsequenceClass == "" {
+	if policy.Ref == "" || policy.Version == "" || policy.Owner == "" || policy.ConsequenceClass == "" {
 		return errors.New("CONSEQUENCE_POLICY_IDENTITY_INVALID")
 	}
 	if len(policy.AllowedKinds) == 0 || len(policy.AllowedActions) == 0 || len(policy.AllowedTargetTypes) == 0 {
@@ -89,14 +92,15 @@ func EvaluateConsequenceAdmission(
 	}
 
 	admission := ConsequenceAdmission{
-		APIVersion:        ConsequenceAdmissionVersion,
-		Decision:          ConsequenceDecisionBlocked,
-		ConsequenceClass:  policy.ConsequenceClass,
-		PolicyRef:         policy.Ref,
-		PolicyVersion:     policy.Version,
-		PolicyHash:        policyHash,
-		EvaluatedAt:       now,
-		ActionScopeDigest: actionScopeDigest,
+		APIVersion:             ConsequenceAdmissionVersion,
+		Decision:               ConsequenceDecisionBlocked,
+		ConsequenceClass:       policy.ConsequenceClass,
+		AdmissibilityPolicyRef: policy.Ref,
+		PolicyVersion:          policy.Version,
+		PolicyHash:             policyHash,
+		PolicyOwner:            policy.Owner,
+		EvaluatedAt:            now,
+		ActionScopeDigest:      actionScopeDigest,
 	}
 
 	if !containsConsequenceValue(policy.AllowedKinds, claims.Kind) {
@@ -143,9 +147,10 @@ func ValidateConsequenceAdmission(admission ConsequenceAdmission) error {
 		return errors.New("CONSEQUENCE_ADMISSION_DECISION_INVALID")
 	}
 	if admission.ConsequenceClass == "" ||
-		admission.PolicyRef == "" ||
+		admission.AdmissibilityPolicyRef == "" ||
 		admission.PolicyVersion == "" ||
 		admission.PolicyHash == "" ||
+		admission.PolicyOwner == "" ||
 		admission.ActionScopeDigest == "" ||
 		admission.EvaluatedAt.IsZero() {
 		return errors.New("CONSEQUENCE_ADMISSION_INCOMPLETE")
@@ -157,6 +162,7 @@ func consequencePolicyHash(policy ConsequencePolicy) (string, error) {
 	normalized := struct {
 		Ref                string   `json:"ref"`
 		Version            string   `json:"version"`
+		Owner              string   `json:"owner"`
 		ConsequenceClass   string   `json:"consequence_class"`
 		AllowedKinds       []string `json:"allowed_kinds"`
 		AllowedActions     []string `json:"allowed_actions"`
@@ -165,6 +171,7 @@ func consequencePolicyHash(policy ConsequencePolicy) (string, error) {
 	}{
 		Ref:                policy.Ref,
 		Version:            policy.Version,
+		Owner:              policy.Owner,
 		ConsequenceClass:   policy.ConsequenceClass,
 		AllowedKinds:       sortedConsequenceValues(policy.AllowedKinds),
 		AllowedActions:     sortedConsequenceValues(policy.AllowedActions),
