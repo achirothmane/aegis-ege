@@ -194,26 +194,13 @@ func TestKindIncidentReplayKubectl1568CordonDenialStopsEvictions(t *testing.T) {
 	executor := &cordonDeniedReplayExecutor{delegate: reader}
 	adapter := NewWithExperimentalMutations(reader, executor)
 
-	preparation := prepareKindDrainWithFreshAuthorization(
+	_, report := executeKindDrainWithFreshAuthorizationRetry(
 		t,
 		adapter,
 		"incident-1568",
 		env.nodeName,
 		policy,
 	)
-	if preparation.Authorization == nil {
-		t.Fatal("expected preparation authorization before injected cordon denial")
-	}
-
-	report, err := adapter.ExecuteAuthorizedNodeDrain(
-		ctx,
-		*preparation.Authorization,
-		env.nodeName,
-		policy,
-	)
-	if err != nil {
-		t.Fatalf("ExecuteAuthorizedNodeDrain: %v", err)
-	}
 	if report.Decision != decision.Escalate ||
 		!hasReason(report.ReasonCodes, ReasonExecutionCordonRejected) {
 		t.Fatalf(
