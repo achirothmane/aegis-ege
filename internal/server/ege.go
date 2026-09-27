@@ -149,7 +149,7 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "EVIDENCE_MANIFEST_FAILED", err)
 			return
 		}
-		permit, err := egeproto.SignPermit(ctx, s.permitAuthority, egeproto.PermitClaims{
+		permitClaims := egeproto.PermitClaims{
 			IntentID:               intentID,
 			Kind:                   kind,
 			Target:                 egeproto.Target{Type: target.Type, Name: target.Name},
@@ -159,7 +159,21 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 			EvidenceManifestDigest: manifestDigest,
 			PlanDigest:             binding.PlanDigest,
 			ValidUntil:             binding.ValidUntil,
-		})
+		}
+		capabilityFence, err := s.issueExecutionCapabilityFence(
+			ctx,
+			intentID,
+			kind,
+			target,
+			preparation,
+		)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "CAPABILITY_FENCE_ISSUANCE_FAILED", err)
+			return
+		}
+		permitClaims.CapabilityFence = capabilityFence
+
+		permit, err := egeproto.SignPermit(ctx, s.permitAuthority, permitClaims)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "PERMIT_SIGNING_FAILED", err)
 			return
@@ -278,6 +292,69 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		consequenceAdmission = &admission
+	}
+
+	if s.config.RequireCapabilityFencing && claims.CapabilityFence == nil {
+		s.auditDecision(
+			r,
+			PermissionExecute,
+			string(decision.Block),
+			intentID,
+			target.Name,
+			[]decision.ReasonCode{"CAPABILITY_FENCE_REQUIRED"},
+		)
+		writeError(
+			w,
+			http.StatusForbidden,
+			"CAPABILITY_FENCE_REQUIRED",
+			errors.New("signed permit does not contain an execution capability fence"),
+		)
+		return
+	}
+	if err := s.revalidateExecutionCapabilityFence(
+		ctx,
+		intentID,
+		kind,
+		target,
+		claims.CapabilityFence,
+	); err != nil {
+		status := http.StatusServiceUnavailable
+		code := "CAPABILITY_FENCE_UNAVAILABLE"
+		reason := decision.ReasonCode("CAPABILITY_FENCE_UNAVAILABLE")
+
+		switch {
+		case errors.Is(err, egeproto.ErrCapabilityAuthorityChanged):
+			status = http.StatusConflict
+			code = "CAPABILITY_AUTHORITY_CHANGED"
+			reason = "CAPABILITY_AUTHORITY_CHANGED"
+		case errors.Is(err, egeproto.ErrCapabilityRevoked):
+			status = http.StatusConflict
+			code = "CAPABILITY_REVOKED"
+			reason = "CAPABILITY_REVOKED"
+		case errors.Is(err, egeproto.ErrCapabilityTargetChanged):
+			status = http.StatusConflict
+			code = "CAPABILITY_TARGET_CHANGED"
+			reason = "CAPABILITY_TARGET_CHANGED"
+		case errors.Is(err, egeproto.ErrCapabilityStateChanged):
+			status = http.StatusConflict
+			code = "CAPABILITY_STATE_CHANGED"
+			reason = "CAPABILITY_STATE_CHANGED"
+		case errors.Is(err, egeproto.ErrCapabilityFenceInvalid):
+			status = http.StatusForbidden
+			code = "CAPABILITY_FENCE_INVALID"
+			reason = "CAPABILITY_FENCE_INVALID"
+		}
+
+		s.auditDecision(
+			r,
+			PermissionExecute,
+			string(decision.Block),
+			intentID,
+			target.Name,
+			[]decision.ReasonCode{reason},
+		)
+		writeError(w, status, code, err)
+		return
 	}
 
 	auth, err := adapter.AuthorizationFromPermit(intentID, target, claims)
