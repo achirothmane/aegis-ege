@@ -327,6 +327,10 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusConflict
 			code = "CAPABILITY_AUTHORITY_CHANGED"
 			reason = "CAPABILITY_AUTHORITY_CHANGED"
+		case errors.Is(err, egeproto.ErrCapabilityDecisionSuperseded):
+			status = http.StatusConflict
+			code = "CAPABILITY_DECISION_SUPERSEDED"
+			reason = "CAPABILITY_DECISION_SUPERSEDED"
 		case errors.Is(err, egeproto.ErrCapabilityRevoked):
 			status = http.StatusConflict
 			code = "CAPABILITY_REVOKED"
