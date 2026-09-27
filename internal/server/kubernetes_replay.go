@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -292,25 +293,50 @@ func executionClaimRecordFromConfigMap(
 		)
 	}
 
-	record := newExecutionClaimRecord(auth, state)
-	record.Version = strings.TrimSpace(cm.Data["version"])
+	parseUint := func(key string) (uint64, error) {
+		value := strings.TrimSpace(cm.Data[key])
+		if value == "" {
+			return 0, nil
+		}
+		parsed, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid execution claim %s: %w", key, err)
+		}
+		return parsed, nil
+	}
+
+	authorityTerm, err := parseUint("authority_term")
+	if err != nil {
+		return ExecutionClaimRecord{}, err
+	}
+	decisionEpoch, err := parseUint("decision_epoch")
+	if err != nil {
+		return ExecutionClaimRecord{}, err
+	}
+	revocationEpoch, err := parseUint("revocation_epoch")
+	if err != nil {
+		return ExecutionClaimRecord{}, err
+	}
+
+	record := ExecutionClaimRecord{
+		Version:            strings.TrimSpace(cm.Data["version"]),
+		State:              state,
+		ActionID:           strings.TrimSpace(cm.Data["action_id"]),
+		Target:             strings.TrimSpace(cm.Data["target"]),
+		AuthorityDomain:    strings.TrimSpace(cm.Data["authority_domain"]),
+		AuthorityTerm:      authorityTerm,
+		DecisionEpoch:      decisionEpoch,
+		RevocationEpoch:    revocationEpoch,
+		TargetIdentity:     strings.TrimSpace(cm.Data["target_identity"]),
+		StateBindingDigest: strings.TrimSpace(cm.Data["state_binding_digest"]),
+		Outcome:            cm.Data["outcome"],
+		Reason:             cm.Data["reason"],
+	}
 	if record.Version == "" {
 		record.Version = ExecutionClaimRecordVersion
 	}
-	if record.Version != ExecutionClaimRecordVersion {
-		return ExecutionClaimRecord{}, fmt.Errorf(
-			"unsupported execution claim record version %q",
-			record.Version,
-		)
-	}
-	record.Outcome = cm.Data["outcome"]
-	record.Reason = cm.Data["reason"]
-
-	if actionID := strings.TrimSpace(cm.Data["action_id"]); actionID != "" && actionID != auth.ActionID {
-		return ExecutionClaimRecord{}, ErrExecutionClaimTransition
-	}
-	if target := strings.TrimSpace(cm.Data["target"]); target != "" && target != auth.Target {
-		return ExecutionClaimRecord{}, ErrExecutionClaimTransition
+	if err := validateExecutionClaimRecord(record, auth); err != nil {
+		return ExecutionClaimRecord{}, err
 	}
 	return record, nil
 }
