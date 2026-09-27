@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
@@ -81,14 +82,29 @@ func ProvisionTPMEnrollmentRequest(
 
 func ActivateTPMEnrollmentChallenge(
 	akBlobPath string,
+	originalRequest TPMEnrollmentRequest,
 	challenge TPMEnrollmentChallenge,
 	now time.Time,
 ) (TPMEnrollmentProof, error) {
 	if challenge.Version != TPMEnrollmentChallengeVersion ||
 		strings.TrimSpace(challenge.EnrollmentID) == "" ||
 		strings.TrimSpace(challenge.DeviceID) == "" ||
-		strings.TrimSpace(challenge.EKSPKISHA256) == "" {
+		strings.TrimSpace(challenge.EKSPKISHA256) == "" ||
+		strings.TrimSpace(challenge.EnrollmentRequestDigest) == "" {
 		return TPMEnrollmentProof{}, ErrEnrollmentActivationFailed
+	}
+	if originalRequest.DeviceID != challenge.DeviceID {
+		return TPMEnrollmentProof{}, fmt.Errorf("%w: enrollment device mismatch", ErrEnrollmentActivationFailed)
+	}
+	requestDigest, err := TPMEnrollmentRequestDigest(originalRequest)
+	if err != nil {
+		return TPMEnrollmentProof{}, err
+	}
+	if subtle.ConstantTimeCompare(
+		[]byte(requestDigest),
+		[]byte(challenge.EnrollmentRequestDigest),
+	) != 1 {
+		return TPMEnrollmentProof{}, fmt.Errorf("%w: enrollment request transcript mismatch", ErrEnrollmentActivationFailed)
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -138,12 +154,21 @@ func ActivateTPMEnrollmentChallenge(
 	if err != nil {
 		return TPMEnrollmentProof{}, fmt.Errorf("%w: %v", ErrEnrollmentActivationFailed, err)
 	}
+	transcript, err := enrollmentTranscriptPayload(challenge)
+	if err != nil {
+		return TPMEnrollmentProof{}, err
+	}
+	transcriptSignature, err := ak.SignMsg(tpm, transcript, crypto.SHA256)
+	if err != nil {
+		return TPMEnrollmentProof{}, fmt.Errorf("sign enrollment transcript with AK: %w", err)
+	}
 	return TPMEnrollmentProof{
 		Version:      TPMEnrollmentProofVersion,
 		EnrollmentID: challenge.EnrollmentID,
 		DeviceID:     challenge.DeviceID,
-		Secret:       secret,
-		CompletedAt:  now.UTC(),
+		Secret:              secret,
+		TranscriptSignature: transcriptSignature,
+		CompletedAt:         now.UTC(),
 	}, nil
 }
 
