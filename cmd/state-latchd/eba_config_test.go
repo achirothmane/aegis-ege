@@ -69,3 +69,24 @@ func TestLoadEBAApprovalVerifierRejectsMalformedPEM(t *testing.T) {
 		t.Fatalf("expected malformed PEM error, got %v", err)
 	}
 }
+
+
+func TestValidateEBADaemonConfigRequiresMutations(t *testing.T) {
+	err := validateEBADaemonConfig(true, false, "/tmp/approval.pem")
+	if err == nil || !strings.Contains(err.Error(), "enable-mutations") {
+		t.Fatalf("expected mutations requirement, got %v", err)
+	}
+}
+
+func TestValidateEBADaemonConfigRequiresPublicKeyPath(t *testing.T) {
+	err := validateEBADaemonConfig(true, true, "")
+	if err == nil || !strings.Contains(err.Error(), "public-key-file") {
+		t.Fatalf("expected public key path requirement, got %v", err)
+	}
+}
+
+func TestValidateEBADaemonConfigDisabledIsBackwardCompatible(t *testing.T) {
+	if err := validateEBADaemonConfig(false, false, ""); err != nil {
+		t.Fatalf("disabled EBA mode should not require mutation/key config: %v", err)
+	}
+}
