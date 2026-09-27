@@ -2,6 +2,8 @@ package kernelfabric
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ func ConsumeWorkloadAdmissionGrant(
 	issuerPublicKey ed25519.PublicKey,
 	expectedSpec WorkloadLaunchSpec,
 	expectedTargetCgroup string,
+	expectedTargetCgroupID uint64,
 	expectedDeviceID string,
 	now time.Time,
 ) (WorkloadGrantConsumptionRecord, error) {
@@ -43,6 +46,7 @@ func ConsumeWorkloadAdmissionGrant(
 	}
 	if signed.Grant.WorkloadSpecDigest != expectedDigest ||
 		filepath.Clean(signed.Grant.TargetCgroup) != filepath.Clean(expectedTargetCgroup) ||
+		signed.Grant.TargetCgroupID != expectedTargetCgroupID ||
 		signed.Grant.DeviceID != strings.TrimSpace(expectedDeviceID) {
 		return WorkloadGrantConsumptionRecord{}, ErrAdmissionBindingMismatch
 	}
@@ -62,7 +66,8 @@ func ConsumeWorkloadAdmissionGrant(
 		return WorkloadGrantConsumptionRecord{}, fmt.Errorf("secure workload grant consumption directory: %w", err)
 	}
 
-	path := filepath.Join(dir, signed.Grant.GrantID+".consumed.json")
+	key := sha256.Sum256([]byte(signed.Grant.GrantID))
+	path := filepath.Join(dir, hex.EncodeToString(key[:])+".consumed.json")
 	record := WorkloadGrantConsumptionRecord{
 		Version:     WorkloadGrantConsumptionVersion,
 		GrantID:     signed.Grant.GrantID,
