@@ -240,6 +240,174 @@ func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T)
 	}
 }
 
+func TestKindAegisEGERejectsStateDriftBetweenPrepareAndExecute(t *testing.T) {
+	kubeconfig := os.Getenv("KUBECONFIG")
+	if kubeconfig == "" {
+		t.Skip("KUBECONFIG is required")
+	}
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	nodeName := "aegis-ege-state-drift-node"
+	_, err = client.CoreV1().Nodes().Create(ctx, &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type:               corev1.NodeReady,
+				Status:             corev1.ConditionTrue,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+			}},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create synthetic node: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = client.CoreV1().Nodes().Delete(context.Background(), nodeName, metav1.DeleteOptions{})
+	})
+
+	adapter, err := kubeadapter.NewForConfigWithExperimentalMutations(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	policy := kubeadapter.NodeDrainPolicy{
+		MaxEvidenceAge:         15 * time.Second,
+		RequiredSourceCount:    1,
+		MaxBlastRadius:         10,
+		AuthorizationTTL:       30 * time.Second,
+		ExecutionLockNamespace: "kube-system",
+		ExecutionLockDuration:  30 * time.Second,
+	}
+
+	api, err := New(
+		adapter,
+		kubeadapter.NewMemoryDrainCheckpointStore(),
+		Config{
+			Policy:                policy,
+			MutationsEnabled:      true,
+			RequireAuthentication: true,
+			Authorizer:            allowAuthorizer{},
+			ReplayGuard:           replay,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testServer := httptest.NewServer(api.Handler())
+	defer testServer.Close()
+
+	intentID := "ege-state-drift"
+	preparePayload := []byte(
+		"{\"intent_id\":\"" + intentID +
+			"\",\"kind\":\"" + egeNodeDrainKind +
+			"\",\"target\":{\"type\":\"" + egeNodeTarget +
+			"\",\"name\":\"" + nodeName + "\"}}",
+	)
+
+	preparation := prepareEGEUntilStable(
+		t,
+		testServer.Client(),
+		testServer.URL,
+		preparePayload,
+	)
+	if preparation.Permit == nil {
+		t.Fatal("expected signed permit before state drift")
+	}
+	boundResourceVersion := preparation.Permit.Claims.ResourceVersion
+
+	current, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := metav1.Now()
+	current.Status.Conditions = []corev1.NodeCondition{{
+		Type:               corev1.NodeReady,
+		Status:             corev1.ConditionFalse,
+		LastHeartbeatTime:  now,
+		LastTransitionTime: now,
+	}}
+	changed, err := client.CoreV1().Nodes().UpdateStatus(
+		ctx,
+		current,
+		metav1.UpdateOptions{},
+	)
+	if err != nil {
+		t.Fatalf("update node health between prepare and execute: %v", err)
+	}
+	if changed.ResourceVersion == boundResourceVersion {
+		t.Fatalf("expected state drift to change resourceVersion, remained %q", changed.ResourceVersion)
+	}
+
+	executePayload, err := json.Marshal(egeExecuteRequest{
+		IntentID: intentID,
+		Kind:     egeNodeDrainKind,
+		Target: egeTargetDTO{
+			Type: egeNodeTarget,
+			Name: nodeName,
+		},
+		Permit: *preparation.Permit,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	executeResp, err := testServer.Client().Post(
+		testServer.URL+"/v1/ege/execute",
+		"application/json",
+		bytes.NewReader(executePayload),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executeResp.Body.Close()
+	if executeResp.StatusCode != http.StatusOK {
+		t.Fatalf("EGE execute status=%d", executeResp.StatusCode)
+	}
+
+	var execution egeExecuteResponse
+	if err := json.NewDecoder(executeResp.Body).Decode(&execution); err != nil {
+		t.Fatal(err)
+	}
+	if execution.Decision != decision.Escalate {
+		t.Fatalf(
+			"expected state drift to ESCALATE before mutation, got %s reasons=%v",
+			execution.Decision,
+			execution.ReasonCodes,
+		)
+	}
+	if !hasServerReason(execution.ReasonCodes, decision.ResourceVersionChanged) {
+		t.Fatalf("expected %s, got %v", decision.ResourceVersionChanged, execution.ReasonCodes)
+	}
+	if !hasServerReason(execution.ReasonCodes, decision.ExecutionPlanChanged) {
+		t.Fatalf("expected %s, got %v", decision.ExecutionPlanChanged, execution.ReasonCodes)
+	}
+	if len(execution.Steps) != 0 {
+		t.Fatalf("state drift must stop before mutation steps, got %+v", execution.Steps)
+	}
+
+	after, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Spec.Unschedulable {
+		t.Fatal("state-drift rejection must not cordon the node")
+	}
+}
+
 func prepareEGEUntilStable(
 	t *testing.T,
 	client *http.Client,
