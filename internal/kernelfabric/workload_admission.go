@@ -101,6 +101,7 @@ type WorkloadAdmissionRequest struct {
 	WorkloadID         string    `json:"workload_id"`
 	WorkloadSpecDigest string    `json:"workload_spec_digest"`
 	TargetCgroup       string    `json:"target_cgroup"`
+	TargetCgroupID     uint64    `json:"target_cgroup_id"`
 	BootstrapDigest    string    `json:"bootstrap_digest"`
 	RequestedAt        time.Time `json:"requested_at"`
 }
@@ -110,6 +111,7 @@ func NewWorkloadAdmissionRequest(
 	workloadID string,
 	spec WorkloadLaunchSpec,
 	targetCgroup string,
+	targetCgroupID uint64,
 	bootstrapDigest string,
 	now time.Time,
 ) (WorkloadAdmissionRequest, error) {
@@ -121,6 +123,9 @@ func NewWorkloadAdmissionRequest(
 	}
 	if targetCgroup == "." || !filepath.IsAbs(targetCgroup) {
 		return WorkloadAdmissionRequest{}, errors.New("target_cgroup must be an absolute path")
+	}
+	if targetCgroupID == 0 {
+		return WorkloadAdmissionRequest{}, errors.New("target_cgroup_id must be non-zero")
 	}
 	if _, err := ParseSHA256Digest(bootstrapDigest); err != nil {
 		return WorkloadAdmissionRequest{}, fmt.Errorf("bootstrap digest: %w", err)
@@ -143,6 +148,7 @@ func NewWorkloadAdmissionRequest(
 		WorkloadID:         workloadID,
 		WorkloadSpecDigest: specDigest,
 		TargetCgroup:       targetCgroup,
+		TargetCgroupID:     targetCgroupID,
 		BootstrapDigest:    bootstrapDigest,
 		RequestedAt:        now.UTC(),
 	}, nil
@@ -166,6 +172,9 @@ func ValidateWorkloadAdmissionRequest(req WorkloadAdmissionRequest) error {
 	cgroup := filepath.Clean(strings.TrimSpace(req.TargetCgroup))
 	if cgroup == "." || !filepath.IsAbs(cgroup) {
 		return errors.New("workload admission target_cgroup must be absolute")
+	}
+	if req.TargetCgroupID == 0 {
+		return errors.New("workload admission target_cgroup_id must be non-zero")
 	}
 	if req.RequestedAt.IsZero() {
 		return errors.New("workload admission requested_at is required")
@@ -191,6 +200,7 @@ type WorkloadAdmissionGrant struct {
 	WorkloadID           string    `json:"workload_id"`
 	WorkloadSpecDigest   string    `json:"workload_spec_digest"`
 	TargetCgroup         string    `json:"target_cgroup"`
+	TargetCgroupID       uint64    `json:"target_cgroup_id"`
 	BootstrapDigest      string    `json:"bootstrap_digest"`
 	RemoteDecisionID     string    `json:"remote_decision_id"`
 	RemoteDecisionDigest string    `json:"remote_decision_digest"`
@@ -285,6 +295,7 @@ func IssueWorkloadAdmissionGrant(
 		WorkloadID:           req.WorkloadID,
 		WorkloadSpecDigest:   req.WorkloadSpecDigest,
 		TargetCgroup:         filepath.Clean(req.TargetCgroup),
+		TargetCgroupID:       req.TargetCgroupID,
 		BootstrapDigest:      req.BootstrapDigest,
 		RemoteDecisionID:     decision.Decision.DecisionID,
 		RemoteDecisionDigest: decisionDigest,
@@ -389,6 +400,9 @@ func ValidateWorkloadAdmissionGrant(grant WorkloadAdmissionGrant, now time.Time)
 	if cgroup == "." || !filepath.IsAbs(cgroup) {
 		return errors.New("workload admission grant target_cgroup must be absolute")
 	}
+	if grant.TargetCgroupID == 0 {
+		return errors.New("workload admission grant target_cgroup_id must be non-zero")
+	}
 	if grant.NotBefore.IsZero() || grant.ExpiresAt.IsZero() ||
 		!grant.ExpiresAt.After(grant.NotBefore) {
 		return errors.New("workload admission grant validity window is invalid")
@@ -438,6 +452,7 @@ type WorkloadActivationReceipt struct {
 	WorkloadID       string    `json:"workload_id"`
 	WorkloadSpecDigest string  `json:"workload_spec_digest"`
 	TargetCgroup     string    `json:"target_cgroup"`
+	TargetCgroupID   uint64    `json:"target_cgroup_id"`
 	ProcessID        int       `json:"process_id"`
 	StartedAt        time.Time `json:"started_at"`
 }
@@ -455,6 +470,7 @@ func SignWorkloadActivationReceipt(
 	if receipt.Version != WorkloadActivationReceiptVersion ||
 		strings.TrimSpace(receipt.ActivationID) == "" ||
 		strings.TrimSpace(receipt.GrantID) == "" ||
+		receipt.TargetCgroupID == 0 ||
 		receipt.ProcessID <= 0 ||
 		receipt.StartedAt.IsZero() {
 		return SignedWorkloadActivationReceipt{}, errors.New("workload activation receipt is incomplete")
