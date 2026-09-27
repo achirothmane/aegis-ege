@@ -349,6 +349,7 @@ func EvaluateWorkloadRestart(
 	windowStart := state.RestartWindowStartedAt
 	if windowStart.IsZero() || !now.Before(windowStart.Add(window)) {
 		restartCount = 0
+		windowStart = now
 	}
 
 	outcome := RestartOutcomeRequireFreshGrant
