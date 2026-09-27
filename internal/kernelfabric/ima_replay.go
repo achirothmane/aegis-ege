@@ -67,3 +67,34 @@ func ReplayIMASHA256PCR10(measurements []byte) ([]byte, error) {
 	}
 	return pcr, nil
 }
+
+
+func IMAMeasurementContainsDigest(measurements []byte, wantDigest string) bool {
+	wantDigest = strings.TrimSpace(strings.ToLower(wantDigest))
+	if !strings.HasPrefix(wantDigest, "sha256:") {
+		return false
+	}
+	wantHex := strings.TrimPrefix(wantDigest, "sha256:")
+	if len(wantHex) != sha256.Size*2 {
+		return false
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(measurements))
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 {
+			continue
+		}
+		for _, field := range fields[3:] {
+			field = strings.TrimSpace(strings.ToLower(field))
+			if field == wantDigest || field == wantHex {
+				return true
+			}
+			if strings.HasPrefix(field, "sha256:") &&
+				strings.TrimPrefix(field, "sha256:") == wantHex {
+				return true
+			}
+		}
+	}
+	return false
+}
