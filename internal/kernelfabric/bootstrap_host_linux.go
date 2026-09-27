@@ -18,6 +18,19 @@ const (
 	bpfFSMagic                = 0xcafe4a11
 )
 
+type BootstrapHostProvider interface {
+	Snapshot(string) (BootstrapHostSnapshot, error)
+}
+
+type LinuxBootstrapHostProvider struct {
+	BootIDPath   string
+	LockdownPath string
+}
+
+func (p LinuxBootstrapHostProvider) Snapshot(bpffsRoot string) (BootstrapHostSnapshot, error) {
+	return CaptureBootstrapHostSnapshot(bpffsRoot, p.BootIDPath, p.LockdownPath)
+}
+
 func CaptureBootstrapHostSnapshot(
 	bpffsRoot string,
 	bootIDPath string,
@@ -27,12 +40,24 @@ func CaptureBootstrapHostSnapshot(
 	if bpffsRoot == "." || bpffsRoot == "" {
 		return BootstrapHostSnapshot{}, errors.New("bpffs root is required")
 	}
+	statPath := bpffsRoot
 	var fs unix.Statfs_t
-	if err := unix.Statfs(bpffsRoot, &fs); err != nil {
-		return BootstrapHostSnapshot{}, fmt.Errorf("stat bpffs root: %w", err)
+	for {
+		err := unix.Statfs(statPath, &fs)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, unix.ENOENT) {
+			return BootstrapHostSnapshot{}, fmt.Errorf("stat bpffs root: %w", err)
+		}
+		parent := filepath.Dir(statPath)
+		if parent == statPath {
+			return BootstrapHostSnapshot{}, fmt.Errorf("no existing bpffs ancestor for %s", bpffsRoot)
+		}
+		statPath = parent
 	}
 	if uint64(fs.Type) != uint64(bpfFSMagic) {
-		return BootstrapHostSnapshot{}, fmt.Errorf("%s is not a BPF filesystem", bpffsRoot)
+		return BootstrapHostSnapshot{}, fmt.Errorf("%s is not on a BPF filesystem", bpffsRoot)
 	}
 
 	bootHash, err := ReadBootIDHash(bootIDPath)
