@@ -316,3 +316,36 @@ func TestRemoteChallengeConsumptionRejectsExpiredChallenge(t *testing.T) {
 		t.Fatalf("expected expiry rejection, got %v", err)
 	}
 }
+
+
+func TestEnrollmentChallengeRejectsTamperedBootstrapAttestorRequest(t *testing.T) {
+	now := time.Date(2026, 9, 27, 23, 0, 0, 0, time.UTC)
+	req := TPMEnrollmentRequest{
+		Version:                    TPMEnrollmentRequestVersion,
+		DeviceID:                   "device-1",
+		BootstrapAttestorPublicKey: bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize),
+		CreatedAt:                  now,
+	}
+	digest, err := TPMEnrollmentRequestDigest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challenge := TPMEnrollmentChallenge{
+		Version:                 TPMEnrollmentChallengeVersion,
+		EnrollmentID:            "enroll-1",
+		DeviceID:                "device-1",
+		EKSPKISHA256:            "sha256:" + strings.Repeat("a", 64),
+		EnrollmentRequestDigest: digest,
+		IssuedAt:                now,
+		ExpiresAt:               now.Add(time.Minute),
+	}
+	if err := ValidateTPMEnrollmentChallengeForRequest(req, challenge, now); err != nil {
+		t.Fatalf("matching enrollment request rejected: %v", err)
+	}
+
+	tampered := req
+	tampered.BootstrapAttestorPublicKey = bytes.Repeat([]byte{0x22}, ed25519.PublicKeySize)
+	if err := ValidateTPMEnrollmentChallengeForRequest(tampered, challenge, now); !errors.Is(err, ErrEnrollmentActivationFailed) {
+		t.Fatalf("tampered bootstrap attestor request was not rejected: %v", err)
+	}
+}
