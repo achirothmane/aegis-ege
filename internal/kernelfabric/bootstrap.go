@@ -352,6 +352,9 @@ func BootstrapManifestDigest(manifest BootstrapManifest) (string, error) {
 }
 
 func SignBootstrapReceipt(receipt BootstrapReceipt, privateKey ed25519.PrivateKey) (SignedBootstrapReceipt, error) {
+	if err := ValidateBootstrapReceipt(receipt); err != nil {
+		return SignedBootstrapReceipt{}, err
+	}
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return SignedBootstrapReceipt{}, errors.New("invalid Ed25519 attestation private key")
 	}
@@ -371,6 +374,9 @@ func SignBootstrapReceipt(receipt BootstrapReceipt, privateKey ed25519.PrivateKe
 }
 
 func VerifySignedBootstrapReceipt(signed SignedBootstrapReceipt, publicKey ed25519.PublicKey) error {
+	if err := ValidateBootstrapReceipt(signed.Receipt); err != nil {
+		return err
+	}
 	expectedKeyID, err := BootstrapKeyID(publicKey)
 	if err != nil {
 		return err
@@ -388,6 +394,64 @@ func VerifySignedBootstrapReceipt(signed SignedBootstrapReceipt, publicKey ed255
 	}
 	if !ed25519.Verify(publicKey, payload, signature) {
 		return ErrBootstrapSignatureInvalid
+	}
+	return nil
+}
+
+func ValidateBootstrapReceipt(receipt BootstrapReceipt) error {
+	if receipt.Version != BootstrapReceiptVersion {
+		return fmt.Errorf("unsupported bootstrap receipt version %q", receipt.Version)
+	}
+	if _, err := ParseSHA256Digest(receipt.ManifestDigest); err != nil {
+		return fmt.Errorf("bootstrap receipt manifest digest: %w", err)
+	}
+	if strings.TrimSpace(receipt.ManifestSignerKeyID) == "" {
+		return errors.New("bootstrap receipt manifest signer key id is required")
+	}
+	if _, err := ParseSHA256Digest(receipt.ArtifactSHA256); err != nil {
+		return fmt.Errorf("bootstrap receipt artifact digest: %w", err)
+	}
+	if receipt.ArtifactSize <= 0 {
+		return errors.New("bootstrap receipt artifact size must be positive")
+	}
+	if _, err := ParseSHA256Digest(receipt.Host.BootIDHash); err != nil {
+		return fmt.Errorf("bootstrap receipt boot id hash: %w", err)
+	}
+	if strings.TrimSpace(receipt.Host.KernelRelease) == "" ||
+		strings.TrimSpace(receipt.Host.BPFFSRoot) == "" ||
+		strings.TrimSpace(receipt.CgroupPath) == "" {
+		return errors.New("bootstrap receipt host/cgroup binding is incomplete")
+	}
+	if receipt.CompletedAt.IsZero() {
+		return errors.New("bootstrap receipt completed_at is required")
+	}
+	if len(receipt.Programs) == 0 || len(receipt.Maps) == 0 {
+		return errors.New("bootstrap receipt must attest loaded programs and maps")
+	}
+	programPins := map[string]struct{}{}
+	for _, program := range receipt.Programs {
+		if program.ID == 0 ||
+			strings.TrimSpace(program.PinName) == "" ||
+			strings.TrimSpace(program.Name) == "" ||
+			strings.TrimSpace(program.Type) == "" ||
+			strings.TrimSpace(program.Tag) == "" ||
+			strings.TrimSpace(program.AttachType) == "" {
+			return errors.New("bootstrap receipt contains incomplete program attestation")
+		}
+		if _, exists := programPins[program.PinName]; exists {
+			return fmt.Errorf("duplicate bootstrap receipt program pin %q", program.PinName)
+		}
+		programPins[program.PinName] = struct{}{}
+	}
+	mapNames := map[string]struct{}{}
+	for _, m := range receipt.Maps {
+		if m.ID == 0 || strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Type) == "" {
+			return errors.New("bootstrap receipt contains incomplete map attestation")
+		}
+		if _, exists := mapNames[m.Name]; exists {
+			return fmt.Errorf("duplicate bootstrap receipt map %q", m.Name)
+		}
+		mapNames[m.Name] = struct{}{}
 	}
 	return nil
 }
