@@ -110,6 +110,40 @@ func TestPrometheusEvidenceContributorBlocksStaleSample(t *testing.T) {
 	}
 }
 
+func TestPrometheusEvidenceContributorBlocksAtExactMaxAgeBoundary(t *testing.T) {
+	now := time.Date(2026, 9, 27, 3, 40, 0, 0, time.UTC)
+	maxAge := 10 * time.Second
+	server := newPrometheusNodeHealthServer(t, now.Add(-maxAge), "1")
+	defer server.Close()
+
+	contributor, err := newPrometheusNodeHealthEvidenceContributor(
+		server.URL,
+		"external-observability",
+		maxAge,
+		server.Client(),
+		func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := contributor.Contribute(
+		context.Background(),
+		"intent-boundary",
+		egeTargetDTO{Type: egeNodeTarget, Name: "node-7"},
+		prometheusPrimaryProduction(now, "healthy"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Decision != decision.Block {
+		t.Fatalf("expected exact max-age boundary to BLOCK, got %s reasons=%v", result.Decision, result.ReasonCodes)
+	}
+	if len(result.ReasonCodes) != 1 || result.ReasonCodes[0] != decision.EvidenceStale {
+		t.Fatalf("expected %s at exact boundary, got %v", decision.EvidenceStale, result.ReasonCodes)
+	}
+}
+
 func TestPrometheusEvidenceContributorRequiresDistinctTrustDomain(t *testing.T) {
 	_, err := newPrometheusNodeHealthEvidenceContributor(
 		"http://example.invalid",
