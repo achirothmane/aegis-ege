@@ -84,8 +84,9 @@ type BootstrapHostSnapshot struct {
 }
 
 type BootstrapReceipt struct {
-	Version          string                     `json:"version"`
-	ManifestDigest   string                     `json:"manifest_digest"`
+	Version             string                     `json:"version"`
+	ManifestDigest      string                     `json:"manifest_digest"`
+	ManifestSignerKeyID string                     `json:"manifest_signer_key_id"`
 	ArtifactSHA256   string                     `json:"artifact_sha256"`
 	ArtifactSize     int64                      `json:"artifact_size"`
 	Host             BootstrapHostSnapshot      `json:"host"`
@@ -355,6 +356,13 @@ func LoadEd25519PublicKey(path string) (ed25519.PublicKey, error) {
 }
 
 func LoadEd25519PrivateKey(path string) (ed25519.PrivateKey, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("private key file permissions %o are too broad; require 0600 or stricter", info.Mode().Perm())
+	}
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -383,6 +391,15 @@ func LoadSignedBootstrapManifest(path string) (SignedBootstrapManifest, error) {
 		return SignedBootstrapManifest{}, fmt.Errorf("decode signed bootstrap manifest: %w", err)
 	}
 	return signed, nil
+}
+
+func WriteSignedBootstrapManifest(path string, signed SignedBootstrapManifest) error {
+	payload, err := json.MarshalIndent(signed, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	return os.WriteFile(path, payload, 0o644)
 }
 
 func WriteSignedBootstrapReceipt(path string, signed SignedBootstrapReceipt) error {
