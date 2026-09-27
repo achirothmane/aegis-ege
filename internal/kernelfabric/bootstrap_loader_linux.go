@@ -158,8 +158,9 @@ func (l BootstrapLoader) LoadAndAttach(
 		return BootstrapLoadResult{}, err
 	}
 	receipt := BootstrapReceipt{
-		Version:        BootstrapReceiptVersion,
-		ManifestDigest: manifestDigest,
+		Version:             BootstrapReceiptVersion,
+		ManifestDigest:      manifestDigest,
+		ManifestSignerKeyID: req.SignedManifest.KeyID,
 		ArtifactSHA256: req.SignedManifest.Manifest.ArtifactSHA256,
 		ArtifactSize:   req.SignedManifest.Manifest.ArtifactSize,
 		Host:           req.Host,
@@ -174,6 +175,20 @@ func (l BootstrapLoader) LoadAndAttach(
 		return BootstrapLoadResult{}, err
 	}
 	return BootstrapLoadResult{SignedReceipt: signedReceipt}, nil
+}
+
+func (l BootstrapLoader) DetachManifestPrograms(
+	ctx context.Context,
+	cgroupPath string,
+	bpffsRoot string,
+	manifest BootstrapManifest,
+) error {
+	return l.detachAttached(
+		ctx,
+		filepath.Clean(strings.TrimSpace(cgroupPath)),
+		filepath.Join(filepath.Clean(strings.TrimSpace(bpffsRoot)), "programs"),
+		manifest.Programs,
+	)
 }
 
 func (l BootstrapLoader) detachAttached(
