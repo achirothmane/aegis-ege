@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/sha256"
-	"crypto/subtle"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
@@ -86,31 +85,15 @@ func ActivateTPMEnrollmentChallenge(
 	challenge TPMEnrollmentChallenge,
 	now time.Time,
 ) (TPMEnrollmentProof, error) {
-	if challenge.Version != TPMEnrollmentChallengeVersion ||
-		strings.TrimSpace(challenge.EnrollmentID) == "" ||
-		strings.TrimSpace(challenge.DeviceID) == "" ||
-		strings.TrimSpace(challenge.EKSPKISHA256) == "" ||
-		strings.TrimSpace(challenge.EnrollmentRequestDigest) == "" {
-		return TPMEnrollmentProof{}, ErrEnrollmentActivationFailed
-	}
-	if originalRequest.DeviceID != challenge.DeviceID {
-		return TPMEnrollmentProof{}, fmt.Errorf("%w: enrollment device mismatch", ErrEnrollmentActivationFailed)
-	}
-	requestDigest, err := TPMEnrollmentRequestDigest(originalRequest)
-	if err != nil {
-		return TPMEnrollmentProof{}, err
-	}
-	if subtle.ConstantTimeCompare(
-		[]byte(requestDigest),
-		[]byte(challenge.EnrollmentRequestDigest),
-	) != 1 {
-		return TPMEnrollmentProof{}, fmt.Errorf("%w: enrollment request transcript mismatch", ErrEnrollmentActivationFailed)
-	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if !now.Before(challenge.ExpiresAt) {
-		return TPMEnrollmentProof{}, ErrRemoteChallengeExpired
+	if err := ValidateTPMEnrollmentChallengeForRequest(
+		originalRequest,
+		challenge,
+		now,
+	); err != nil {
+		return TPMEnrollmentProof{}, err
 	}
 
 	tpm, err := attest.OpenTPM(nil)
