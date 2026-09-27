@@ -130,6 +130,9 @@ func (g *FileReplayGuard) Claim(ctx context.Context, auth decision.Authorization
 	record, err := readExecutionClaimRecord(g.statePath(key))
 	switch {
 	case err == nil:
+		if err := validateExecutionClaimRecord(record, auth); err != nil {
+			return err
+		}
 		if record.State != ExecutionClaimIssued {
 			return ErrExecutionReplay
 		}
@@ -184,6 +187,9 @@ func (g *FileReplayGuard) State(
 	}
 	record, err := readExecutionClaimRecord(g.statePath(key))
 	if err == nil {
+		if err := validateExecutionClaimRecord(record, auth); err != nil {
+			return ExecutionClaimRecord{}, err
+		}
 		return record, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -244,6 +250,9 @@ func (g *FileReplayGuard) finalize(
 	if err != nil {
 		return fmt.Errorf("read execution claim state for finalization: %w", err)
 	}
+	if err := validateExecutionClaimRecord(record, auth); err != nil {
+		return err
+	}
 	if record.State == state {
 		if state == ExecutionClaimConsumed && record.Outcome == detail {
 			return nil
@@ -302,6 +311,33 @@ func newExecutionClaimRecord(
 		TargetIdentity:     auth.TargetIdentity,
 		StateBindingDigest: auth.StateBindingDigest,
 	}
+}
+
+
+func validateExecutionClaimRecord(
+	record ExecutionClaimRecord,
+	auth decision.Authorization,
+) error {
+	if record.Version != ExecutionClaimRecordVersion {
+		return fmt.Errorf(
+			"unsupported execution claim record version %q",
+			record.Version,
+		)
+	}
+	if record.ActionID != auth.ActionID ||
+		record.Target != auth.Target ||
+		record.AuthorityDomain != auth.AuthorityDomain ||
+		record.AuthorityTerm != auth.AuthorityTerm ||
+		record.DecisionEpoch != auth.DecisionEpoch ||
+		record.RevocationEpoch != auth.RevocationEpoch ||
+		record.TargetIdentity != auth.TargetIdentity ||
+		record.StateBindingDigest != auth.StateBindingDigest {
+		return fmt.Errorf(
+			"%w: persisted claim binding does not match authorization",
+			ErrExecutionClaimTransition,
+		)
+	}
+	return nil
 }
 
 func readExecutionClaimRecord(path string) (ExecutionClaimRecord, error) {
