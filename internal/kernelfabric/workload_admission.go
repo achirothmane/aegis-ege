@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	WorkloadAdmissionRequestVersion = "aegis.ege/workload-admission-request/v1"
-	WorkloadAdmissionGrantVersion   = "aegis.ege/workload-admission-grant/v1"
-	WorkloadActivationReceiptVersion = "aegis.ege/workload-activation-receipt/v1"
+	WorkloadAdmissionRequestVersion   = "aegis.ege/workload-admission-request/v1"
+	WorkloadAdmissionGrantVersion     = "aegis.ege/workload-admission-grant/v1"
+	WorkloadActivationReceiptVersion  = "aegis.ege/workload-activation-receipt/v1"
+	WorkloadActivationReceiptVersionV2 = "aegis.ege/workload-activation-receipt/v2"
 
 	DefaultAdmissionAttestationMaxAge = 2 * time.Minute
 	DefaultAdmissionGrantTTL          = 30 * time.Second
@@ -443,6 +444,25 @@ func SignedWorkloadAdmissionGrantDigest(grant SignedWorkloadAdmissionGrant) (str
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+type LinuxProcessIdentity struct {
+	BootIDHash            string `json:"boot_id_hash"`
+	ProcessStartTimeTicks uint64 `json:"process_start_time_ticks"`
+	ExecutableDevice      uint64 `json:"executable_device"`
+	ExecutableInode       uint64 `json:"executable_inode"`
+}
+
+func ValidateLinuxProcessIdentity(identity LinuxProcessIdentity) error {
+	if _, err := ParseSHA256Digest(identity.BootIDHash); err != nil {
+		return fmt.Errorf("process boot id hash: %w", err)
+	}
+	if identity.ProcessStartTimeTicks == 0 ||
+		identity.ExecutableDevice == 0 ||
+		identity.ExecutableInode == 0 {
+		return errors.New("linux process identity is incomplete")
+	}
+	return nil
+}
+
 type WorkloadActivationReceipt struct {
 	Version          string    `json:"version"`
 	ActivationID     string    `json:"activation_id"`
@@ -454,6 +474,7 @@ type WorkloadActivationReceipt struct {
 	TargetCgroup     string    `json:"target_cgroup"`
 	TargetCgroupID   uint64    `json:"target_cgroup_id"`
 	ProcessID        int       `json:"process_id"`
+	ProcessIdentity  *LinuxProcessIdentity `json:"process_identity,omitempty"`
 	StartedAt        time.Time `json:"started_at"`
 }
 
@@ -463,18 +484,15 @@ type SignedWorkloadActivationReceipt struct {
 	Signature string                    `json:"signature"`
 }
 
-
-func VerifySignedWorkloadActivationReceipt(
-	signed SignedWorkloadActivationReceipt,
-	publicKey ed25519.PublicKey,
-) error {
-	if len(publicKey) != ed25519.PublicKeySize {
-		return errors.New("host activation attestor public key is invalid")
+func ValidateWorkloadActivationReceipt(receipt WorkloadActivationReceipt) error {
+	if receipt.Version != WorkloadActivationReceiptVersion &&
+		receipt.Version != WorkloadActivationReceiptVersionV2 {
+		return fmt.Errorf("unsupported workload activation receipt version %q", receipt.Version)
 	}
-	receipt := signed.Receipt
-	if receipt.Version != WorkloadActivationReceiptVersion ||
-		strings.TrimSpace(receipt.ActivationID) == "" ||
+	if strings.TrimSpace(receipt.ActivationID) == "" ||
 		strings.TrimSpace(receipt.GrantID) == "" ||
+		strings.TrimSpace(receipt.DeviceID) == "" ||
+		strings.TrimSpace(receipt.WorkloadID) == "" ||
 		receipt.TargetCgroupID == 0 ||
 		receipt.ProcessID <= 0 ||
 		receipt.StartedAt.IsZero() {
@@ -485,6 +503,28 @@ func VerifySignedWorkloadActivationReceipt(
 	}
 	if _, err := ParseSHA256Digest(receipt.WorkloadSpecDigest); err != nil {
 		return fmt.Errorf("workload spec digest: %w", err)
+	}
+	if receipt.Version == WorkloadActivationReceiptVersionV2 {
+		if receipt.ProcessIdentity == nil {
+			return errors.New("workload activation receipt v2 requires linux process identity")
+		}
+		if err := ValidateLinuxProcessIdentity(*receipt.ProcessIdentity); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func VerifySignedWorkloadActivationReceipt(
+	signed SignedWorkloadActivationReceipt,
+	publicKey ed25519.PublicKey,
+) error {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("host activation attestor public key is invalid")
+	}
+	receipt := signed.Receipt
+	if err := ValidateWorkloadActivationReceipt(receipt); err != nil {
+		return err
 	}
 	keyID, err := BootstrapKeyID(publicKey)
 	if err != nil {
@@ -504,6 +544,9 @@ func VerifySignedWorkloadActivationReceipt(
 		return err
 	}
 	payload := append([]byte("aegis-ege/workload-activation-receipt/v1\x00"), body...)
+	if receipt.Version == WorkloadActivationReceiptVersionV2 {
+		payload = append([]byte("aegis-ege/workload-activation-receipt/v2\x00"), body...)
+	}
 	if !ed25519.Verify(publicKey, payload, signature) {
 		return ErrBootstrapSignatureInvalid
 	}
@@ -514,19 +557,8 @@ func SignWorkloadActivationReceipt(
 	receipt WorkloadActivationReceipt,
 	privateKey ed25519.PrivateKey,
 ) (SignedWorkloadActivationReceipt, error) {
-	if receipt.Version != WorkloadActivationReceiptVersion ||
-		strings.TrimSpace(receipt.ActivationID) == "" ||
-		strings.TrimSpace(receipt.GrantID) == "" ||
-		receipt.TargetCgroupID == 0 ||
-		receipt.ProcessID <= 0 ||
-		receipt.StartedAt.IsZero() {
-		return SignedWorkloadActivationReceipt{}, errors.New("workload activation receipt is incomplete")
-	}
-	if _, err := ParseSHA256Digest(receipt.GrantDigest); err != nil {
-		return SignedWorkloadActivationReceipt{}, fmt.Errorf("grant digest: %w", err)
-	}
-	if _, err := ParseSHA256Digest(receipt.WorkloadSpecDigest); err != nil {
-		return SignedWorkloadActivationReceipt{}, fmt.Errorf("workload spec digest: %w", err)
+	if err := ValidateWorkloadActivationReceipt(receipt); err != nil {
+		return SignedWorkloadActivationReceipt{}, err
 	}
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return SignedWorkloadActivationReceipt{}, errors.New("host activation attestor private key is invalid")
@@ -538,6 +570,9 @@ func SignWorkloadActivationReceipt(
 		return SignedWorkloadActivationReceipt{}, err
 	}
 	payload := append([]byte("aegis-ege/workload-activation-receipt/v1\x00"), body...)
+	if receipt.Version == WorkloadActivationReceiptVersionV2 {
+		payload = append([]byte("aegis-ege/workload-activation-receipt/v2\x00"), body...)
+	}
 	keyID, err := BootstrapKeyID(privateKey.Public().(ed25519.PublicKey))
 	if err != nil {
 		return SignedWorkloadActivationReceipt{}, err
@@ -547,4 +582,14 @@ func SignWorkloadActivationReceipt(
 		KeyID:     keyID,
 		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
 	}, nil
+}       `json:"process_id"`
+	StartedAt        time.Time `json:"started_at"`
 }
+
+type SignedWorkloadActivationReceipt struct {
+	Receipt   WorkloadActivationReceipt `json:"receipt"`
+	KeyID     string                    `json:"key_id"`
+	Signature string                    `json:"signature"`
+}
+
+
