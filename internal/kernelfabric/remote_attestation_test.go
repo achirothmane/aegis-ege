@@ -1,6 +1,7 @@
 package kernelfabric
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -241,3 +243,76 @@ func TestWirePCRsRequiresCompleteSelection(t *testing.T) {
 }
 
 var _ = crypto.SHA256
+
+
+func TestTPMEnrollmentRequestDigestBindsBootstrapAttestor(t *testing.T) {
+	now := time.Date(2026, 9, 27, 23, 0, 0, 0, time.UTC)
+	req := TPMEnrollmentRequest{
+		Version:                    TPMEnrollmentRequestVersion,
+		DeviceID:                   "device-1",
+		EKPublicDER:                []byte("ek"),
+		BootstrapAttestorPublicKey: bytes.Repeat([]byte{0x11}, ed25519.PublicKeySize),
+		CreatedAt:                  now,
+	}
+	first, err := TPMEnrollmentRequestDigest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.BootstrapAttestorPublicKey = bytes.Repeat([]byte{0x22}, ed25519.PublicKeySize)
+	second, err := TPMEnrollmentRequestDigest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("enrollment request digest did not bind bootstrap attestor key")
+	}
+}
+
+func TestRemoteChallengeConsumptionAllowsExactlyOneWinner(t *testing.T) {
+	now := time.Date(2026, 9, 27, 23, 0, 0, 0, time.UTC)
+	challenge, err := NewRemoteAttestationChallenge("device-1", time.Minute, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- ConsumeRemoteAttestationChallenge(dir, challenge, now.Add(time.Second))
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	replays := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrRemoteChallengeReplay):
+			replays++
+		default:
+			t.Fatalf("unexpected consumption error: %v", err)
+		}
+	}
+	if successes != 1 || replays != 1 {
+		t.Fatalf("expected one consumer and one replay rejection, got success=%d replay=%d", successes, replays)
+	}
+}
+
+func TestRemoteChallengeConsumptionRejectsExpiredChallenge(t *testing.T) {
+	now := time.Date(2026, 9, 27, 23, 0, 0, 0, time.UTC)
+	challenge, err := NewRemoteAttestationChallenge("device-1", time.Second, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ConsumeRemoteAttestationChallenge(t.TempDir(), challenge, now.Add(2*time.Second))
+	if !errors.Is(err, ErrRemoteChallengeExpired) {
+		t.Fatalf("expected expiry rejection, got %v", err)
+	}
+}
