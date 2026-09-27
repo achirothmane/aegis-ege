@@ -55,17 +55,18 @@ type egeExecuteRequest struct {
 }
 
 type egeExecuteResponse struct {
-	APIVersion      string                       `json:"api_version"`
-	IntentID        string                       `json:"intent_id"`
-	Kind            string                       `json:"kind"`
-	Target          egeTargetDTO                 `json:"target"`
-	Decision        decision.Decision            `json:"decision"`
-	ReasonCodes     []decision.ReasonCode        `json:"reason_codes,omitempty"`
-	PlanDigest      string                       `json:"plan_digest,omitempty"`
-	Steps           []mutationStepDTO            `json:"steps,omitempty"`
-	ExecutionReceipt *egeproto.ExecutionReceipt  `json:"execution_receipt,omitempty"`
-	ProducedEvidence *egeproto.ReceiptEvidence   `json:"produced_evidence,omitempty"`
-	FeedbackError   string                       `json:"feedback_error,omitempty"`
+	APIVersion           string                         `json:"api_version"`
+	IntentID             string                         `json:"intent_id"`
+	Kind                 string                         `json:"kind"`
+	Target               egeTargetDTO                   `json:"target"`
+	Decision             decision.Decision              `json:"decision"`
+	ReasonCodes          []decision.ReasonCode          `json:"reason_codes,omitempty"`
+	PlanDigest           string                         `json:"plan_digest,omitempty"`
+	Steps                []mutationStepDTO              `json:"steps,omitempty"`
+	ConsequenceAdmission *egeproto.ConsequenceAdmission `json:"consequence_admission,omitempty"`
+	ExecutionReceipt     *egeproto.ExecutionReceipt     `json:"execution_receipt,omitempty"`
+	ProducedEvidence     *egeproto.ReceiptEvidence      `json:"produced_evidence,omitempty"`
+	FeedbackError        string                         `json:"feedback_error,omitempty"`
 }
 
 func normalizeEGEIntent(intentID, kind string, target egeTargetDTO) (string, string, egeTargetDTO, error) {
@@ -212,6 +213,7 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var consequenceAdmission *egeproto.ConsequenceAdmission
 	if s.config.RequireEBAConformance {
 		if req.EBA == nil || req.EBA.EvidenceManifest == nil {
 			s.auditDecision(
@@ -256,6 +258,26 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "EBA_CONFORMANCE_BLOCKED", err)
 			return
 		}
+
+		admission, err := egeproto.EvaluateConsequenceAdmission(
+			*s.consequencePolicy,
+			req.Permit.Claims,
+			*req.EBA.EvidenceManifest,
+			s.config.Clock().UTC(),
+		)
+		if err != nil {
+			s.auditDecision(
+				r,
+				PermissionExecute,
+				string(decision.Block),
+				intentID,
+				target.Name,
+				[]decision.ReasonCode{"CONSEQUENCE_ADMISSIBILITY_BLOCKED"},
+			)
+			writeError(w, http.StatusForbidden, "CONSEQUENCE_ADMISSIBILITY_BLOCKED", err)
+			return
+		}
+		consequenceAdmission = &admission
 	}
 
 	auth, err := adapter.AuthorizationFromPermit(intentID, target, claims)
@@ -283,14 +305,15 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 	executionFinishedAt := s.config.Clock().UTC()
 
 	response := egeExecuteResponse{
-		APIVersion:  egeAPIVersion,
-		IntentID:    intentID,
-		Kind:        kind,
-		Target:      target,
-		Decision:    execution.Decision,
-		ReasonCodes: append([]decision.ReasonCode(nil), execution.ReasonCodes...),
-		PlanDigest:  execution.PlanDigest,
-		Steps:       append([]mutationStepDTO(nil), execution.Steps...),
+		APIVersion:           egeAPIVersion,
+		IntentID:             intentID,
+		Kind:                 kind,
+		Target:               target,
+		Decision:             execution.Decision,
+		ReasonCodes:          append([]decision.ReasonCode(nil), execution.ReasonCodes...),
+		PlanDigest:           execution.PlanDigest,
+		Steps:                append([]mutationStepDTO(nil), execution.Steps...),
+		ConsequenceAdmission: consequenceAdmission,
 	}
 
 	reasonStrings := make([]string, 0, len(execution.ReasonCodes))
@@ -321,7 +344,8 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 			PlanDigest:      execution.PlanDigest,
 			StartedAt:       executionStartedAt,
 			FinishedAt:      executionFinishedAt,
-			ResourceChanges: resourceChanges,
+			ResourceChanges:      resourceChanges,
+			ConsequenceAdmission: consequenceAdmission,
 		},
 	)
 	if feedbackErr != nil {
