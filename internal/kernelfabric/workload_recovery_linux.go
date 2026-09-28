@@ -72,6 +72,7 @@ func ObserveOrphanedWorkload(
 		return SignWorkloadRecoveryObservation(obs, hostAttestorPrivateKey)
 	}
 	currentBoot := "sha256:" + hex.EncodeToString(bootHash[:])
+	obs.CurrentBootIDHash = currentBoot
 	if currentBoot != expected.BootIDHash {
 		obs.State = RecoveryObservationBootChanged
 		obs.Detail = "current boot differs from activation boot"
