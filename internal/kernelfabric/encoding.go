@@ -27,6 +27,27 @@ func MarshalScopeFenceState(state ScopeFenceState) ([]byte, error) {
 	return marshalFixed(state, ScopeFenceStateSize)
 }
 
+func DecodeScopeFenceState(payload []byte) (ScopeFenceState, error) {
+	if len(payload) != ScopeFenceStateSize {
+		return ScopeFenceState{}, fmt.Errorf(
+			"scope fence state size mismatch: got %d want %d",
+			len(payload),
+			ScopeFenceStateSize,
+		)
+	}
+	var state ScopeFenceState
+	if err := binary.Read(bytes.NewReader(payload), binary.LittleEndian, &state); err != nil {
+		return ScopeFenceState{}, fmt.Errorf("decode scope fence state: %w", err)
+	}
+	if state.AuthorityTerm == 0 || state.DecisionEpoch == 0 {
+		return ScopeFenceState{}, fmt.Errorf("%w: invalid scope fence state", ErrInvalidCapsule)
+	}
+	if state.BootIDHash == [32]byte{} {
+		return ScopeFenceState{}, fmt.Errorf("%w: scope fence boot id hash is required", ErrInvalidCapsule)
+	}
+	return state, nil
+}
+
 func MarshalDecisionCapsule(capsule DecisionCapsule) ([]byte, error) {
 	if err := ValidateCapsule(capsule); err != nil {
 		return nil, err
