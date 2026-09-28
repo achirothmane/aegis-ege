@@ -53,6 +53,7 @@ type PermitClaims struct {
 	ResourceVersion        string                 `json:"resource_version"`
 	EvidenceDigest         string                 `json:"evidence_digest"`
 	EvidenceManifestDigest string                 `json:"evidence_manifest_digest"`
+	EvidencePacketDigest   string                 `json:"evidence_packet_digest,omitempty"`
 	PlanDigest             string                 `json:"plan_digest"`
 	ApprovalRefs           []string               `json:"approval_refs,omitempty"`
 	CapabilityFence        *CapabilityFenceClaims `json:"capability_fence,omitempty"`

@@ -32,11 +32,12 @@ observed runtime behavior
 
 The compiler therefore fails closed when `authority_ref`, `policy_ref`, `redaction_profile_ref`, or `consequence_class` is absent.
 
-## Evidence Packet v0alpha1
+## Evidence Packet v0alpha2
 
 The current packet binds:
 
 - runtime source name and trust domain;
+- execution `intent_id` for downstream action binding;
 - event, workflow, and run identifiers;
 - actor/principal and agent identity;
 - action kind, tool, operation, target, and side-effect flag;
@@ -58,26 +59,43 @@ Unit tests prove that:
 3. missing authority context is rejected;
 4. missing declared sensitive paths fail closed;
 5. packet modification is detected;
-6. packet digests are stable across JSON map insertion order.
+6. packet digests are stable across JSON map insertion order;
+7. an execution permit can be minted only when packet intent/kind/operation/target match the permit and the packet represents a side effect;
+8. changing the bound `evidence_packet_digest` invalidates the permit signature;
+9. the same digest can be projected into the tamper-evident journal together with a digest of the signed permit.
 
 ## Security boundary
 
 The SHA-256 packet digest detects modification of the packet but does not by itself authenticate the runtime source.
 
-Source authenticity still depends on the surrounding Aegis trust boundary, such as authenticated transport, a source attestation, or a signature. The packet digest can then be transitively bound into a signed permit or journal record.
+Source authenticity still depends on the surrounding Aegis trust boundary, such as authenticated transport, a source attestation, or a signature.
+
+For EEP-aware execution, the binding path is now explicit:
+
+```text
+Evidence Packet v0alpha2
+→ verify packet integrity
+→ require exact intent + kind + operation + target + side-effect binding
+→ evidence_packet_digest in PermitClaims
+→ Ed25519-signed execution permit
+→ verified permit projection
+→ evidence_packet_digest + permit payload digest in hash-chained journal event
+```
+
+The journal projection refuses permits that do not carry an Evidence Packet digest. Because the packet digest is inside the signed permit claims, substituting the digest breaks permit verification; because the same digest is inside the hash-chained journal event, changing the recorded binding breaks journal verification.
 
 Likewise, `control_refs` are references to applicable controls. Their presence is not proof that a system is compliant.
 
 ## Product boundary
 
-EEP v0 is intentionally cross-runtime at the data-model level, but no n8n, Make, LangGraph, MCP, or SaaS adapter is claimed yet.
+EEP v0 is intentionally cross-runtime at the data-model level. Permit/journal binding primitives now exist, but the current Kubernetes prepare path does not fabricate EEP organizational context and no n8n, Make, LangGraph, MCP, or SaaS adapter is claimed yet.
 
 The next expansion is evidence-gated:
 
 ```text
 generic compiler proven
+→ packet digest bound into signed permit + tamper-evident journal
 → one real workflow adapter
-→ bind packet digest into Aegis permit/journal path
 → prove pre/post action evidence on a real side effect
 → external usage signal
 → only then add more adapters

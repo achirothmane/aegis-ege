@@ -2,7 +2,7 @@ package evidencepipeline
 
 import "time"
 
-const PacketVersion = "aegis.ege/evidence-packet/v0alpha1"
+const PacketVersion = "aegis.ege/evidence-packet/v0alpha2"
 
 type Source struct {
 	Name           string `json:"name"`
@@ -24,6 +24,7 @@ type Action struct {
 }
 
 type RuntimeEvent struct {
+	IntentID   string         `json:"intent_id"`
 	EventID    string         `json:"event_id"`
 	WorkflowID string         `json:"workflow_id,omitempty"`
 	RunID      string         `json:"run_id,omitempty"`
@@ -72,6 +73,7 @@ type Integrity struct {
 
 type Packet struct {
 	APIVersion string           `json:"api_version"`
+	IntentID   string           `json:"intent_id"`
 	Provenance Provenance       `json:"provenance"`
 	Actor      Actor            `json:"actor"`
 	Action     Action           `json:"action"`
