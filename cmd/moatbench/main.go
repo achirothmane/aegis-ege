@@ -6,12 +6,25 @@ import (
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 	"github.com/achirothmane/aegis-ege/internal/falsification"
+	"github.com/achirothmane/aegis-ege/internal/testsupport"
 )
 
 const timingIterations = 2000
 
 func main() {
+	// moatbench is an offline, non-mutating falsification harness. It uses an
+	// explicit synthetic Genesis runtime so benchmark semantics cannot bypass
+	// the production runtime gate.
+	runtime, err := testsupport.NewSyntheticEASLRuntime()
+	if err != nil {
+		panic(err)
+	}
+	if err := easlruntime.Bind(runtime); err != nil {
+		panic(err)
+	}
+
 	corpus := falsification.CorpusV1()
 	comparison := falsification.EvaluateCorpus(corpus)
 
