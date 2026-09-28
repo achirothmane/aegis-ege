@@ -96,7 +96,7 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 	switch obs.State {
 	case RecoveryObservationMatchRunning:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
-			obs.ObservedCgroupID == 0 ||
+			obs.ObservedCgroupID == 0 || obs.ObservedCgroup == "" ||
 			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
 			obs.ObservedCgroupID != obs.ExpectedCgroupID ||
 			filepath.Clean(obs.ObservedCgroup) != obs.ExpectedCgroup ||
@@ -117,6 +117,7 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		}
 	case RecoveryObservationPIDReused:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
+			obs.ObservedCgroup == "" ||
 			*obs.ExpectedProcessIdentity == *obs.ObservedProcessIdentity ||
 			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash ||
 			obs.ObservedProcessIdentity.BootIDHash != obs.CurrentBootIDHash {
@@ -124,7 +125,7 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		}
 	case RecoveryObservationCgroupMismatch:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
-			obs.ObservedCgroupID == 0 ||
+			obs.ObservedCgroupID == 0 || obs.ObservedCgroup == "" ||
 			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
 			(obs.ObservedCgroupID == obs.ExpectedCgroupID &&
 				filepath.Clean(obs.ObservedCgroup) == obs.ExpectedCgroup) ||
@@ -141,6 +142,12 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		}
 	default:
 		return fmt.Errorf("%w: unsupported observation state %q", ErrRecoveryObservationInvalid, obs.State)
+	}
+	if obs.ObservedCgroup != "" {
+		if filepath.Clean(obs.ObservedCgroup) != obs.ObservedCgroup ||
+			!filepath.IsAbs(obs.ObservedCgroup) {
+			return fmt.Errorf("%w: observed cgroup path is not a clean absolute path", ErrRecoveryObservationInvalid)
+		}
 	}
 	if obs.CurrentBootIDHash != "" {
 		if _, err := ParseSHA256Digest(obs.CurrentBootIDHash); err != nil {
@@ -302,7 +309,18 @@ func EvaluateWorkloadReconciliation(
 		obs.ActivationID != activation.Receipt.ActivationID ||
 		obs.ActivationDigest != activationDigest ||
 		obs.ProcessID != activation.Receipt.ProcessID ||
+		obs.ExpectedCgroup != filepath.Clean(activation.Receipt.TargetCgroup) ||
 		obs.ExpectedCgroupID != activation.Receipt.TargetCgroupID {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
+	if activation.Receipt.Version == WorkloadActivationReceiptVersionV2 {
+		if activation.Receipt.ProcessIdentity == nil ||
+			obs.ExpectedProcessIdentity == nil ||
+			*obs.ExpectedProcessIdentity != *activation.Receipt.ProcessIdentity {
+			return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+		}
+	} else if obs.State != RecoveryObservationLegacy ||
+		obs.ExpectedProcessIdentity != nil {
 		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
 	}
 
