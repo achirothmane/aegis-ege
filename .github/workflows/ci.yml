@@ -19,6 +19,8 @@ jobs:
         with:
           go-version: "1.25.x"
           cache: true
+      - name: Resolve EASL checksum
+        run: go mod download -json github.com/achirothmane/easl@v0.0.0-20260928043137-e126f46e5fe5
       - run: go mod download
       - run: go mod verify
       - name: Compile kernel DecisionCapsule BPF adapter
