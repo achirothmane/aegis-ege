@@ -3,7 +3,6 @@ package genesisbootstrap
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -27,17 +26,26 @@ func TestTPMNVAnchorIdentityRequiresDedicatedCounterProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wire, err := tpmutil.Pack(pub)
+	stable := pub
+	stable.Attributes &^= legacytpm2.AttrWritten | legacytpm2.AttrReadLocked | legacytpm2.AttrWriteLocked
+	wire, err := tpmutil.Pack(stable)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(wire)
-	name := make([]byte, 34)
-	binary.BigEndian.PutUint16(name[:2], uint16(legacytpm2.AlgSHA256))
-	copy(name[2:], sum[:])
-	want := "tpm2-nv:0x0180a001:name:" + hex.EncodeToString(name)
+	want := "tpm2-nv:0x0180a001:definition-sha256:" + hex.EncodeToString(sum[:])
 	if got != want {
 		t.Fatalf("identity = %q, want %q", got, want)
+	}
+
+	written := pub
+	written.Attributes |= legacytpm2.AttrWritten
+	afterWrite, err := tpmNVAnchorIdentity(written, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterWrite != got {
+		t.Fatalf("identity changed after TPMA_NV_WRITTEN: before=%q after=%q", got, afterWrite)
 	}
 
 	cases := []struct {
