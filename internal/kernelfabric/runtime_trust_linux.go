@@ -32,18 +32,7 @@ func ApplyRuntimeTrustLease(
 	if err != nil {
 		return WorkloadLifecycleState{}, err
 	}
-	clock, err := CaptureBootClockSnapshot(now, DefaultBootIDPath)
-	if err != nil {
-		return WorkloadLifecycleState{}, err
-	}
-	localLease, err := BindExternalLease(
-		ExternalLease{
-			IssuedAt:    lease.Lease.IssuedAt,
-			NotAfter:    lease.Lease.ExpiresAt,
-			MaxLifetime: lease.Lease.ExpiresAt.Sub(lease.Lease.IssuedAt),
-		},
-		clock,
-	)
+	baseClock, err := CaptureBootClockSnapshot(now, DefaultBootIDPath)
 	if err != nil {
 		return WorkloadLifecycleState{}, err
 	}
@@ -57,6 +46,25 @@ func ApplyRuntimeTrustLease(
 				return ErrLifecycleInvalidLineage
 			}
 			state = NormalizeWorkloadLifecycleState(state)
+			currentClockRaw, err := CaptureBootClockSnapshot(time.Time{}, DefaultBootIDPath)
+			if err != nil {
+				return err
+			}
+			clock, err := AdvanceClockSnapshot(baseClock, currentClockRaw)
+			if err != nil {
+				return err
+			}
+			localLease, err := BindExternalLease(
+				ExternalLease{
+					IssuedAt:    lease.Lease.IssuedAt,
+					NotAfter:    lease.Lease.ExpiresAt,
+					MaxLifetime: lease.Lease.ExpiresAt.Sub(lease.Lease.IssuedAt),
+				},
+				clock,
+			)
+			if err != nil {
+				return err
+			}
 			expectedEpoch := state.RuntimeTrustEpoch + 1
 			if state.State != LifecycleStateRunning ||
 				state.Generation != l.Generation ||
