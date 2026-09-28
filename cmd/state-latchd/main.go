@@ -9,13 +9,18 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/achirothmane/easl"
+	"github.com/achirothmane/easl/genesis"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/achirothmane/aegis-ege/internal/genesisbootstrap"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 	"github.com/achirothmane/aegis-ege/internal/server"
 )
@@ -39,6 +44,10 @@ func main() {
 		ebaApprovalPublicKeyFile = flag.String("eba-approval-public-key-file", "", "PEM Ed25519 public key used to verify signed EBA approval attestations")
 		ebaExecutionPrincipal = flag.String("eba-execution-principal", "aegis-ege", "principal id expected in EBA AuthorityGrant artifacts")
 		enableN8NEEPAdapter = flag.Bool("enable-n8n-eep-adapter", false, "enable authenticated n8n runtime-event compilation into EEP evidence packets")
+		genesisManifestFile = flag.String("genesis-manifest", "", "signed Level -1 GenesisManifest JSON; required for mutations")
+		genesisVerificationBundleFile = flag.String("genesis-verification-bundle", "", "production Genesis verification bundle JSON; required for mutations")
+		genesisMinimumEpoch = flag.Uint64("genesis-minimum-epoch", 1, "minimum accepted Genesis epoch")
+		genesisRequiredConformance = flag.String("genesis-required-conformance", "C3", "minimum Genesis implementation conformance: C0..C4")
 	)
 	flag.Parse()
 
@@ -58,6 +67,31 @@ func main() {
 	)
 	if err != nil {
 		fatal("configure EBA approval verifier", err)
+	}
+
+	var easlRuntime *easl.Runtime
+	if *enableMutations {
+		if strings.TrimSpace(*genesisManifestFile) == "" || strings.TrimSpace(*genesisVerificationBundleFile) == "" {
+			fatal("invalid Genesis configuration", fmt.Errorf("genesis-manifest and genesis-verification-bundle are required when mutations are enabled"))
+		}
+		runtime, result, err := genesisbootstrap.BootstrapProduction(
+			context.Background(),
+			*genesisManifestFile,
+			*genesisVerificationBundleFile,
+			*genesisMinimumEpoch,
+			genesis.ConformanceLevel(*genesisRequiredConformance),
+			time.Now().UTC(),
+		)
+		if err != nil {
+			fatal("Genesis bootstrap locked", fmt.Errorf("state=%s failures=%v: %w", result.State, result.Failures, err))
+		}
+		easlRuntime = runtime
+		slog.Info(
+			"Genesis bootstrap ready",
+			"state", result.State,
+			"minimum_epoch", *genesisMinimumEpoch,
+			"required_conformance", *genesisRequiredConformance,
+		)
 	}
 
 	kubeConfig, err := kubernetesConfig(*kubeconfig)
@@ -164,6 +198,7 @@ func main() {
 		EGEPrometheusNodeHealthURL:         *prometheusNodeHealthURL,
 		EGEPrometheusNodeHealthTrustDomain: *prometheusTrustDomain,
 		EnableN8NEEPAdapter:                 *enableN8NEEPAdapter,
+		EASLRuntime:                          easlRuntime,
 	})
 	if err != nil {
 		fatal("create API server", err)
