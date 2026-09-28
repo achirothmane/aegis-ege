@@ -4,6 +4,7 @@ package kernelfabric
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -164,8 +165,8 @@ func liveRuntimeExpiryFixture(
 }
 
 type ed25519KeyPair struct {
-	pub  []byte
-	priv []byte
+	pub  ed25519.PublicKey
+	priv ed25519.PrivateKey
 }
 
 func TestRuntimeTrustWatchdogDoesNotRevokeBeforeDeadline(t *testing.T) {
