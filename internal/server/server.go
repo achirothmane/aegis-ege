@@ -13,6 +13,7 @@ import (
 	"github.com/achirothmane/easl"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
@@ -88,12 +89,14 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	if config.MutationsEnabled && config.ReplayGuard == nil {
 		return nil, fmt.Errorf("replay guard is required when mutations are enabled")
 	}
-	if config.MutationsEnabled {
-		if config.EASLRuntime == nil {
-			return nil, fmt.Errorf("Genesis-gated EASL runtime is required when mutations are enabled")
+	if config.EASLRuntime != nil {
+		if err := easlruntime.Bind(config.EASLRuntime); err != nil {
+			return nil, fmt.Errorf("bind Genesis-gated EASL runtime: %w", err)
 		}
-		if _, err := config.EASLRuntime.Metadata(); err != nil {
-			return nil, fmt.Errorf("Genesis-gated EASL runtime is not ready: %w", err)
+	}
+	if config.MutationsEnabled {
+		if _, err := easlruntime.Metadata(); err != nil {
+			return nil, fmt.Errorf("Genesis-gated EASL runtime is required when mutations are enabled: %w", err)
 		}
 	}
 	if config.RequireEBAConformance && config.EBAApprovalAuthority == nil {
