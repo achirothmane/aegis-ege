@@ -38,6 +38,33 @@ func TestBootstrapProductionAllowsFullyBoundGenesis(t *testing.T) {
 	}
 }
 
+
+func TestBootstrapProductionRejectsFileOnlyAcceptanceLedger(t *testing.T) {
+	fixture := buildProductionFixture(t)
+	ledger, err := NewFileAcceptanceLedger(fixture.acceptanceLedgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, result, err := BootstrapProduction(
+		t.Context(),
+		fixture.manifestPath,
+		fixture.bundlePath,
+		ledger,
+		7,
+		3,
+		genesis.ConformanceC3,
+		fixture.now,
+	)
+	if err == nil {
+		t.Fatal("expected file-only acceptance ledger to fail")
+	}
+	if runtime != nil || result.State != genesis.StateLocked {
+		t.Fatalf("expected GENESIS_LOCKED, got runtime=%v result=%+v", runtime, result)
+	}
+	assertFailureCode(t, result, genesis.FailureVerifierUnavailable)
+}
+
 func TestBootstrapProductionRejectsImplementationDigestTamper(t *testing.T) {
 	fixture := buildProductionFixture(t)
 
