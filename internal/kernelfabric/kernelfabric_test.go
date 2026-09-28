@@ -354,3 +354,38 @@ func TestRevokeCurrentScopeFailsBeforeWriteWhenReadFails(t *testing.T) {
 		t.Fatalf("unsafe revocation operations: %v", store.ops)
 	}
 }
+
+
+func TestAdvanceClockSnapshotUsesMonotonicElapsedTime(t *testing.T) {
+	base := testClock()
+	current := base
+	current.WallNow = base.WallNow.Add(24 * time.Hour)
+	current.MonoNowNS = base.MonoNowNS + uint64((250 * time.Millisecond).Nanoseconds())
+
+	advanced, err := AdvanceClockSnapshot(base, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWall := base.WallNow.Add(250 * time.Millisecond)
+	if !advanced.WallNow.Equal(wantWall) {
+		t.Fatalf("advanced wall=%s want=%s", advanced.WallNow, wantWall)
+	}
+	if advanced.MonoNowNS != current.MonoNowNS {
+		t.Fatalf("advanced monotonic=%d want=%d", advanced.MonoNowNS, current.MonoNowNS)
+	}
+}
+
+func TestAdvanceClockSnapshotRejectsBootChangeAndClockRollback(t *testing.T) {
+	base := testClock()
+	otherBoot := base
+	otherBoot.BootIDHash[0] ^= 0xff
+	if _, err := AdvanceClockSnapshot(base, otherBoot); err == nil {
+		t.Fatal("boot change was accepted")
+	}
+
+	rollback := base
+	rollback.MonoNowNS--
+	if _, err := AdvanceClockSnapshot(base, rollback); err == nil {
+		t.Fatal("monotonic clock rollback was accepted")
+	}
+}
