@@ -783,11 +783,15 @@ func EvaluateQuarantineReleasedRestart(
 		reasons = []string{"BOOTSTRAP_CHANGED_REQUIRES_NEW_LIFECYCLE"}
 	} else if remote.Decision.Decision != "ALLOW" ||
 		remote.Decision.DeviceID != state.DeviceID ||
-		remoteDigest != r.RemoteDecisionDigest ||
+		remote.Decision.BootstrapDigest != priorGrant.Grant.BootstrapDigest ||
 		remote.Decision.VerifiedAt.IsZero() ||
 		!now.Before(remote.Decision.VerifiedAt.UTC().Add(reattestAfter)) {
 		outcome = RestartOutcomeRequireReattestation
 		reasons = []string{"POST_QUARANTINE_ATTESTATION_REQUIRED"}
+	} else if remoteDigest != r.RemoteDecisionDigest &&
+		!remote.Decision.VerifiedAt.UTC().After(r.DecidedAt.UTC()) {
+		outcome = RestartOutcomeRequireReattestation
+		reasons = []string{"NEW_ATTESTATION_MUST_POSTDATE_QUARANTINE_RELEASE"}
 	}
 
 	delay := time.Duration(0)
