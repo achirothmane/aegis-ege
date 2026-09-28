@@ -238,6 +238,15 @@ func NormalizeWorkloadLifecycleState(state WorkloadLifecycleState) WorkloadLifec
 	return state
 }
 
+func clearRuntimeTrustState(state *WorkloadLifecycleState) {
+	state.RuntimeTrustEpoch = 0
+	state.RuntimeTrustLeaseDigest = ""
+	state.RuntimeTrustExpiresAt = time.Time{}
+	state.RuntimeTrustBootIDHash = ""
+	state.RuntimeTrustInstalledBootNS = 0
+	state.RuntimeTrustDeadlineBootNS = 0
+}
+
 func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
 	if state.Version != WorkloadLifecycleStateVersion ||
 		strings.TrimSpace(state.DeviceID) == "" ||
