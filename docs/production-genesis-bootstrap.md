@@ -37,6 +37,9 @@ When `-enable-mutations` is set, `state-latchd` also requires:
 -genesis-manifest <path>
 -genesis-verification-bundle <path>
 -genesis-acceptance-ledger <path>        # default <data-dir>/genesis-acceptance.log
+-genesis-tpm-device <path>                # default /dev/tpmrm0
+-genesis-tpm-nv-index <index>             # required; pre-provisioned TPM_NT_COUNTER
+-genesis-tpm-nv-auth-file <path>          # required; owner-only base64 index auth
 -genesis-minimum-epoch <n>              # default 1
 -genesis-minimum-doctrine-epoch <n>      # default 1
 -genesis-required-conformance <C0..C4>  # default C3
@@ -48,6 +51,80 @@ The implementation digest is not supplied by a flag. Aegis hashes the running
 executable returned by `os.Executable()` and requires that digest to equal
 `implementation.implementation_digest` in the manifest.
 
+
+
+## Hardware-backed monotonic anchor
+
+Mutation-capable production bootstrap does not accept a file-only acceptance
+ledger. The ledger must be bound to a monotonic anchor. v1 implements this with
+a TPM 2.0 NV counter.
+
+Aegis requires a **pre-provisioned** NV index with:
+
+```text
+TPM_NT_COUNTER
+data size = 8 bytes
+name algorithm = SHA-256
+AUTHREAD
+AUTHWRITE
+non-empty index auth
+```
+
+Aegis deliberately does not define, undefine, reset, or self-repair this NV
+index. Provisioning and owner-hierarchy custody remain outside the daemon.
+
+The index auth is loaded from a base64 file opened with no-symlink semantics.
+The file must be owner-only; group/other permissions are rejected.
+
+### Stable anchor identity
+
+TPM NV public state includes dynamic bits such as `WRITTEN`, `READ_LOCKED`
+and `WRITE_LOCKED`. Those bits can change without redefining the NV index, so
+they are excluded from the stable anchor-definition hash.
+
+The ledger binds each record to:
+
+```text
+TPM NV index
+stable NV definition SHA-256
+monotonic counter value
+```
+
+A different index or materially different NV definition is rejected.
+
+### Commit ordering and crash behavior
+
+For a new accepted Genesis state:
+
+```text
+verify ledger + TPM are synchronized
+        |
+        v
+increment TPM NV counter
+        |
+        v
+append hash-chained acceptance record
+        |
+        v
+fsync ledger
+        |
+        v
+BOOTSTRAP_READY may be returned
+```
+
+The TPM is advanced **before** the disk record is committed. This is
+intentional. If power is lost or disk persistence fails after the hardware
+increment, the next boot sees:
+
+```text
+TPM counter > durable ledger
+```
+
+and fails closed. It never decrements the TPM or silently reconstructs the
+missing record.
+
+If an old disk snapshot is restored while the TPM retains its newer counter,
+the same mismatch detects the rollback.
 
 ## Persistent Genesis acceptance ledger
 
@@ -90,17 +167,22 @@ If persistence fails, bootstrap is converted back to `GENESIS_LOCKED`.
 Repeated startup with the exact same accepted manifest is idempotent and does
 not append duplicate records.
 
+
 ### Security boundary
 
-This v1 ledger prevents rollback across ordinary process/host restarts as long
-as the durable ledger itself is preserved. Its hash chain detects corruption
-and broken lineage, but a privileged attacker who can restore the entire
-storage volume to an older valid snapshot could restore both the manifest and
-the ledger together.
+With the TPM NV anchor enabled, restoring only the disk to an older valid
+snapshot is detected because the non-decreasing hardware counter remains ahead
+of the restored ledger.
 
-Therefore this layer is deliberately described as **durable monotonic
-acceptance**, not a complete hardware rollback anchor. A TPM NV / HSM / remote
-monotonic anchor is the next hardening boundary for hostile-storage rollback.
+This does not claim absolute protection against an attacker who can also take
+control of the TPM owner/platform hierarchy, clear or undefine the protected NV
+index, reproduce its definition, and reconstruct a matching counter state.
+Production custody must therefore protect TPM hierarchy authorization and treat
+TPM replacement/clear as a re-enrollment event.
+
+The current v1 anchor is a local hardware monotonicity proof. A future
+`TPM2_NV_Certify`/remote-anchor profile can additionally bind the counter
+state to an attestation key for externally verifiable monotonicity.
 
 ## Verification bundle
 
