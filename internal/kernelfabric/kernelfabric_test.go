@@ -178,11 +178,21 @@ type recordingKernelStore struct {
 	fence        ScopeFenceState
 	capsule      DecisionCapsule
 	failCapsule  error
+	failGetFence error
 }
 
-func (s *recordingKernelStore) PutFence(context.Context, ScopeFenceKey, ScopeFenceState) error {
+func (s *recordingKernelStore) PutFence(_ context.Context, _ ScopeFenceKey, fence ScopeFenceState) error {
 	s.ops = append(s.ops, "fence")
+	s.fence = fence
 	return nil
+}
+
+func (s *recordingKernelStore) GetFence(context.Context, ScopeFenceKey) (ScopeFenceState, error) {
+	s.ops = append(s.ops, "get-fence")
+	if s.failGetFence != nil {
+		return ScopeFenceState{}, s.failGetFence
+	}
+	return s.fence, nil
 }
 
 func (s *recordingKernelStore) PutCapsule(_ context.Context, _ ScopeKey, capsule DecisionCapsule) error {
@@ -287,5 +297,60 @@ func TestReferenceEvaluatorFailsClosedAcrossEveryFenceDimension(t *testing.T) {
 	}
 	if got := EvaluateReference(nil, &fence, now); got.Reason != DenyMissingCapsule {
 		t.Fatalf("missing capsule got %+v", got)
+	}
+}
+
+
+func TestRevokeCurrentScopeReadsThenAdvancesRevocationEpoch(t *testing.T) {
+	var boot [32]byte
+	boot[0] = 9
+	store := &recordingKernelStore{
+		fence: ScopeFenceState{
+			BootIDHash:      boot,
+			AuthorityTerm:   7,
+			DecisionEpoch:   31,
+			RevocationEpoch: 4,
+		},
+	}
+	key, err := FenceKey(42, ActionClassNetworkConnect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := (Installer{Store: store}).RevokeCurrentScope(
+		context.Background(),
+		key,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.RevocationEpoch != 5 ||
+		next.AuthorityTerm != 7 ||
+		next.DecisionEpoch != 31 ||
+		next.BootIDHash != boot {
+		t.Fatalf("unexpected revoked fence: %+v", next)
+	}
+	want := []string{"get-fence", "fence"}
+	if len(store.ops) != len(want) {
+		t.Fatalf("ops=%v want=%v", store.ops, want)
+	}
+	for i := range want {
+		if store.ops[i] != want[i] {
+			t.Fatalf("ops=%v want=%v", store.ops, want)
+		}
+	}
+}
+
+func TestRevokeCurrentScopeFailsBeforeWriteWhenReadFails(t *testing.T) {
+	store := &recordingKernelStore{failGetFence: errors.New("lookup failed")}
+	key, err := FenceKey(42, ActionClassNetworkConnect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (Installer{Store: store}).RevokeCurrentScope(context.Background(), key)
+	if err == nil {
+		t.Fatal("expected fence read failure")
+	}
+	if len(store.ops) != 1 || store.ops[0] != "get-fence" {
+		t.Fatalf("unsafe revocation operations: %v", store.ops)
 	}
 }

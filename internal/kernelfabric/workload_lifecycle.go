@@ -213,6 +213,9 @@ type WorkloadLifecycleState struct {
 	ActivationDigest        string    `json:"activation_digest"`
 	ExitDigest              string    `json:"exit_digest,omitempty"`
 	RecoveryDigest          string    `json:"recovery_digest,omitempty"`
+	RuntimeTrustEpoch       uint64    `json:"runtime_trust_epoch,omitempty"`
+	RuntimeTrustLeaseDigest string    `json:"runtime_trust_lease_digest,omitempty"`
+	RuntimeTrustExpiresAt   time.Time `json:"runtime_trust_expires_at,omitempty"`
 	RestartCountInWindow    uint32    `json:"restart_count_in_window"`
 	RestartWindowStartedAt  time.Time `json:"restart_window_started_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
@@ -265,6 +268,21 @@ func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
 	}
 	if _, err := ParseSHA256Digest(state.ActivationDigest); err != nil {
 		return fmt.Errorf("lifecycle activation digest: %w", err)
+	}
+	if state.RuntimeTrustEpoch == 0 {
+		if state.RuntimeTrustLeaseDigest != "" || !state.RuntimeTrustExpiresAt.IsZero() {
+			return errors.New("runtime trust metadata exists without runtime trust epoch")
+		}
+	} else {
+		if state.State != LifecycleStateRunning {
+			return errors.New("non-running lifecycle state cannot carry runtime trust lease")
+		}
+		if _, err := ParseSHA256Digest(state.RuntimeTrustLeaseDigest); err != nil {
+			return fmt.Errorf("runtime trust lease digest: %w", err)
+		}
+		if state.RuntimeTrustExpiresAt.IsZero() {
+			return errors.New("runtime trust expiry is required when runtime trust lease is active")
+		}
 	}
 	return nil
 }

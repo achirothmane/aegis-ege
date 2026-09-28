@@ -449,8 +449,17 @@ systemd/Kubernetes native restart-controller integration
 container/OCI lifecycle specialization
 graceful-drain policy before planned restart
 health-check based restart causes
+automatic runtime-trust scheduler/watchdog
 
 ```
+
+## Runtime trust lease
+
+A RUNNING generation can now hold a short-lived runtime trust lease. The lifecycle ledger records the current runtime trust epoch, signed lease digest, and expiry. Renewals require newer remote attestation evidence; expiry, policy supersession, or a newer remote BLOCK produces a signed runtime REVOKE path.
+
+Runtime trust metadata is cleared automatically when the workload leaves RUNNING, so a lease cannot cross generations or recovery transitions.
+
+See [runtime-trust-lease.md](runtime-trust-lease.md).
 
 ## Crash reconciliation
 
