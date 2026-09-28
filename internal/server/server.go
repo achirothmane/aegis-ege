@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/achirothmane/easl"
+
 	"github.com/achirothmane/aegis-ege/internal/decision"
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
@@ -41,6 +43,7 @@ type Config struct {
 	EGEPrometheusNodeHealthTrustDomain string
 	EGEPrometheusHTTPClient            *http.Client
 	EnableN8NEEPAdapter                 bool
+	EASLRuntime                          *easl.Runtime
 }
 
 type Server struct {
@@ -54,6 +57,7 @@ type Server struct {
 	capabilityClaims  CapabilityClaimLifecycle
 	egeAdapters       *egeAdapterRegistry
 	egeEvidenceComposer *egeEvidenceComposer
+	easlRuntime         *easl.Runtime
 }
 
 func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore, config Config) (*Server, error) {
@@ -83,6 +87,14 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.MutationsEnabled && config.ReplayGuard == nil {
 		return nil, fmt.Errorf("replay guard is required when mutations are enabled")
+	}
+	if config.MutationsEnabled {
+		if config.EASLRuntime == nil {
+			return nil, fmt.Errorf("Genesis-gated EASL runtime is required when mutations are enabled")
+		}
+		if _, err := config.EASLRuntime.Metadata(); err != nil {
+			return nil, fmt.Errorf("Genesis-gated EASL runtime is not ready: %w", err)
+		}
 	}
 	if config.RequireEBAConformance && config.EBAApprovalAuthority == nil {
 		return nil, fmt.Errorf("EBA approval authority is required when EBA conformance enforcement is enabled")
@@ -199,6 +211,7 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		capabilityClaims:    capabilityClaims,
 		egeAdapters:         egeAdapters,
 		egeEvidenceComposer: egeEvidenceComposer,
+		easlRuntime:         config.EASLRuntime,
 	}
 	s.routes()
 	return s, nil
@@ -314,7 +327,18 @@ type errorResponse struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	genesisState := "NOT_REQUIRED_READ_ONLY"
+	if s.easlRuntime != nil {
+		if _, err := s.easlRuntime.Metadata(); err == nil {
+			genesisState = "BOOTSTRAP_READY"
+		} else {
+			genesisState = "GENESIS_LOCKED"
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"genesis": genesisState,
+	})
 }
 
 func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
