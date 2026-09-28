@@ -52,8 +52,9 @@ activation digest
 generation
 expected process identity
 observed process identity
-expected cgroup id
-observed cgroup id
+current boot id hash
+expected cgroup path + inode
+observed cgroup path + inode
 observation state
 observed_at
 ```
@@ -93,6 +94,7 @@ boot id matches
 PID exists
 starttime matches
 executable device/inode match
+cgroup path matches
 cgroup inode matches
 ```
 
@@ -172,26 +174,57 @@ must be present in a restart decision.
 
 ## Commands
 
-Reconcile an orphaned RUNNING lifecycle:
+Recovery is intentionally split into three stages.
+
+### 1. Host: observe only
+
+This command reads the current RUNNING ledger and signed activation receipt, inspects `/proc` and cgroup v2 state, and emits signed evidence. It does **not** mutate lifecycle state.
 
 ```bash
-sudo go run ./cmd/aegis-lifecycle-reconcile \
+sudo go run ./cmd/aegis-reconcile-observe \
   -lifecycle-dir /var/lib/aegis/workload-lifecycle \
   -device node-01 \
   -workload payments-worker \
   -activation workload-activation-receipt.json \
-  -host-attestor-pub host-attestation.pub \
   -host-attestor-key host-attestation.key \
-  -lifecycle-key lifecycle-authority.key \
-  -lifecycle-authority-id prod-lifecycle \
-  -observation-out workload-recovery-observation.json \
-  -decision-out workload-reconciliation-decision.json
+  -out workload-recovery-observation.json
 ```
 
-After `MARK_EXITED_UNKNOWN`, perform fresh remote attestation and evaluate restart:
+### 2. Lifecycle authority: decide
+
+The lifecycle authority verifies the enrolled host signature, activation lineage, expected process identity, cgroup path/inode, and signed observation.
 
 ```bash
-go run ./cmd/aegis-recovered-restart-evaluate \
+go run ./cmd/aegis-reconcile-decide \
+  -lifecycle-dir /var/lib/aegis/workload-lifecycle \
+  -device node-01 \
+  -workload payments-worker \
+  -activation workload-activation-receipt.json \
+  -observation workload-recovery-observation.json \
+  -host-attestor-pub host-attestation.pub \
+  -lifecycle-key lifecycle-authority.key \
+  -lifecycle-authority-id prod-lifecycle \
+  -out workload-reconciliation-decision.json
+```
+
+### 3. Host: apply signed decision
+
+Only this stage mutates the lifecycle ledger.
+
+```bash
+go run ./cmd/aegis-reconcile-apply \
+  -lifecycle-dir /var/lib/aegis/workload-lifecycle \
+  -decision workload-reconciliation-decision.json \
+  -lifecycle-authority-pub lifecycle-authority.pub \
+  -out workload-lifecycle-after-reconciliation.json
+```
+
+After `MARK_EXITED_UNKNOWN`, perform a fresh TPM + IMA attestation.
+
+Then use the normal restart evaluator with a reconciliation artifact instead of an exit receipt:
+
+```bash
+go run ./cmd/aegis-restart-evaluate \
   -lifecycle-dir /var/lib/aegis/workload-lifecycle \
   -device node-01 \
   -workload payments-worker \
@@ -204,10 +237,12 @@ go run ./cmd/aegis-recovered-restart-evaluate \
   -host-attestor-pub host-attestation.pub \
   -lifecycle-key lifecycle-authority.key \
   -lifecycle-authority-id prod-lifecycle \
-  -out workload-recovered-restart-decision.json
+  -out workload-restart-decision.json
 ```
 
-If the result is `REQUIRE_FRESH_GRANT`, the existing restart grant issuer can mint a new one-shot admission grant.
+For a normal `EXITED` lifecycle, the same command uses `-exit` instead of `-reconciliation`.
+
+If the recovered result is `REQUIRE_FRESH_GRANT`, the existing restart grant issuer mints the next one-shot admission grant.
 
 ## Current boundary
 
