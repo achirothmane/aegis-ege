@@ -5,6 +5,7 @@ package kernelfabric
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -31,6 +32,21 @@ func ApplyRuntimeTrustLease(
 	if err != nil {
 		return WorkloadLifecycleState{}, err
 	}
+	clock, err := CaptureBootClockSnapshot(now, DefaultBootIDPath)
+	if err != nil {
+		return WorkloadLifecycleState{}, err
+	}
+	localLease, err := BindExternalLease(
+		ExternalLease{
+			IssuedAt:    lease.Lease.IssuedAt,
+			NotAfter:    lease.Lease.ExpiresAt,
+			MaxLifetime: lease.Lease.ExpiresAt.Sub(lease.Lease.IssuedAt),
+		},
+		clock,
+	)
+	if err != nil {
+		return WorkloadLifecycleState{}, err
+	}
 	l := lease.Lease
 	var updated WorkloadLifecycleState
 	err = store.withLockedState(
@@ -52,6 +68,9 @@ func ApplyRuntimeTrustLease(
 			state.RuntimeTrustEpoch = l.LeaseEpoch
 			state.RuntimeTrustLeaseDigest = leaseDigest
 			state.RuntimeTrustExpiresAt = l.ExpiresAt.UTC()
+			state.RuntimeTrustBootIDHash = "sha256:" + hex.EncodeToString(localLease.BootIDHash[:])
+			state.RuntimeTrustInstalledBootNS = localLease.InstalledAtMonoNS
+			state.RuntimeTrustDeadlineBootNS = localLease.DeadlineMonoNS
 			state.UpdatedAt = now.UTC()
 			if err := writeLifecycleState(path, state); err != nil {
 				return fmt.Errorf("persist runtime trust lease: %w", err)
