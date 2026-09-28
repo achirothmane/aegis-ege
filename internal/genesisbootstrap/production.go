@@ -489,7 +489,11 @@ func CanonicalManifestPayload(m genesis.Manifest) ([]byte, error) {
 		return nil, err
 	}
 	delete(value, "authenticity")
-	return jcs.Format(value)
+	canonical, err := jcs.Format(value)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(canonical), nil
 }
 
 func ManifestPayloadHash(m genesis.Manifest) (string, error) {
@@ -585,7 +589,7 @@ func SignedRevocationListDigest(signed SignedRevocationList) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(canonical)
+	sum := sha256.Sum256([]byte(canonical))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -601,7 +605,11 @@ func canonicalRevocationListPayload(list RevocationList) ([]byte, error) {
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
 	}
-	return jcs.Format(value)
+	canonical, err := jcs.Format(value)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(canonical), nil
 }
 
 func validateRevocationList(list RevocationList, now time.Time) error {
