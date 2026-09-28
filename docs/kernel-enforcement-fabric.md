@@ -317,6 +317,27 @@ Old restart decisions are fenced by the lifecycle epoch and cannot cross this se
 
 See [quarantine-operator-release.md](quarantine-operator-release.md).
 
+## Continuous runtime trust
+
+Admission and activation are no longer the final trust boundary for long-running workloads.
+
+A short-lived signed Runtime Trust Lease now binds the current generation, lifecycle epoch, activation, runtime policy, remote attestation and cgroup identity.
+
+When runtime trust is revoked:
+
+```text
+signed REVOKE
+-> read current kernel fence
+-> revocation_epoch++
+-> network DecisionCapsules fail closed
+-> host-signed runtime containment evidence
+-> standard lifecycle QUARANTINE
+```
+
+Only the currently implemented cgroup network-connect adapter is revoked in v1; process freeze/kill and filesystem/process BPF-LSM enforcement are not claimed.
+
+See [runtime-trust-lease.md](runtime-trust-lease.md).
+
 ## Governing invariant
 
 > A stale, revoked, expired, superseded, reboot-crossing, or absent DecisionCapsule must fail closed before the protected kernel operation is allowed.
