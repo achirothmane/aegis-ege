@@ -24,7 +24,7 @@ func ObserveOrphanedWorkload(
 	if err := ValidateWorkloadLifecycleState(state); err != nil {
 		return SignedWorkloadRecoveryObservation{}, err
 	}
-	if state.State != LifecycleStateRunning {
+	if state.State != LifecycleStateRunning && state.State != LifecycleStateQuarantined {
 		return SignedWorkloadRecoveryObservation{}, ErrReconciliationRejected
 	}
 	if err := VerifySignedWorkloadActivationReceipt(activation, hostAttestorPublicKey); err != nil {
@@ -56,6 +56,9 @@ func ObserveOrphanedWorkload(
 		ExpectedCgroup:   filepath.Clean(activation.Receipt.TargetCgroup),
 		ExpectedCgroupID: activation.Receipt.TargetCgroupID,
 		ObservedAt:       now.UTC(),
+	}
+	if state.State == LifecycleStateQuarantined {
+		obs.PriorRecoveryDigest = state.RecoveryDigest
 	}
 
 	if activation.Receipt.Version != WorkloadActivationReceiptVersionV2 ||
