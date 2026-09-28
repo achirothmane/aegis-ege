@@ -91,7 +91,8 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
 			obs.ObservedCgroupID == 0 ||
 			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
-			obs.ObservedCgroupID != obs.ExpectedCgroupID {
+			obs.ObservedCgroupID != obs.ExpectedCgroupID ||
+			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash {
 			return ErrRecoveryObservationInvalid
 		}
 	case RecoveryObservationAbsent:
@@ -108,14 +109,17 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		}
 	case RecoveryObservationPIDReused:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
-			*obs.ExpectedProcessIdentity == *obs.ObservedProcessIdentity {
+			*obs.ExpectedProcessIdentity == *obs.ObservedProcessIdentity ||
+			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash ||
+			obs.ObservedProcessIdentity.BootIDHash != obs.CurrentBootIDHash {
 			return ErrRecoveryObservationInvalid
 		}
 	case RecoveryObservationCgroupMismatch:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
 			obs.ObservedCgroupID == 0 ||
 			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
-			obs.ObservedCgroupID == obs.ExpectedCgroupID {
+			obs.ObservedCgroupID == obs.ExpectedCgroupID ||
+			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash {
 			return ErrRecoveryObservationInvalid
 		}
 	case RecoveryObservationLegacy:
