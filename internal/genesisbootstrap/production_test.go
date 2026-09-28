@@ -25,6 +25,7 @@ func TestBootstrapProductionAllowsFullyBoundGenesis(t *testing.T) {
 		fixture.manifestPath,
 		fixture.bundlePath,
 		7,
+		3,
 		genesis.ConformanceC3,
 		fixture.now,
 	)
@@ -55,6 +56,7 @@ func TestBootstrapProductionRejectsImplementationDigestTamper(t *testing.T) {
 		fixture.manifestPath,
 		fixture.bundlePath,
 		7,
+		3,
 		genesis.ConformanceC3,
 		fixture.now,
 	)
@@ -82,8 +84,9 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 	revocations := RevocationList{
 		Version:                     RevocationListVersion,
 		Epoch:                       2,
-		MinimumAcceptedGenesisEpoch: 7,
-		MinimumTrustRootEpoch:       7,
+		MinimumAcceptedGenesisEpoch:  7,
+		MinimumAcceptedDoctrineEpoch: 3,
+		MinimumTrustRootEpoch:        7,
 		IssuedAt:                    fixture.now.Add(-time.Hour),
 		ExpiresAt:                   fixture.now.Add(time.Hour),
 		RevokedManifestHashes:       []string{payloadHash},
@@ -109,6 +112,7 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 		fixture.manifestPath,
 		fixture.bundlePath,
 		7,
+		3,
 		genesis.ConformanceC3,
 		fixture.now,
 	)
@@ -121,6 +125,79 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 	assertFailureCode(t, result, genesis.FailureRevoked)
 }
 
+
+
+func TestBootstrapProductionRejectsDoctrineEpochRollback(t *testing.T) {
+	fixture := buildProductionFixture(t)
+
+	runtime, result, err := BootstrapProduction(
+		t.Context(),
+		fixture.manifestPath,
+		fixture.bundlePath,
+		7,
+		4,
+		genesis.ConformanceC3,
+		fixture.now,
+	)
+	if err == nil {
+		t.Fatal("expected doctrine rollback to fail")
+	}
+	if runtime != nil || result.State != genesis.StateLocked {
+		t.Fatalf("expected GENESIS_LOCKED, got runtime=%v result=%+v", runtime, result)
+	}
+	assertFailureCode(t, result, genesis.FailureDoctrineRollback)
+}
+
+func TestBootstrapProductionRejectsDoctrineManifestTamper(t *testing.T) {
+	fixture := buildProductionFixture(t)
+	if err := os.WriteFile(fixture.doctrineManifestPath, []byte("tampered-doctrine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, result, err := BootstrapProduction(
+		t.Context(),
+		fixture.manifestPath,
+		fixture.bundlePath,
+		7,
+		3,
+		genesis.ConformanceC3,
+		fixture.now,
+	)
+	if err == nil {
+		t.Fatal("expected doctrine manifest tamper to fail")
+	}
+	if runtime != nil || result.State != genesis.StateLocked {
+		t.Fatalf("expected GENESIS_LOCKED, got runtime=%v result=%+v", runtime, result)
+	}
+	assertFailureCode(t, result, genesis.FailureDoctrineMismatch)
+}
+
+func TestBootstrapProductionRejectsDoctrineAuthoritySignatureTamper(t *testing.T) {
+	fixture := buildProductionFixture(t)
+	var signed SignedDoctrineAuthorityStatement
+	if err := readStrictJSON(fixture.doctrineStatementPath, &signed); err != nil {
+		t.Fatal(err)
+	}
+	signed.Signature = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+	writeJSONFile(t, fixture.doctrineStatementPath, signed)
+
+	runtime, result, err := BootstrapProduction(
+		t.Context(),
+		fixture.manifestPath,
+		fixture.bundlePath,
+		7,
+		3,
+		genesis.ConformanceC3,
+		fixture.now,
+	)
+	if err == nil {
+		t.Fatal("expected doctrine authority signature tamper to fail")
+	}
+	if runtime != nil || result.State != genesis.StateLocked {
+		t.Fatalf("expected GENESIS_LOCKED, got runtime=%v result=%+v", runtime, result)
+	}
+	assertFailureCode(t, result, genesis.FailureDoctrineUnverified)
+}
 
 func TestManifestRevocationHashIgnoresRevocationRef(t *testing.T) {
 	fixture := buildProductionFixture(t)
@@ -143,12 +220,14 @@ func TestManifestRevocationHashIgnoresRevocationRef(t *testing.T) {
 }
 
 type productionFixture struct {
-	now              time.Time
-	manifestPath     string
-	bundlePath       string
-	revocationPath   string
-	manifestSigner   ed25519.PrivateKey
-	revocationSigner ed25519.PrivateKey
+	now                   time.Time
+	manifestPath          string
+	bundlePath            string
+	doctrineManifestPath  string
+	doctrineStatementPath string
+	revocationPath        string
+	manifestSigner        ed25519.PrivateKey
+	revocationSigner      ed25519.PrivateKey
 }
 
 func buildProductionFixture(t *testing.T) productionFixture {
@@ -156,6 +235,10 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	dir := t.TempDir()
 	now := time.Date(2026, 9, 28, 5, 0, 0, 0, time.UTC)
 
+	doctrinePub, doctrinePriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	manifestPub, manifestPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -173,10 +256,12 @@ func buildProductionFixture(t *testing.T) productionFixture {
 		t.Fatal(err)
 	}
 
+	doctrinePubPath := filepath.Join(dir, "doctrine-authority.pub")
 	manifestPubPath := filepath.Join(dir, "manifest.pub")
 	remotePubPath := filepath.Join(dir, "remote.pub")
 	bootstrapPubPath := filepath.Join(dir, "bootstrap.pub")
 	revocationPubPath := filepath.Join(dir, "revocation.pub")
+	writePublicKey(t, doctrinePubPath, doctrinePub)
 	writePublicKey(t, manifestPubPath, manifestPub)
 	writePublicKey(t, remotePubPath, remotePub)
 	writePublicKey(t, bootstrapPubPath, bootstrapPub)
@@ -190,6 +275,29 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	doctrineManifestPath := filepath.Join(dir, "doctrine.md")
+	if err := os.WriteFile(doctrineManifestPath, []byte("# Assumption Decay Doctrine\n\nEvidence before authority.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doctrineDigest, err := fileDigest(doctrineManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doctrineStatement := DoctrineAuthorityStatement{
+		Version:              DoctrineAuthorityStatementVersion,
+		DoctrineID:           "aegis-ege-doctrine",
+		DoctrineEpoch:        3,
+		DoctrineManifestHash: doctrineDigest,
+		IssuedAt:             now.Add(-time.Hour),
+		ExpiresAt:            now.Add(time.Hour),
+	}
+	signedDoctrineStatement, err := SignDoctrineAuthorityStatement(doctrineStatement, doctrinePriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doctrineStatementPath := filepath.Join(dir, "doctrine-authority-statement.json")
+	writeJSONFile(t, doctrineStatementPath, signedDoctrineStatement)
 
 	executableDigest, err := currentExecutableDigest()
 	if err != nil {
@@ -273,10 +381,15 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	}
 
 	manifest := genesis.Manifest{
-		ManifestVersion:     "1.0",
+		ManifestVersion:     "1.1",
 		GenesisEpoch:        7,
 		Sequence:            0,
-		ArchitectureVersion: "level-minus-1/v1.0",
+		ArchitectureVersion: "level-minus-1/v1.1",
+		Doctrine: genesis.DoctrineBinding{
+			DoctrineID:           "aegis-ege-doctrine",
+			DoctrineEpoch:        3,
+			DoctrineManifestHash: doctrineDigest,
+		},
 		Specification: genesis.Specification{
 			SpecHash:              artifactDigest,
 			InvariantSetHash:      artifactDigest,
@@ -340,6 +453,9 @@ func buildProductionFixture(t *testing.T) productionFixture {
 
 	bundle := VerificationBundle{
 		Version:                            BundleVersion,
+		DoctrineManifest:                   doctrineManifestPath,
+		SignedDoctrineAuthorityStatement:   doctrineStatementPath,
+		DoctrineAuthorityPublicKey:         doctrinePubPath,
 		ManifestSignerPublicKey:            manifestPubPath,
 		RemoteAttestationDecision:          remoteDecisionPath,
 		RemoteAttestationVerifierPublicKey: remotePubPath,
@@ -373,12 +489,14 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	writeJSONFile(t, bundlePath, bundle)
 
 	return productionFixture{
-		now:              now,
-		manifestPath:     manifestPath,
-		bundlePath:       bundlePath,
-		revocationPath:   revocationPath,
-		manifestSigner:   manifestPriv,
-		revocationSigner: revocationPriv,
+		now:                   now,
+		manifestPath:          manifestPath,
+		bundlePath:            bundlePath,
+		doctrineManifestPath:  doctrineManifestPath,
+		doctrineStatementPath: doctrineStatementPath,
+		revocationPath:        revocationPath,
+		manifestSigner:        manifestPriv,
+		revocationSigner:      revocationPriv,
 	}
 }
 
