@@ -1,0 +1,82 @@
+{
+  "name": "Aegis EEP Live Validation Envelope",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "aegis-eep-live",
+        "authentication": "none",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a8e8f1d1-2b6f-4f6e-b2d4-8f22cc4b9d01",
+      "name": "EEP Live Webhook",
+      "webhookId": "aegis-eep-live-validation"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? {};\nconst executionId = String($execution.id);\nconst workflowId = String($workflow.id);\nconst now = new Date().toISOString();\n\nreturn [{\n  json: {\n    intent_id: body.intent_id || `intent-live-${executionId}`,\n    event_id: `evt-${executionId}`,\n    workflow_id: workflowId,\n    execution_id: executionId,\n    agent_id: \"agent-customer-ops\",\n    observed_at: now,\n    action: {\n      kind: \"crm.customer_update\",\n      tool: \"crm.http-json\",\n      operation: \"update_customer\",\n      target: \"customer/c-17\",\n      side_effect: true\n    },\n    data: {\n      ticket: body.ticket || \"T-42\",\n      customer: {\n        id: \"c-17\",\n        email: body.email || \"alice@example.com\",\n        current_tier: \"standard\"\n      },\n      requested_tier: body.requested_tier || \"gold\"\n    },\n    authority_ref: \"authority://crm/customer-update/v3\",\n    policy_ref: \"policy://agent-actions/v8\",\n    redaction_profile_ref: \"redaction://crm/pii/v4\",\n    consequence_class: \"customer-record-write\",\n    control_refs: [\"soc2:CC6.1\"],\n    approval_refs: [\"approval://ticket/T-42\"],\n    sensitive_paths: [\"/customer/email\"]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "id": "c70b72fe-f605-4a8d-8231-98a35d213bed",
+      "name": "Build EEP Envelope"
+    },
+    {
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        520,
+        0
+      ],
+      "id": "e7ee4d68-5f4f-4e2d-9dbb-4391bd796e91",
+      "name": "Return EEP Envelope"
+    }
+  ],
+  "connections": {
+    "EEP Live Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build EEP Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build EEP Envelope": {
+      "main": [
+        [
+          {
+            "node": "Return EEP Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
