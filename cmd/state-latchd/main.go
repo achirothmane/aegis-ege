@@ -38,6 +38,7 @@ func main() {
 		requireEBAConformance = flag.Bool("require-eba-conformance", false, "require the full EBA bundle before real EGE mutations")
 		ebaApprovalPublicKeyFile = flag.String("eba-approval-public-key-file", "", "PEM Ed25519 public key used to verify signed EBA approval attestations")
 		ebaExecutionPrincipal = flag.String("eba-execution-principal", "aegis-ege", "principal id expected in EBA AuthorityGrant artifacts")
+		enableN8NEEPAdapter = flag.Bool("enable-n8n-eep-adapter", false, "enable authenticated n8n runtime-event compilation into EEP evidence packets")
 	)
 	flag.Parse()
 
@@ -162,6 +163,7 @@ func main() {
 		AuditSink:                         server.SlogAuditSink{},
 		EGEPrometheusNodeHealthURL:         *prometheusNodeHealthURL,
 		EGEPrometheusNodeHealthTrustDomain: *prometheusTrustDomain,
+		EnableN8NEEPAdapter:                 *enableN8NEEPAdapter,
 	})
 	if err != nil {
 		fatal("create API server", err)
