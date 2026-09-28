@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"flag"
 	"fmt"
 	"os"
@@ -85,9 +86,6 @@ func main() {
 	if err := cliio.WriteJSON(*decisionOut, decision, 0o600); err != nil {
 		fatalf("write reconciliation decision: %v", err)
 	}
-	lifecyclePub := lifecycleKey.Public().(interface{ Bytes() []byte })
-	_ = lifecyclePub
-
 	updated, err := kernelfabric.ApplyWorkloadReconciliation(
 		store,
 		decision,
