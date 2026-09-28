@@ -41,9 +41,11 @@ type AcceptanceRecord struct {
 	DoctrineManifestHash        string    `json:"doctrine_manifest_hash"`
 	RevocationEpoch             uint64    `json:"revocation_epoch"`
 	RevocationDigest            string    `json:"revocation_digest"`
-	TrustRootEpoch              uint64    `json:"trust_root_epoch"`
-	PreviousAcceptanceRecordHash string   `json:"previous_acceptance_record_hash,omitempty"`
-	RecordHash                  string    `json:"record_hash"`
+	TrustRootEpoch               uint64    `json:"trust_root_epoch"`
+	MonotonicAnchorID             string    `json:"monotonic_anchor_id"`
+	MonotonicAnchorValue          uint64    `json:"monotonic_anchor_value"`
+	PreviousAcceptanceRecordHash  string    `json:"previous_acceptance_record_hash,omitempty"`
+	RecordHash                    string    `json:"record_hash"`
 }
 
 type AcceptanceCandidate struct {
@@ -67,19 +69,30 @@ type AcceptanceFloor struct {
 	DoctrineManifestHash string
 	RevocationEpoch      uint64
 	TrustRootEpoch       uint64
+	MonotonicAnchorID    string
+	MonotonicAnchorValue uint64
+}
+
+type MonotonicAnchor interface {
+	Identity(context.Context) (string, error)
+	Read(context.Context) (uint64, error)
+	Advance(context.Context, uint64) (uint64, error)
 }
 
 type FileAcceptanceLedger struct {
-	path string
+	path   string
+	anchor MonotonicAnchor
 }
 
 type AcceptanceSession struct {
-	ledger     *FileAcceptanceLedger
-	file       *os.File
-	last       *AcceptanceRecord
-	candidate  AcceptanceCandidate
-	idempotent bool
-	closed     bool
+	ledger             *FileAcceptanceLedger
+	file               *os.File
+	last               *AcceptanceRecord
+	candidate          AcceptanceCandidate
+	anchorID           string
+	anchorCurrentValue uint64
+	idempotent         bool
+	closed             bool
 }
 
 func NewFileAcceptanceLedger(path string) (*FileAcceptanceLedger, error) {
@@ -87,6 +100,22 @@ func NewFileAcceptanceLedger(path string) (*FileAcceptanceLedger, error) {
 		return nil, errors.New("Genesis acceptance ledger path is required")
 	}
 	return &FileAcceptanceLedger{path: filepath.Clean(path)}, nil
+}
+
+func NewAnchoredFileAcceptanceLedger(path string, anchor MonotonicAnchor) (*FileAcceptanceLedger, error) {
+	ledger, err := NewFileAcceptanceLedger(path)
+	if err != nil {
+		return nil, err
+	}
+	if anchor == nil {
+		return nil, errors.New("monotonic anchor is required")
+	}
+	ledger.anchor = anchor
+	return ledger, nil
+}
+
+func (l *FileAcceptanceLedger) HasMonotonicAnchor() bool {
+	return l != nil && l.anchor != nil
 }
 
 func NewAcceptanceCandidate(m genesis.Manifest, revocations SignedRevocationList, now time.Time) (AcceptanceCandidate, error) {
@@ -170,12 +199,56 @@ func (l *FileAcceptanceLedger) Begin(_ context.Context, candidate AcceptanceCand
 		return nil, AcceptanceFloor{}, err
 	}
 
+	var anchorID string
+	var anchorValue uint64
+	if l.anchor != nil {
+		anchorID, err = l.anchor.Identity(context.Background())
+		if err != nil {
+			cleanup()
+			return nil, AcceptanceFloor{}, fmt.Errorf("read monotonic anchor identity: %w", err)
+		}
+		if strings.TrimSpace(anchorID) == "" {
+			cleanup()
+			return nil, AcceptanceFloor{}, errors.New("monotonic anchor returned an empty identity")
+		}
+		anchorValue, err = l.anchor.Read(context.Background())
+		if err != nil {
+			cleanup()
+			return nil, AcceptanceFloor{}, fmt.Errorf("read monotonic anchor: %w", err)
+		}
+		if last == nil {
+			if anchorValue != 0 {
+				cleanup()
+				return nil, AcceptanceFloor{}, fmt.Errorf("%w: empty ledger with monotonic anchor value %d", ErrAcceptanceRollback, anchorValue)
+			}
+		} else {
+			if last.MonotonicAnchorID == "" {
+				cleanup()
+				return nil, AcceptanceFloor{}, fmt.Errorf("%w: prior acceptance record is missing monotonic anchor identity", ErrAcceptanceCorrupt)
+			}
+			if last.MonotonicAnchorID != anchorID {
+				cleanup()
+				return nil, AcceptanceFloor{}, fmt.Errorf("%w: monotonic anchor identity changed from %q to %q", ErrAcceptanceContinuity, last.MonotonicAnchorID, anchorID)
+			}
+			if last.MonotonicAnchorValue != last.Index {
+				cleanup()
+				return nil, AcceptanceFloor{}, fmt.Errorf("%w: acceptance record index %d is not bound to anchor value %d", ErrAcceptanceCorrupt, last.Index, last.MonotonicAnchorValue)
+			}
+			if anchorValue != last.MonotonicAnchorValue {
+				cleanup()
+				return nil, AcceptanceFloor{}, fmt.Errorf("%w: monotonic anchor value %d does not equal ledger value %d", ErrAcceptanceRollback, anchorValue, last.MonotonicAnchorValue)
+			}
+		}
+	}
+
 	session := &AcceptanceSession{
-		ledger:     l,
-		file:       file,
-		last:       last,
-		candidate:  candidate,
-		idempotent: idempotent,
+		ledger:             l,
+		file:               file,
+		last:               last,
+		candidate:          candidate,
+		anchorID:           anchorID,
+		anchorCurrentValue: anchorValue,
+		idempotent:         idempotent,
 	}
 	return session, floorFromRecord(last), nil
 }
@@ -201,10 +274,24 @@ func (s *AcceptanceSession) Commit() error {
 		RevocationEpoch:      s.candidate.RevocationEpoch,
 		RevocationDigest:     s.candidate.RevocationDigest,
 		TrustRootEpoch:       s.candidate.TrustRootEpoch,
+		MonotonicAnchorID:    s.anchorID,
 	}
 	if s.last != nil {
 		record.Index = s.last.Index + 1
 		record.PreviousAcceptanceRecordHash = s.last.RecordHash
+	}
+	if s.ledger.anchor != nil {
+		if s.anchorCurrentValue == ^uint64(0) {
+			return errors.New("monotonic anchor counter exhausted")
+		}
+		next, err := s.ledger.anchor.Advance(context.Background(), s.anchorCurrentValue)
+		if err != nil {
+			return fmt.Errorf("advance monotonic anchor: %w", err)
+		}
+		if next != s.anchorCurrentValue+1 || next != record.Index {
+			return fmt.Errorf("monotonic anchor advanced to %d; expected %d", next, record.Index)
+		}
+		record.MonotonicAnchorValue = next
 	}
 	hash, err := acceptanceRecordHash(record)
 	if err != nil {
@@ -299,6 +386,12 @@ func validateAcceptanceRecord(previous []AcceptanceRecord, record AcceptanceReco
 	if record.Index == 0 || record.AcceptedAt.IsZero() {
 		return errors.New("record index and accepted_at are required")
 	}
+	if record.MonotonicAnchorID != "" && record.MonotonicAnchorValue != record.Index {
+		return errors.New("monotonic anchor value must equal acceptance record index")
+	}
+	if record.MonotonicAnchorID == "" && record.MonotonicAnchorValue != 0 {
+		return errors.New("monotonic anchor value present without anchor identity")
+	}
 	for name, digest := range map[string]string{
 		"manifest_hash":          record.ManifestHash,
 		"doctrine_manifest_hash": record.DoctrineManifestHash,
@@ -333,6 +426,12 @@ func validateAcceptanceRecord(previous []AcceptanceRecord, record AcceptanceReco
 	}
 	if record.PreviousAcceptanceRecordHash != last.RecordHash {
 		return errors.New("acceptance hash chain is broken")
+	}
+	if last.MonotonicAnchorID != record.MonotonicAnchorID {
+		return errors.New("monotonic anchor identity changed inside acceptance ledger")
+	}
+	if record.MonotonicAnchorID != "" && record.MonotonicAnchorValue != last.MonotonicAnchorValue+1 {
+		return errors.New("monotonic anchor value is not contiguous")
 	}
 	candidate := AcceptanceCandidate{
 		AcceptedAt:           record.AcceptedAt,
@@ -441,6 +540,8 @@ func floorFromRecord(record *AcceptanceRecord) AcceptanceFloor {
 		DoctrineManifestHash: record.DoctrineManifestHash,
 		RevocationEpoch:      record.RevocationEpoch,
 		TrustRootEpoch:       record.TrustRootEpoch,
+		MonotonicAnchorID:    record.MonotonicAnchorID,
+		MonotonicAnchorValue: record.MonotonicAnchorValue,
 	}
 }
 
