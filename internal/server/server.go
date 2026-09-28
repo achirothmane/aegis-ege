@@ -58,7 +58,6 @@ type Server struct {
 	capabilityClaims  CapabilityClaimLifecycle
 	egeAdapters       *egeAdapterRegistry
 	egeEvidenceComposer *egeEvidenceComposer
-	easlRuntime         *easl.Runtime
 }
 
 func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore, config Config) (*Server, error) {
@@ -214,7 +213,6 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		capabilityClaims:    capabilityClaims,
 		egeAdapters:         egeAdapters,
 		egeEvidenceComposer: egeEvidenceComposer,
-		easlRuntime:         config.EASLRuntime,
 	}
 	s.routes()
 	return s, nil
@@ -330,13 +328,11 @@ type errorResponse struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	genesisState := "NOT_REQUIRED_READ_ONLY"
-	if s.easlRuntime != nil {
-		if _, err := s.easlRuntime.Metadata(); err == nil {
-			genesisState = "BOOTSTRAP_READY"
-		} else {
-			genesisState = "GENESIS_LOCKED"
-		}
+	genesisState := "GENESIS_UNBOUND_READ_ONLY"
+	if _, err := easlruntime.Metadata(); err == nil {
+		genesisState = "BOOTSTRAP_READY"
+	} else if s.config.MutationsEnabled {
+		genesisState = "GENESIS_LOCKED"
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "ok",
