@@ -24,7 +24,8 @@ const (
 	RecoveryObservationPIDReused     = "PID_REUSED"
 	RecoveryObservationCgroupMismatch = "CGROUP_MISMATCH"
 	RecoveryObservationLegacy        = "LEGACY_UNVERIFIABLE"
-	RecoveryObservationUnverifiable  = "UNVERIFIABLE"
+	RecoveryObservationUnverifiable       = "UNVERIFIABLE"
+	RecoveryObservationRuntimeTrustRevoked = "RUNTIME_TRUST_REVOKED"
 
 	ReconciliationKeepRunning       = "KEEP_RUNNING"
 	ReconciliationMarkExitedUnknown = "MARK_EXITED_UNKNOWN"
@@ -44,7 +45,8 @@ type WorkloadRecoveryObservation struct {
 	Generation              uint64                `json:"generation"`
 	ActivationID            string                `json:"activation_id"`
 	ActivationDigest        string                `json:"activation_digest"`
-	PriorRecoveryDigest     string                `json:"prior_recovery_digest,omitempty"`
+	PriorRecoveryDigest       string                `json:"prior_recovery_digest,omitempty"`
+	RuntimeTrustDecisionDigest string               `json:"runtime_trust_decision_digest,omitempty"`
 	ProcessID               int                   `json:"process_id"`
 	ExpectedProcessIdentity *LinuxProcessIdentity `json:"expected_process_identity,omitempty"`
 	ObservedProcessIdentity *LinuxProcessIdentity `json:"observed_process_identity,omitempty"`
@@ -87,6 +89,11 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 	if obs.PriorRecoveryDigest != "" {
 		if _, err := ParseSHA256Digest(obs.PriorRecoveryDigest); err != nil {
 			return fmt.Errorf("%w: prior recovery digest: %v", ErrRecoveryObservationInvalid, err)
+		}
+	}
+	if obs.RuntimeTrustDecisionDigest != "" {
+		if _, err := ParseSHA256Digest(obs.RuntimeTrustDecisionDigest); err != nil {
+			return fmt.Errorf("%w: runtime trust decision digest: %v", ErrRecoveryObservationInvalid, err)
 		}
 	}
 	if obs.ExpectedProcessIdentity != nil {
@@ -144,6 +151,16 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		}
 	case RecoveryObservationUnverifiable:
 		if obs.ExpectedProcessIdentity == nil {
+			return ErrRecoveryObservationInvalid
+		}
+	case RecoveryObservationRuntimeTrustRevoked:
+		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
+			obs.ObservedCgroupID == 0 || obs.ObservedCgroup == "" ||
+			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
+			obs.ObservedCgroupID != obs.ExpectedCgroupID ||
+			filepath.Clean(obs.ObservedCgroup) != obs.ExpectedCgroup ||
+			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash ||
+			obs.RuntimeTrustDecisionDigest == "" {
 			return ErrRecoveryObservationInvalid
 		}
 	default:
@@ -306,6 +323,10 @@ func EvaluateWorkloadReconciliation(
 		return SignedWorkloadReconciliationDecision{}, err
 	}
 	obs := observation.Observation
+	if obs.RuntimeTrustDecisionDigest != "" ||
+		obs.State == RecoveryObservationRuntimeTrustRevoked {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
 	if obs.PriorRecoveryDigest != "" {
 		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
 	}
