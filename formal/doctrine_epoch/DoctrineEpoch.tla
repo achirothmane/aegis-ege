@@ -235,12 +235,15 @@ AmendmentHistoryMonotonic ==
 RestartHistoryMonotonic ==
     Len(restartLog') >= Len(restartLog)
 
-DecisionHistoryAppendOnly == []DecisionHistoryMonotonic
-AmendmentHistoryAppendOnly == []AmendmentHistoryMonotonic
-RestartHistoryAppendOnly == []RestartHistoryMonotonic
+DecisionHistoryAppendOnly == [][DecisionHistoryMonotonic]_vars
+AmendmentHistoryAppendOnly == [][AmendmentHistoryMonotonic]_vars
+RestartHistoryAppendOnly == [][RestartHistoryMonotonic]_vars
+
+NoNewActionUnderCompromisedEpochAction ==
+    (epochStatus[activeEpoch] = "COMPROMISED")
+    => decisionLog' = decisionLog
 
 NoNewActionUnderCompromisedEpoch ==
-    []((epochStatus[activeEpoch] = "COMPROMISED")
-       => decisionLog' = decisionLog)
+    [][NoNewActionUnderCompromisedEpochAction]_vars
 
 ====
