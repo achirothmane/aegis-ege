@@ -85,6 +85,7 @@ type FileAcceptanceLedger struct {
 }
 
 type AcceptanceSession struct {
+	ctx                context.Context
 	ledger             *FileAcceptanceLedger
 	file               *os.File
 	last               *AcceptanceRecord
@@ -242,6 +243,7 @@ func (l *FileAcceptanceLedger) Begin(ctx context.Context, candidate AcceptanceCa
 	}
 
 	session := &AcceptanceSession{
+		ctx:                ctx,
 		ledger:             l,
 		file:               file,
 		last:               last,
@@ -284,7 +286,7 @@ func (s *AcceptanceSession) Commit() error {
 		if s.anchorCurrentValue == ^uint64(0) {
 			return errors.New("monotonic anchor counter exhausted")
 		}
-		next, err := s.ledger.anchor.Advance(context.Background(), s.anchorCurrentValue)
+		next, err := s.ledger.anchor.Advance(s.ctx, s.anchorCurrentValue)
 		if err != nil {
 			return fmt.Errorf("advance monotonic anchor: %w", err)
 		}
