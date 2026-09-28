@@ -46,6 +46,7 @@ type WorkloadRecoveryObservation struct {
 	ProcessID               int                   `json:"process_id"`
 	ExpectedProcessIdentity *LinuxProcessIdentity `json:"expected_process_identity,omitempty"`
 	ObservedProcessIdentity *LinuxProcessIdentity `json:"observed_process_identity,omitempty"`
+	CurrentBootIDHash       string                `json:"current_boot_id_hash,omitempty"`
 	ExpectedCgroupID        uint64                `json:"expected_cgroup_id"`
 	ObservedCgroupID        uint64                `json:"observed_cgroup_id,omitempty"`
 	ObservedCgroup          string                `json:"observed_cgroup,omitempty"`
@@ -88,22 +89,50 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 	switch obs.State {
 	case RecoveryObservationMatchRunning:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
-			obs.ObservedCgroupID == 0 {
+			obs.ObservedCgroupID == 0 ||
+			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
+			obs.ObservedCgroupID != obs.ExpectedCgroupID {
 			return ErrRecoveryObservationInvalid
 		}
-	case RecoveryObservationAbsent, RecoveryObservationBootChanged:
+	case RecoveryObservationAbsent:
+		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity != nil ||
+			obs.ObservedCgroupID != 0 ||
+			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash {
+			return ErrRecoveryObservationInvalid
+		}
+	case RecoveryObservationBootChanged:
+		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity != nil ||
+			obs.CurrentBootIDHash == "" ||
+			obs.CurrentBootIDHash == obs.ExpectedProcessIdentity.BootIDHash {
+			return ErrRecoveryObservationInvalid
+		}
 	case RecoveryObservationPIDReused:
-		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil {
+		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
+			*obs.ExpectedProcessIdentity == *obs.ObservedProcessIdentity {
 			return ErrRecoveryObservationInvalid
 		}
 	case RecoveryObservationCgroupMismatch:
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
-			obs.ObservedCgroupID == 0 {
+			obs.ObservedCgroupID == 0 ||
+			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
+			obs.ObservedCgroupID == obs.ExpectedCgroupID {
 			return ErrRecoveryObservationInvalid
 		}
-	case RecoveryObservationLegacy, RecoveryObservationUnverifiable:
+	case RecoveryObservationLegacy:
+		if obs.ExpectedProcessIdentity != nil || obs.ObservedProcessIdentity != nil {
+			return ErrRecoveryObservationInvalid
+		}
+	case RecoveryObservationUnverifiable:
+		if obs.ExpectedProcessIdentity == nil {
+			return ErrRecoveryObservationInvalid
+		}
 	default:
 		return fmt.Errorf("%w: unsupported observation state %q", ErrRecoveryObservationInvalid, obs.State)
+	}
+	if obs.CurrentBootIDHash != "" {
+		if _, err := ParseSHA256Digest(obs.CurrentBootIDHash); err != nil {
+			return fmt.Errorf("%w: current boot id hash: %v", ErrRecoveryObservationInvalid, err)
+		}
 	}
 	return nil
 }
