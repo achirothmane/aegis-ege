@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -47,6 +48,7 @@ type WorkloadRecoveryObservation struct {
 	ExpectedProcessIdentity *LinuxProcessIdentity `json:"expected_process_identity,omitempty"`
 	ObservedProcessIdentity *LinuxProcessIdentity `json:"observed_process_identity,omitempty"`
 	CurrentBootIDHash       string                `json:"current_boot_id_hash,omitempty"`
+	ExpectedCgroup          string                `json:"expected_cgroup"`
 	ExpectedCgroupID        uint64                `json:"expected_cgroup_id"`
 	ObservedCgroupID        uint64                `json:"observed_cgroup_id,omitempty"`
 	ObservedCgroup          string                `json:"observed_cgroup,omitempty"`
@@ -69,9 +71,14 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		obs.Generation == 0 ||
 		strings.TrimSpace(obs.ActivationID) == "" ||
 		obs.ProcessID <= 0 ||
+		strings.TrimSpace(obs.ExpectedCgroup) == "" ||
 		obs.ExpectedCgroupID == 0 ||
 		obs.ObservedAt.IsZero() {
 		return ErrRecoveryObservationInvalid
+	}
+	if filepath.Clean(obs.ExpectedCgroup) != obs.ExpectedCgroup ||
+		!filepath.IsAbs(obs.ExpectedCgroup) {
+		return fmt.Errorf("%w: expected cgroup path is not a clean absolute path", ErrRecoveryObservationInvalid)
 	}
 	if _, err := ParseSHA256Digest(obs.ActivationDigest); err != nil {
 		return fmt.Errorf("%w: activation digest: %v", ErrRecoveryObservationInvalid, err)
@@ -92,6 +99,7 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 			obs.ObservedCgroupID == 0 ||
 			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
 			obs.ObservedCgroupID != obs.ExpectedCgroupID ||
+			filepath.Clean(obs.ObservedCgroup) != obs.ExpectedCgroup ||
 			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash {
 			return ErrRecoveryObservationInvalid
 		}
@@ -118,7 +126,8 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 		if obs.ExpectedProcessIdentity == nil || obs.ObservedProcessIdentity == nil ||
 			obs.ObservedCgroupID == 0 ||
 			*obs.ExpectedProcessIdentity != *obs.ObservedProcessIdentity ||
-			obs.ObservedCgroupID == obs.ExpectedCgroupID ||
+			(obs.ObservedCgroupID == obs.ExpectedCgroupID &&
+				filepath.Clean(obs.ObservedCgroup) == obs.ExpectedCgroup) ||
 			obs.CurrentBootIDHash != obs.ExpectedProcessIdentity.BootIDHash {
 			return ErrRecoveryObservationInvalid
 		}
