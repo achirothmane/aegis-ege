@@ -13,6 +13,11 @@ import (
 	"strings"
 )
 
+const (
+	DefaultCapsuleMapPath = "/sys/fs/bpf/aegis-ege/maps/aegis_capsules"
+	DefaultFenceMapPath   = "/sys/fs/bpf/aegis-ege/maps/aegis_fences"
+)
+
 type BPFToolRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
 }
@@ -43,8 +48,11 @@ func NewBPFToolStore(
 			return nil, fmt.Errorf("locate bpftool: %w", err)
 		}
 	}
-	if strings.TrimSpace(capsuleMapPath) == "" || strings.TrimSpace(fenceMapPath) == "" {
-		return nil, errors.New("pinned capsule and fence map paths are required")
+	if strings.TrimSpace(capsuleMapPath) == "" {
+		capsuleMapPath = DefaultCapsuleMapPath
+	}
+	if strings.TrimSpace(fenceMapPath) == "" {
+		fenceMapPath = DefaultFenceMapPath
 	}
 	return &BPFToolStore{
 		BPFToolPath:    bpftoolPath,
