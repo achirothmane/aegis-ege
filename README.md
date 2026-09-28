@@ -318,6 +318,7 @@ That feedback is the gate for major product expansion.
 - [Aegis-EGE v0 protocol](docs/aegis-ege-v0.md)
 - [Evidence producers](docs/evidence-producers.md)
 - [Evidence composition](docs/evidence-composition.md)
+- [Error Evidence Pipeline](docs/error-evidence-pipeline.md)
 - [Prometheus falsification v1](docs/prometheus-falsification-v1.md)
 - [Adapter registry](docs/adapter-registry.md)
 - [Adoption gate](ADOPTION.md)
