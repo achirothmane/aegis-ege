@@ -40,6 +40,7 @@ func Compile(req CompileRequest) (Packet, error) {
 
 	packet := Packet{
 		APIVersion: PacketVersion,
+		IntentID:   req.Event.IntentID,
 		Provenance: Provenance{
 			Source:      req.Source,
 			EventID:     req.Event.EventID,
@@ -86,6 +87,8 @@ func Verify(packet Packet) error {
 
 func validateCompileRequest(req CompileRequest) error {
 	switch {
+	case req.Event.IntentID == "":
+		return errors.New("intent_id is required")
 	case req.Event.EventID == "":
 		return errors.New("event_id is required")
 	case req.Event.ObservedAt.IsZero():
@@ -123,6 +126,28 @@ func validateCompileRequest(req CompileRequest) error {
 
 func digestPacket(packet Packet) (string, error) {
 	unsigned := struct {
+		APIVersion string           `json:"api_version"`
+		IntentID   string           `json:"intent_id"`
+		Provenance Provenance       `json:"provenance"`
+		Actor      Actor            `json:"actor"`
+		Action     Action           `json:"action"`
+		Context    BootstrapContext `json:"context"`
+		Evidence   map[string]any   `json:"evidence"`
+		Redaction  RedactionSummary `json:"redaction"`
+	}{
+		APIVersion: packet.APIVersion,
+		IntentID:   packet.IntentID,
+		Provenance: packet.Provenance,
+		Actor:      packet.Actor,
+		Action:     packet.Action,
+		Context:    packet.Context,
+		Evidence:   packet.Evidence,
+		Redaction:  packet.Redaction,
+	}
+	return digestJSON(unsigned)
+}
+
+/*OLD_DIGEST_PACKET
 		APIVersion string           `json:"api_version"`
 		Provenance Provenance       `json:"provenance"`
 		Actor      Actor            `json:"actor"`
