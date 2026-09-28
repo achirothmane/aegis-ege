@@ -1,0 +1,71 @@
+name: EEP independent validation
+description: Report what happened when you independently tried the n8n → EEP → external mutation validation path.
+title: "[eep-validation] "
+labels:
+  - adoption
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form is for independent usage evidence. PASS, FAIL, setup friction, or deciding not to continue are all useful.
+
+        Please do not include tokens, webhook secrets, customer data, or other credentials.
+
+  - type: dropdown
+    id: n8n
+    attributes:
+      label: n8n environment
+      options:
+        - n8n Cloud
+        - Self-hosted n8n
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Validation result
+      options:
+        - PASS
+        - FAIL
+        - Could not complete setup
+        - Chose not to continue
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Include the stage reached, error, or useful behavior. Do not include secrets.
+    validations:
+      required: true
+
+  - type: input
+    id: run_url
+    attributes:
+      label: Public GitHub Actions run URL
+      description: Optional. Share only if the run is public and contains no sensitive information.
+
+  - type: textarea
+    id: friction
+    attributes:
+      label: Setup friction
+      description: What was confusing, slow, or unnecessary?
+
+  - type: textarea
+    id: alternative
+    attributes:
+      label: What would you use instead?
+      description: Existing n8n controls, approval nodes, custom code, another product, or nothing.
+
+  - type: checkboxes
+    id: independence
+    attributes:
+      label: Independent reproduction
+      options:
+        - label: I ran this without private implementation help from the repository author.
+          required: true
+        - label: I used synthetic or non-sensitive data only.
+          required: true

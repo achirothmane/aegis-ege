@@ -169,6 +169,24 @@ This is evidence that the current protocol crosses real external service boundar
 
 See [EEP external validation v1](docs/eep-external-validation-v1.md).
 
+### Reproduce the EEP path independently
+
+The next product gate is independent usage, not another adapter.
+
+If you already use n8n, the shortest self-serve path is:
+
+```text
+fork repo
+→ import the included n8n workflow
+→ configure synthetic CRM endpoint + secrets
+→ run EEP Live Validation
+→ report PASS / FAIL / setup friction
+```
+
+Start with [Try EEP with n8n](docs/try-eep-n8n.md).
+
+An independent FAIL is useful evidence too. The goal is to learn whether someone other than the author can reproduce the path without private implementation help.
+
 ## Evidence composition
 
 Aegis-EGE can bind multiple named evidence sources into one Evidence Manifest and require a composition policy before permit minting.
