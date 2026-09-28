@@ -110,6 +110,7 @@ func fixtureRequest() CompileRequest {
 	captured := observed.Add(2 * time.Second)
 	return CompileRequest{
 		Event: RuntimeEvent{
+			IntentID: "intent-crm-42",
 			EventID:    "evt-42",
 			WorkflowID: "n8n-crm-sync",
 			RunID:      "run-7",
