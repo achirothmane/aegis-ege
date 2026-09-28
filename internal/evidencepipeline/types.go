@@ -82,15 +82,3 @@ type Packet struct {
 	Redaction  RedactionSummary `json:"redaction"`
 	Integrity  Integrity        `json:"integrity"`
 }
-
-// removed duplicate fields marker
-/*OLD_PACKET_FIELDS
-	APIVersion string           `json:"api_version"`
-	Provenance Provenance       `json:"provenance"`
-	Actor      Actor            `json:"actor"`
-	Action     Action           `json:"action"`
-	Context    BootstrapContext `json:"context"`
-	Evidence   map[string]any   `json:"evidence"`
-	Redaction  RedactionSummary `json:"redaction"`
-	Integrity  Integrity        `json:"integrity"`
-}
