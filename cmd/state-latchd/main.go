@@ -46,6 +46,7 @@ func main() {
 		enableN8NEEPAdapter = flag.Bool("enable-n8n-eep-adapter", false, "enable authenticated n8n runtime-event compilation into EEP evidence packets")
 		genesisManifestFile = flag.String("genesis-manifest", "", "signed Level -1 GenesisManifest JSON; required for mutations")
 		genesisVerificationBundleFile = flag.String("genesis-verification-bundle", "", "production Genesis verification bundle JSON; required for mutations")
+		genesisAcceptanceLedgerFile = flag.String("genesis-acceptance-ledger", "", "append-only Genesis acceptance ledger; default <data-dir>/genesis-acceptance.log")
 		genesisMinimumEpoch = flag.Uint64("genesis-minimum-epoch", 1, "minimum accepted Genesis epoch")
 		genesisMinimumDoctrineEpoch = flag.Uint64("genesis-minimum-doctrine-epoch", 1, "minimum accepted Level -2 doctrine epoch")
 		genesisRequiredConformance = flag.String("genesis-required-conformance", "C3", "minimum Genesis implementation conformance: C0..C4")
@@ -75,10 +76,20 @@ func main() {
 		if strings.TrimSpace(*genesisManifestFile) == "" || strings.TrimSpace(*genesisVerificationBundleFile) == "" {
 			fatal("invalid Genesis configuration", fmt.Errorf("genesis-manifest and genesis-verification-bundle are required when mutations are enabled"))
 		}
+		acceptanceLedgerPath := strings.TrimSpace(*genesisAcceptanceLedgerFile)
+		if acceptanceLedgerPath == "" {
+			acceptanceLedgerPath = filepath.Join(*dataDir, "genesis-acceptance.log")
+		}
+		acceptanceLedger, err := genesisbootstrap.NewFileAcceptanceLedger(acceptanceLedgerPath)
+		if err != nil {
+			fatal("configure Genesis acceptance ledger", err)
+		}
+
 		runtime, result, err := genesisbootstrap.BootstrapProduction(
 			context.Background(),
 			*genesisManifestFile,
 			*genesisVerificationBundleFile,
+			acceptanceLedger,
 			*genesisMinimumEpoch,
 			*genesisMinimumDoctrineEpoch,
 			genesis.ConformanceLevel(*genesisRequiredConformance),
@@ -94,6 +105,7 @@ func main() {
 			"minimum_epoch", *genesisMinimumEpoch,
 			"minimum_doctrine_epoch", *genesisMinimumDoctrineEpoch,
 			"required_conformance", *genesisRequiredConformance,
+			"acceptance_ledger", acceptanceLedgerPath,
 		)
 	}
 
