@@ -324,6 +324,7 @@ That feedback is the gate for major product expansion.
 - [Error Evidence Pipeline](docs/error-evidence-pipeline.md)
 - [n8n → EEP adapter](docs/n8n-eep-adapter.md)
 - [EEP live validation harness](docs/eep-live-validation.md)
+- [Free external EEP validation setup](docs/eep-free-external-setup.md)
 - [Prometheus falsification v1](docs/prometheus-falsification-v1.md)
 - [Adapter registry](docs/adapter-registry.md)
 - [Adoption gate](ADOPTION.md)
