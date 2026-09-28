@@ -1,12 +1,16 @@
 package decision
 
-import "github.com/achirothmane/easl"
+import (
+	"github.com/achirothmane/easl"
+
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
+)
 
 // evaluateEASL maps EASL's domain-neutral epistemic state into Aegis-EGE's
 // execution policy. EASL establishes what is justified; Aegis-EGE decides
 // what that means for an execution request.
 func evaluateEASL(snapshot easl.Snapshot) *Result {
-	evaluation, err := easl.Evaluate(snapshot)
+	evaluation, err := easlruntime.Evaluate(snapshot)
 	if err != nil {
 		return &Result{
 			Decision:    Escalate,

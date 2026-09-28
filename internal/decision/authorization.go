@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/achirothmane/easl"
+
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 )
 
 func DigestEvidence(evidence []EvidenceObservation) string {
@@ -84,7 +86,7 @@ func validateAuthorizationStateBindings(auth Authorization, attempt ExecutionAtt
 		return reasons
 	}
 
-	evaluation, err := easl.Evaluate(easl.Snapshot{
+	evaluation, err := easlruntime.Evaluate(easl.Snapshot{
 		At:            attempt.Now,
 		StateBindings: bindings,
 		Assumptions: []easl.Assumption{{

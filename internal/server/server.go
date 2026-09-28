@@ -10,7 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/achirothmane/easl"
+
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
@@ -41,6 +44,7 @@ type Config struct {
 	EGEPrometheusNodeHealthTrustDomain string
 	EGEPrometheusHTTPClient            *http.Client
 	EnableN8NEEPAdapter                 bool
+	EASLRuntime                          *easl.Runtime
 }
 
 type Server struct {
@@ -83,6 +87,16 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.MutationsEnabled && config.ReplayGuard == nil {
 		return nil, fmt.Errorf("replay guard is required when mutations are enabled")
+	}
+	if config.EASLRuntime != nil {
+		if err := easlruntime.Bind(config.EASLRuntime); err != nil {
+			return nil, fmt.Errorf("bind Genesis-gated EASL runtime: %w", err)
+		}
+	}
+	if config.MutationsEnabled {
+		if _, err := easlruntime.Metadata(); err != nil {
+			return nil, fmt.Errorf("Genesis-gated EASL runtime is required when mutations are enabled: %w", err)
+		}
 	}
 	if config.RequireEBAConformance && config.EBAApprovalAuthority == nil {
 		return nil, fmt.Errorf("EBA approval authority is required when EBA conformance enforcement is enabled")
@@ -314,7 +328,16 @@ type errorResponse struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	genesisState := "GENESIS_UNBOUND_READ_ONLY"
+	if _, err := easlruntime.Metadata(); err == nil {
+		genesisState = "BOOTSTRAP_READY"
+	} else if s.config.MutationsEnabled {
+		genesisState = "GENESIS_LOCKED"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"genesis": genesisState,
+	})
 }
 
 func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
