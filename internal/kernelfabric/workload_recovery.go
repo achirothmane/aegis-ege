@@ -306,6 +306,9 @@ func EvaluateWorkloadReconciliation(
 		return SignedWorkloadReconciliationDecision{}, err
 	}
 	obs := observation.Observation
+	if obs.PriorRecoveryDigest != "" {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
 	if state.DeviceID != activation.Receipt.DeviceID ||
 		state.WorkloadID != activation.Receipt.WorkloadID ||
 		state.ActivationDigest != activationDigest ||
