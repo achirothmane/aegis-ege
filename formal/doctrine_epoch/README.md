@@ -14,6 +14,15 @@ The model is deliberately small. It covers:
 - evidence / authority / sector admissibility before execution;
 - append-only historical decision and constitutional logs.
 
+## Run with TLC
+
+Using the official TLA+ command-line tools and Java 11+:
+
+    cd formal/doctrine_epoch
+    java -jar /path/to/tla2tools.jar -config DoctrineEpoch.cfg DoctrineEpoch.tla
+
+The repository does not vendor tla2tools.jar.
+
 ## Checked properties
 
 The TLC configuration asks the model checker to verify:
