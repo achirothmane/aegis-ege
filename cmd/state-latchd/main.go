@@ -47,6 +47,7 @@ func main() {
 		genesisManifestFile = flag.String("genesis-manifest", "", "signed Level -1 GenesisManifest JSON; required for mutations")
 		genesisVerificationBundleFile = flag.String("genesis-verification-bundle", "", "production Genesis verification bundle JSON; required for mutations")
 		genesisMinimumEpoch = flag.Uint64("genesis-minimum-epoch", 1, "minimum accepted Genesis epoch")
+		genesisMinimumDoctrineEpoch = flag.Uint64("genesis-minimum-doctrine-epoch", 1, "minimum accepted Level -2 doctrine epoch")
 		genesisRequiredConformance = flag.String("genesis-required-conformance", "C3", "minimum Genesis implementation conformance: C0..C4")
 	)
 	flag.Parse()
@@ -79,6 +80,7 @@ func main() {
 			*genesisManifestFile,
 			*genesisVerificationBundleFile,
 			*genesisMinimumEpoch,
+			*genesisMinimumDoctrineEpoch,
 			genesis.ConformanceLevel(*genesisRequiredConformance),
 			time.Now().UTC(),
 		)
@@ -90,6 +92,7 @@ func main() {
 			"Genesis bootstrap ready",
 			"state", result.State,
 			"minimum_epoch", *genesisMinimumEpoch,
+			"minimum_doctrine_epoch", *genesisMinimumDoctrineEpoch,
 			"required_conformance", *genesisRequiredConformance,
 		)
 	}
