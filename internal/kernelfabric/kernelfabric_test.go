@@ -389,3 +389,34 @@ func TestAdvanceClockSnapshotRejectsBootChangeAndClockRollback(t *testing.T) {
 		t.Fatal("monotonic clock rollback was accepted")
 	}
 }
+
+
+func TestRevokeCurrentScopeForBootRejectsMismatchBeforeWrite(t *testing.T) {
+	var storedBoot [32]byte
+	storedBoot[0] = 1
+	var currentBoot [32]byte
+	currentBoot[0] = 2
+	store := &recordingKernelStore{
+		fence: ScopeFenceState{
+			BootIDHash:      storedBoot,
+			AuthorityTerm:   7,
+			DecisionEpoch:   31,
+			RevocationEpoch: 4,
+		},
+	}
+	key, err := FenceKey(42, ActionClassNetworkConnect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (Installer{Store: store}).RevokeCurrentScopeForBoot(
+		context.Background(),
+		key,
+		currentBoot,
+	)
+	if !errors.Is(err, ErrLeaseInvalid) {
+		t.Fatalf("boot mismatch error=%v", err)
+	}
+	if len(store.ops) != 1 || store.ops[0] != "get-fence" {
+		t.Fatalf("kernel fence was written despite boot mismatch: %v", store.ops)
+	}
+}
