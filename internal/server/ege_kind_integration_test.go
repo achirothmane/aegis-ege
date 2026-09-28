@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
@@ -329,24 +330,34 @@ func TestKindAegisEGERejectsStateDriftBetweenPrepareAndExecute(t *testing.T) {
 	}
 	boundResourceVersion := preparation.Permit.Claims.ResourceVersion
 
-	current, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	var changed *corev1.Node
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, err := client.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		now := metav1.Now()
+		current.Status.Conditions = []corev1.NodeCondition{{
+			Type:               corev1.NodeReady,
+			Status:             corev1.ConditionFalse,
+			LastHeartbeatTime:  now,
+			LastTransitionTime: now,
+		}}
+		updated, err := client.CoreV1().Nodes().UpdateStatus(
+			ctx,
+			current,
+			metav1.UpdateOptions{},
+		)
+		if err == nil {
+			changed = updated
+		}
+		return err
+	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("update node health between prepare and execute after conflict-safe re-read: %v", err)
 	}
-	now := metav1.Now()
-	current.Status.Conditions = []corev1.NodeCondition{{
-		Type:               corev1.NodeReady,
-		Status:             corev1.ConditionFalse,
-		LastHeartbeatTime:  now,
-		LastTransitionTime: now,
-	}}
-	changed, err := client.CoreV1().Nodes().UpdateStatus(
-		ctx,
-		current,
-		metav1.UpdateOptions{},
-	)
-	if err != nil {
-		t.Fatalf("update node health between prepare and execute: %v", err)
+	if changed == nil {
+		t.Fatal("node health update completed without returning the changed node")
 	}
 	if changed.ResourceVersion == boundResourceVersion {
 		t.Fatalf("expected state drift to change resourceVersion, remained %q", changed.ResourceVersion)
