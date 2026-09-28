@@ -1,7 +1,7 @@
 ---- MODULE DoctrineEpoch ----
 EXTENDS Naturals, FiniteSets, Sequences
 
-CONSTANTS Epochs, Signers, Quorum, FreezeTicks, InitialEpoch, NullEpoch
+CONSTANTS Epochs, Signers, Quorum, FreezeTicks, MaxTime, InitialEpoch, NullEpoch
 
 ASSUME /\ InitialEpoch \in Epochs
        /\ NullEpoch \notin Epochs
