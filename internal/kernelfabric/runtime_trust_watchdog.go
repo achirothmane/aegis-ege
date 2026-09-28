@@ -46,9 +46,11 @@ type RuntimeTrustExpiryEvidence struct {
 	ObservedBootNS             uint64                `json:"observed_boot_ns"`
 	TargetCgroup               string                `json:"target_cgroup"`
 	TargetCgroupID             uint64                `json:"target_cgroup_id"`
+	ActionClass                uint32                `json:"action_class"`
 	KernelFenceBootIDHash      string                `json:"kernel_fence_boot_id_hash"`
 	KernelAuthorityTerm        uint64                `json:"kernel_authority_term"`
 	KernelDecisionEpoch        uint64                `json:"kernel_decision_epoch"`
+	KernelPreviousRevocationEpoch uint64             `json:"kernel_previous_revocation_epoch"`
 	KernelRevocationEpoch      uint64                `json:"kernel_revocation_epoch"`
 	ProcessID                  int                   `json:"process_id"`
 	ExpectedProcessIdentity    *LinuxProcessIdentity `json:"expected_process_identity"`
@@ -79,9 +81,11 @@ func ValidateRuntimeTrustExpiryEvidence(e RuntimeTrustExpiryEvidence) error {
 		e.RuntimeTrustDeadlineBootNS <= e.RuntimeTrustInstalledBootNS ||
 		e.ObservedBootNS < e.RuntimeTrustDeadlineBootNS ||
 		e.TargetCgroupID == 0 ||
+		e.ActionClass != ActionClassNetworkConnect ||
 		e.KernelAuthorityTerm == 0 ||
 		e.KernelDecisionEpoch == 0 ||
 		e.KernelRevocationEpoch == 0 ||
+		e.KernelRevocationEpoch != e.KernelPreviousRevocationEpoch+1 ||
 		e.ProcessID <= 0 ||
 		e.ExpectedProcessIdentity == nil ||
 		e.ObservedAt.IsZero() {
