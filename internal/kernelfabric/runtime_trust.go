@@ -410,6 +410,7 @@ type RuntimeTrustEvaluationPolicy struct {
 	RemoteVerifierPublicKey ed25519.PublicKey
 	HostAttestorPublicKey   ed25519.PublicKey
 	PolicyDigest            string
+	MaxClockSkew            time.Duration
 	Now                     func() time.Time
 }
 
@@ -499,6 +500,18 @@ func EvaluateRuntimeTrust(
 		remoteDigest, err = SignedRemoteAttestationDecisionDigest(*currentRemote)
 		if err != nil {
 			return SignedRuntimeTrustDecision{}, err
+		}
+		skew := policy.MaxClockSkew
+		if skew <= 0 {
+			skew = DefaultRuntimeClockSkew
+		}
+		remoteVerifiedAt := currentRemote.Decision.VerifiedAt.UTC()
+		if remoteVerifiedAt.IsZero() || remoteVerifiedAt.After(now.Add(skew)) {
+			return SignedRuntimeTrustDecision{}, ErrRuntimeTrustInvalid
+		}
+		if remoteDigest != lease.Lease.RemoteDecisionDigest &&
+			!remoteVerifiedAt.After(lease.Lease.RemoteVerifiedAt.UTC()) {
+			return SignedRuntimeTrustDecision{}, ErrRuntimeTrustRollback
 		}
 		if currentRemote.Decision.DeviceID != state.DeviceID ||
 			currentRemote.Decision.BootstrapDigest != lease.Lease.BootstrapDigest {
