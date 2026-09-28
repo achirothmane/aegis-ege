@@ -616,6 +616,12 @@ func EvaluateQuarantineRelease(
 	if len(lifecycleAuthorityPrivateKey) != ed25519.PrivateKeySize {
 		return SignedQuarantineReleaseDecision{}, errors.New("lifecycle authority private key is required")
 	}
+	if !publicKeysEqual(
+		lifecycleAuthorityPrivateKey.Public().(ed25519.PublicKey),
+		trust.LifecycleAuthorityPublicKey,
+	) {
+		return SignedQuarantineReleaseDecision{}, errors.New("lifecycle authority private key does not match trusted public key")
+	}
 	lifecycleAuthorityID = strings.TrimSpace(lifecycleAuthorityID)
 	if lifecycleAuthorityID == "" {
 		return SignedQuarantineReleaseDecision{}, errors.New("lifecycle authority id is required")
@@ -694,7 +700,7 @@ func EvaluateQuarantineReleasedRestart(
 		return SignedWorkloadRestartDecision{}, err
 	}
 	lifecyclePub := policy.LifecycleAuthorityKey.Public().(ed25519.PublicKey)
-	if err := VerifySignedQuarantineReleaseDecision(release, lifecyclePub, now); err != nil {
+	if err := VerifySignedQuarantineReleaseDecision(release, lifecyclePub, time.Time{}); err != nil {
 		return SignedWorkloadRestartDecision{}, err
 	}
 	if err := VerifySignedRemoteAttestationDecision(remote, policy.RemoteVerifierPublicKey); err != nil {
