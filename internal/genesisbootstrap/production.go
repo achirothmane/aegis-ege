@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	BundleVersion         = "aegis.ege/genesis-verification-bundle/v1"
-	RevocationListVersion = "aegis.ege/genesis-revocations/v1"
-	maxExactJSONInteger   = uint64(1<<53 - 1)
+	BundleVersion                     = "aegis.ege/genesis-verification-bundle/v1"
+	RevocationListVersion             = "aegis.ege/genesis-revocations/v1"
+	DoctrineAuthorityStatementVersion = "aegis.ege/doctrine-authority-statement/v1"
+	maxExactJSONInteger               = uint64(1<<53 - 1)
 )
 
 type ArtifactPaths struct {
@@ -52,6 +53,9 @@ type ArtifactPaths struct {
 
 type VerificationBundle struct {
 	Version                            string        `json:"version"`
+	DoctrineManifest                   string        `json:"doctrine_manifest"`
+	SignedDoctrineAuthorityStatement   string        `json:"signed_doctrine_authority_statement"`
+	DoctrineAuthorityPublicKey         string        `json:"doctrine_authority_public_key"`
 	ManifestSignerPublicKey            string        `json:"manifest_signer_public_key"`
 	RemoteAttestationDecision          string        `json:"remote_attestation_decision"`
 	RemoteAttestationVerifierPublicKey string        `json:"remote_attestation_verifier_public_key"`
@@ -64,11 +68,28 @@ type VerificationBundle struct {
 	ProofArtifactPaths                 []string      `json:"proof_artifact_paths"`
 }
 
+
+type DoctrineAuthorityStatement struct {
+	Version              string    `json:"version"`
+	DoctrineID           string    `json:"doctrine_id"`
+	DoctrineEpoch        uint64    `json:"doctrine_epoch"`
+	DoctrineManifestHash string    `json:"doctrine_manifest_hash"`
+	IssuedAt             time.Time `json:"issued_at"`
+	ExpiresAt            time.Time `json:"expires_at"`
+}
+
+type SignedDoctrineAuthorityStatement struct {
+	Statement DoctrineAuthorityStatement `json:"statement"`
+	KeyID     string                     `json:"key_id"`
+	Signature string                     `json:"signature"`
+}
+
 type RevocationList struct {
-	Version                     string    `json:"version"`
-	Epoch                       uint64    `json:"epoch"`
-	MinimumAcceptedGenesisEpoch uint64    `json:"minimum_accepted_genesis_epoch"`
-	MinimumTrustRootEpoch       uint64    `json:"minimum_trust_root_epoch"`
+	Version                      string    `json:"version"`
+	Epoch                        uint64    `json:"epoch"`
+	MinimumAcceptedGenesisEpoch  uint64    `json:"minimum_accepted_genesis_epoch"`
+	MinimumAcceptedDoctrineEpoch uint64    `json:"minimum_accepted_doctrine_epoch"`
+	MinimumTrustRootEpoch        uint64    `json:"minimum_trust_root_epoch"`
 	IssuedAt                    time.Time `json:"issued_at"`
 	ExpiresAt                   time.Time `json:"expires_at"`
 	RevokedManifestHashes       []string  `json:"revoked_manifest_hashes,omitempty"`
@@ -85,6 +106,9 @@ type SignedRevocationList struct {
 type ProductionVerifier struct {
 	now                 time.Time
 	bundle              VerificationBundle
+	doctrineAuthority   ed25519.PublicKey
+	doctrineStatement   SignedDoctrineAuthorityStatement
+	doctrineDigest      string
 	manifestSigner      ed25519.PublicKey
 	remoteVerifier      ed25519.PublicKey
 	bootstrapAttestor   ed25519.PublicKey
@@ -100,6 +124,7 @@ func BootstrapProduction(
 	manifestPath string,
 	bundlePath string,
 	minimumAcceptedEpoch uint64,
+	minimumAcceptedDoctrineEpoch uint64,
 	requiredConformance genesis.ConformanceLevel,
 	now time.Time,
 ) (*easl.Runtime, genesis.Result, error) {
@@ -126,7 +151,9 @@ func BootstrapProduction(
 		Manifest: manifest,
 		Verification: genesis.Context{
 			Now:                          now,
-			MinimumAcceptedEpoch:         minimumAcceptedEpoch,
+			MinimumAcceptedEpoch:         maxUint64(minimumAcceptedEpoch, verifier.revocations.List.MinimumAcceptedGenesisEpoch),
+			MinimumAcceptedDoctrineEpoch: maxUint64(minimumAcceptedDoctrineEpoch, verifier.revocations.List.MinimumAcceptedDoctrineEpoch),
+			ExpectedDoctrineManifestHash: verifier.doctrineDigest,
 			ExpectedImplementationDigest: verifier.executableDigest,
 			RequiredConformance:          requiredConformance,
 		},
@@ -146,7 +173,10 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 		return nil, errors.New("max_attestation_age_seconds must be positive")
 	}
 	requiredPaths := map[string]string{
-		"manifest_signer_public_key":             bundle.ManifestSignerPublicKey,
+		"doctrine_manifest":                       bundle.DoctrineManifest,
+		"signed_doctrine_authority_statement":     bundle.SignedDoctrineAuthorityStatement,
+		"doctrine_authority_public_key":           bundle.DoctrineAuthorityPublicKey,
+		"manifest_signer_public_key":               bundle.ManifestSignerPublicKey,
 		"remote_attestation_decision":            bundle.RemoteAttestationDecision,
 		"remote_attestation_verifier_public_key": bundle.RemoteAttestationVerifierPublicKey,
 		"bootstrap_receipt":                      bundle.BootstrapReceipt,
@@ -158,6 +188,19 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 		if strings.TrimSpace(path) == "" {
 			return nil, fmt.Errorf("%s is required", name)
 		}
+	}
+
+	doctrineAuthority, err := kernelfabric.LoadEd25519PublicKey(bundle.DoctrineAuthorityPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("load doctrine authority public key: %w", err)
+	}
+	var doctrineStatement SignedDoctrineAuthorityStatement
+	if err := readStrictJSON(bundle.SignedDoctrineAuthorityStatement, &doctrineStatement); err != nil {
+		return nil, fmt.Errorf("read doctrine authority statement: %w", err)
+	}
+	doctrineDigest, err := fileDigest(bundle.DoctrineManifest)
+	if err != nil {
+		return nil, fmt.Errorf("hash doctrine manifest: %w", err)
 	}
 
 	manifestSigner, err := kernelfabric.LoadEd25519PublicKey(bundle.ManifestSignerPublicKey)
@@ -198,6 +241,9 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 	return &ProductionVerifier{
 		now:                 now.UTC(),
 		bundle:              bundle,
+		doctrineAuthority:   doctrineAuthority,
+		doctrineStatement:   doctrineStatement,
+		doctrineDigest:      doctrineDigest,
 		manifestSigner:      manifestSigner,
 		remoteVerifier:      remoteVerifier,
 		bootstrapAttestor:   bootstrapAttestor,
@@ -207,6 +253,27 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 		revocations:         revocations,
 		executableDigest:    executableDigest,
 	}, nil
+}
+
+
+func (v *ProductionVerifier) VerifyDoctrineBinding(_ context.Context, m genesis.Manifest) error {
+	if err := VerifySignedDoctrineAuthorityStatement(v.doctrineStatement, v.doctrineAuthority, v.now); err != nil {
+		return err
+	}
+	statement := v.doctrineStatement.Statement
+	if v.doctrineDigest != statement.DoctrineManifestHash {
+		return fmt.Errorf("doctrine manifest file digest %s does not match authority statement %s", v.doctrineDigest, statement.DoctrineManifestHash)
+	}
+	if m.Doctrine.DoctrineID != statement.DoctrineID {
+		return fmt.Errorf("Genesis doctrine_id %q does not match authority statement %q", m.Doctrine.DoctrineID, statement.DoctrineID)
+	}
+	if m.Doctrine.DoctrineEpoch != statement.DoctrineEpoch {
+		return fmt.Errorf("Genesis doctrine epoch %d does not match authority statement %d", m.Doctrine.DoctrineEpoch, statement.DoctrineEpoch)
+	}
+	if m.Doctrine.DoctrineManifestHash != statement.DoctrineManifestHash {
+		return fmt.Errorf("Genesis doctrine manifest hash %s does not match authority statement %s", m.Doctrine.DoctrineManifestHash, statement.DoctrineManifestHash)
+	}
+	return nil
 }
 
 func (v *ProductionVerifier) VerifyAuthenticity(_ context.Context, m genesis.Manifest) error {
@@ -443,6 +510,9 @@ func LoadVerificationBundle(path string) (VerificationBundle, error) {
 		}
 		return filepath.Join(base, p)
 	}
+	bundle.DoctrineManifest = resolve(bundle.DoctrineManifest)
+	bundle.SignedDoctrineAuthorityStatement = resolve(bundle.SignedDoctrineAuthorityStatement)
+	bundle.DoctrineAuthorityPublicKey = resolve(bundle.DoctrineAuthorityPublicKey)
 	bundle.ManifestSignerPublicKey = resolve(bundle.ManifestSignerPublicKey)
 	bundle.RemoteAttestationDecision = resolve(bundle.RemoteAttestationDecision)
 	bundle.RemoteAttestationVerifierPublicKey = resolve(bundle.RemoteAttestationVerifierPublicKey)
@@ -477,7 +547,8 @@ func LoadVerificationBundle(path string) (VerificationBundle, error) {
 
 func CanonicalManifestPayload(m genesis.Manifest) ([]byte, error) {
 	if m.GenesisEpoch > maxExactJSONInteger || m.Sequence > maxExactJSONInteger ||
-		m.Trust.TrustRootEpoch > maxExactJSONInteger || m.Validity.MinimumAcceptedEpoch > maxExactJSONInteger {
+		m.Doctrine.DoctrineEpoch > maxExactJSONInteger || m.Trust.TrustRootEpoch > maxExactJSONInteger ||
+		m.Validity.MinimumAcceptedEpoch > maxExactJSONInteger {
 		return nil, errors.New("Genesis integer exceeds RFC8785/JCS exact JSON integer profile")
 	}
 	raw, err := json.Marshal(m)
@@ -540,6 +611,98 @@ func SignManifest(m genesis.Manifest, privateKey ed25519.PrivateKey) (genesis.Ma
 		Signature:          base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
 	}
 	return m, nil
+}
+
+
+func SignDoctrineAuthorityStatement(statement DoctrineAuthorityStatement, privateKey ed25519.PrivateKey) (SignedDoctrineAuthorityStatement, error) {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return SignedDoctrineAuthorityStatement{}, errors.New("invalid Ed25519 doctrine authority private key")
+	}
+	if err := validateDoctrineAuthorityStatement(statement, time.Time{}); err != nil {
+		return SignedDoctrineAuthorityStatement{}, err
+	}
+	payload, err := canonicalDoctrineAuthorityStatementPayload(statement)
+	if err != nil {
+		return SignedDoctrineAuthorityStatement{}, err
+	}
+	keyID, err := kernelfabric.BootstrapKeyID(privateKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		return SignedDoctrineAuthorityStatement{}, err
+	}
+	return SignedDoctrineAuthorityStatement{
+		Statement: statement,
+		KeyID:     keyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
+	}, nil
+}
+
+func VerifySignedDoctrineAuthorityStatement(signed SignedDoctrineAuthorityStatement, publicKey ed25519.PublicKey, now time.Time) error {
+	if err := validateDoctrineAuthorityStatement(signed.Statement, now); err != nil {
+		return err
+	}
+	keyID, err := kernelfabric.BootstrapKeyID(publicKey)
+	if err != nil {
+		return err
+	}
+	if signed.KeyID != keyID {
+		return errors.New("doctrine authority statement key id does not match trusted authority")
+	}
+	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
+	if err != nil {
+		return fmt.Errorf("decode doctrine authority signature: %w", err)
+	}
+	payload, err := canonicalDoctrineAuthorityStatementPayload(signed.Statement)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return errors.New("doctrine authority statement signature is invalid")
+	}
+	return nil
+}
+
+func canonicalDoctrineAuthorityStatementPayload(statement DoctrineAuthorityStatement) ([]byte, error) {
+	if statement.DoctrineEpoch > maxExactJSONInteger {
+		return nil, errors.New("doctrine epoch exceeds RFC8785/JCS exact JSON integer profile")
+	}
+	raw, err := json.Marshal(statement)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	canonical, err := jcs.Format(value)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte("aegis-ege/doctrine-authority-statement/v1\x00"), []byte(canonical)...), nil
+}
+
+func validateDoctrineAuthorityStatement(statement DoctrineAuthorityStatement, now time.Time) error {
+	if statement.Version != DoctrineAuthorityStatementVersion {
+		return fmt.Errorf("unsupported doctrine authority statement version %q", statement.Version)
+	}
+	if strings.TrimSpace(statement.DoctrineID) == "" {
+		return errors.New("doctrine_id is required")
+	}
+	if !strings.HasPrefix(statement.DoctrineManifestHash, "sha256:") {
+		return errors.New("doctrine_manifest_hash must be a sha256 digest")
+	}
+	if statement.IssuedAt.IsZero() || statement.ExpiresAt.IsZero() || !statement.ExpiresAt.After(statement.IssuedAt) {
+		return errors.New("doctrine authority statement validity window is invalid")
+	}
+	if !now.IsZero() {
+		now = now.UTC()
+		if now.Before(statement.IssuedAt.UTC()) {
+			return errors.New("doctrine authority statement is not yet valid")
+		}
+		if !now.Before(statement.ExpiresAt.UTC()) {
+			return errors.New("doctrine authority statement is expired")
+		}
+	}
+	return nil
 }
 
 func SignRevocationList(list RevocationList, privateKey ed25519.PrivateKey) (SignedRevocationList, error) {
@@ -607,7 +770,8 @@ func SignedRevocationListDigest(signed SignedRevocationList) (string, error) {
 }
 
 func canonicalRevocationListPayload(list RevocationList) ([]byte, error) {
-	if list.Epoch > maxExactJSONInteger || list.MinimumAcceptedGenesisEpoch > maxExactJSONInteger || list.MinimumTrustRootEpoch > maxExactJSONInteger {
+	if list.Epoch > maxExactJSONInteger || list.MinimumAcceptedGenesisEpoch > maxExactJSONInteger ||
+		list.MinimumAcceptedDoctrineEpoch > maxExactJSONInteger || list.MinimumTrustRootEpoch > maxExactJSONInteger {
 		return nil, errors.New("revocation-list integer exceeds RFC8785/JCS exact JSON integer profile")
 	}
 	raw, err := json.Marshal(list)
@@ -708,6 +872,13 @@ func readStrictJSON(path string, dst any) error {
 		return err
 	}
 	return nil
+}
+
+func maxUint64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func containsString(values []string, target string) bool {
