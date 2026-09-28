@@ -208,6 +208,7 @@ type WorkloadLifecycleState struct {
 	DeviceID                string    `json:"device_id"`
 	WorkloadID              string    `json:"workload_id"`
 	Generation              uint64    `json:"generation"`
+	LifecycleEpoch          uint64    `json:"lifecycle_epoch,omitempty"`
 	State                   string    `json:"state"`
 	ActivationDigest        string    `json:"activation_digest"`
 	ExitDigest              string    `json:"exit_digest,omitempty"`
@@ -215,6 +216,20 @@ type WorkloadLifecycleState struct {
 	RestartCountInWindow    uint32    `json:"restart_count_in_window"`
 	RestartWindowStartedAt  time.Time `json:"restart_window_started_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
+}
+
+func EffectiveLifecycleEpoch(state WorkloadLifecycleState) uint64 {
+	if state.LifecycleEpoch == 0 {
+		return 1
+	}
+	return state.LifecycleEpoch
+}
+
+func NormalizeWorkloadLifecycleState(state WorkloadLifecycleState) WorkloadLifecycleState {
+	if state.LifecycleEpoch == 0 {
+		state.LifecycleEpoch = 1
+	}
+	return state
 }
 
 func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
@@ -282,6 +297,7 @@ type WorkloadRestartDecision struct {
 	TargetCgroupID              uint64    `json:"target_cgroup_id"`
 	BootstrapDigest             string    `json:"bootstrap_digest"`
 	PreviousGeneration          uint64    `json:"previous_generation"`
+	LifecycleEpoch              uint64    `json:"lifecycle_epoch"`
 	PreviousActivationDigest   string    `json:"previous_activation_digest"`
 	PreviousExitDigest         string    `json:"previous_exit_digest,omitempty"`
 	PreviousRecoveryDigest     string    `json:"previous_recovery_digest,omitempty"`
@@ -459,6 +475,7 @@ func EvaluateWorkloadRestart(
 		TargetCgroupID:              activation.Receipt.TargetCgroupID,
 		BootstrapDigest:             priorGrant.Grant.BootstrapDigest,
 		PreviousGeneration:          state.Generation,
+		LifecycleEpoch:              EffectiveLifecycleEpoch(state),
 		PreviousActivationDigest:    activationDigest,
 		PreviousExitDigest:          exitDigest,
 		CurrentRemoteDecisionDigest: remoteDigest,
@@ -598,6 +615,7 @@ func ValidateRestartForLifecycleState(
 		decision.DeviceID != state.DeviceID ||
 		decision.WorkloadID != state.WorkloadID ||
 		decision.PreviousGeneration != state.Generation ||
+		decision.LifecycleEpoch != EffectiveLifecycleEpoch(state) ||
 		decision.PreviousActivationDigest != state.ActivationDigest ||
 		decision.CurrentRemoteDecisionDigest != grant.Grant.RemoteDecisionDigest ||
 		grant.Grant.DeviceID != state.DeviceID ||
@@ -691,6 +709,7 @@ func ValidateWorkloadRestartDecision(
 		strings.TrimSpace(decision.TargetCgroup) == "" ||
 		decision.TargetCgroupID == 0 ||
 		decision.PreviousGeneration == 0 ||
+		decision.LifecycleEpoch == 0 ||
 		strings.TrimSpace(decision.AuthorityID) == "" ||
 		decision.EvaluatedAt.IsZero() ||
 		decision.RestartWindowStartedAt.IsZero() ||
