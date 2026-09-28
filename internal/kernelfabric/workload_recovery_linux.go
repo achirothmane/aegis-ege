@@ -150,9 +150,7 @@ func ApplyWorkloadReconciliation(
 				state.State = LifecycleStateExitedUnknown
 				state.ExitDigest = ""
 				state.RecoveryDigest = digest
-				state.RuntimeTrustEpoch = 0
-				state.RuntimeTrustLeaseDigest = ""
-				state.RuntimeTrustExpiresAt = time.Time{}
+				clearRuntimeTrustState(&state)
 				state.UpdatedAt = d.DecidedAt.UTC()
 			case ReconciliationQuarantine:
 				state.State = LifecycleStateQuarantined
