@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/achirothmane/easl"
+
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 )
 
 func testEvidenceEvent(sequence uint64) EvidenceEvent {
@@ -193,7 +195,7 @@ func TestDegradedContinuityBecomesEASLContradiction(t *testing.T) {
 		t.Fatalf("degraded continuity did not contradict EASL assumption: %+v", evidence)
 	}
 
-	evaluation, err := easl.Evaluate(easl.Snapshot{
+	evaluation, err := easlruntime.Evaluate(easl.Snapshot{
 		At:       observedAt.Add(time.Second),
 		Evidence: []easl.Evidence{evidence},
 		Assumptions: []easl.Assumption{{
