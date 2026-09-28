@@ -3,7 +3,7 @@ module github.com/achirothmane/aegis-ege
 go 1.25.0
 
 require (
-	github.com/achirothmane/easl v0.0.0-20260928043137-e126f46e5fe5
+	github.com/achirothmane/easl v0.0.0-20260928052341-f7e3b79c6892
 	github.com/cilium/ebpf v0.22.0
 	github.com/google/go-attestation v0.6.4
 	github.com/google/go-tpm v0.9.8
