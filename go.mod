@@ -8,6 +8,7 @@ require (
 	github.com/google/go-attestation v0.6.4
 	github.com/google/go-tpm v0.9.8
 	github.com/google/go-tpm-tools v0.4.7
+	github.com/ucarion/jcs v0.0.0-20200929210745-ee7b8c714a50
 	k8s.io/api v0.35.8
 	k8s.io/apimachinery v0.35.8
 	k8s.io/client-go v0.35.8
