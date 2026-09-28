@@ -125,8 +125,7 @@ func readUnifiedProcessCgroup(pid int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read process cgroup membership: %w", err)
 	}
-	for _, line := range strings.Split(string(payload), "
-") {
+	for _, line := range strings.Split(string(payload), "\n") {
 		if strings.HasPrefix(line, "0::") {
 			path := strings.TrimPrefix(line, "0::")
 			if path == "" {
@@ -143,8 +142,7 @@ func resolveUnifiedCgroupPath(cgroupPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read mountinfo: %w", err)
 	}
-	for _, line := range strings.Split(string(payload), "
-") {
+	for _, line := range strings.Split(string(payload), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
