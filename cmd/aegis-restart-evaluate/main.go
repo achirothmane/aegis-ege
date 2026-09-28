@@ -19,7 +19,8 @@ func main() {
 	priorGrantPath := flag.String("prior-grant", "", "prior signed workload admission grant")
 	activationPath := flag.String("activation", "", "prior signed workload activation receipt")
 	exitPath := flag.String("exit", "", "prior signed workload exit receipt for normal EXITED state")
-	reconciliationPath := flag.String("reconciliation", "", "signed reconciliation decision for EXITED_UNKNOWN state")
+	reconciliationPath := flag.String("reconciliation", "", "signed reconciliation decision for ordinary EXITED_UNKNOWN state")
+	quarantineReleasePath := flag.String("quarantine-release", "", "signed quarantine release decision for released EXITED_UNKNOWN state")
 	remotePath := flag.String("remote-decision", "", "current signed remote attestation decision")
 	remoteVerifierPubPath := flag.String("remote-verifier-pub", "", "remote verifier public key")
 	admissionIssuerPubPath := flag.String("admission-issuer-pub", "", "admission issuer public key")
@@ -91,8 +92,8 @@ func main() {
 	var decision kernelfabric.SignedWorkloadRestartDecision
 	switch state.State {
 	case kernelfabric.LifecycleStateExited:
-		if *exitPath == "" || *reconciliationPath != "" {
-			fatalf("EXITED state requires -exit and forbids -reconciliation")
+		if *exitPath == "" || *reconciliationPath != "" || *quarantineReleasePath != "" {
+			fatalf("EXITED state requires -exit and forbids -reconciliation/-quarantine-release")
 		}
 		exit, err := cliio.ReadJSON[kernelfabric.SignedWorkloadExitReceipt](*exitPath)
 		if err != nil {
@@ -110,23 +111,46 @@ func main() {
 			fatalf("%v", err)
 		}
 	case kernelfabric.LifecycleStateExitedUnknown:
-		if *reconciliationPath == "" || *exitPath != "" {
-			fatalf("EXITED_UNKNOWN state requires -reconciliation and forbids -exit")
+		if *exitPath != "" {
+			fatalf("EXITED_UNKNOWN forbids -exit")
 		}
-		reconciliation, err := cliio.ReadJSON[kernelfabric.SignedWorkloadReconciliationDecision](*reconciliationPath)
-		if err != nil {
-			fatalf("read reconciliation decision: %v", err)
+		hasReconciliation := *reconciliationPath != ""
+		hasRelease := *quarantineReleasePath != ""
+		if hasReconciliation == hasRelease {
+			fatalf("EXITED_UNKNOWN requires exactly one of -reconciliation or -quarantine-release")
 		}
-		decision, err = kernelfabric.EvaluateRecoveredWorkloadRestart(
-			state,
-			priorGrant,
-			activation,
-			reconciliation,
-			remote,
-			policy,
-		)
-		if err != nil {
-			fatalf("%v", err)
+		if hasReconciliation {
+			reconciliation, err := cliio.ReadJSON[kernelfabric.SignedWorkloadReconciliationDecision](*reconciliationPath)
+			if err != nil {
+				fatalf("read reconciliation decision: %v", err)
+			}
+			decision, err = kernelfabric.EvaluateRecoveredWorkloadRestart(
+				state,
+				priorGrant,
+				activation,
+				reconciliation,
+				remote,
+				policy,
+			)
+			if err != nil {
+				fatalf("%v", err)
+			}
+		} else {
+			release, err := cliio.ReadJSON[kernelfabric.SignedQuarantineReleaseDecision](*quarantineReleasePath)
+			if err != nil {
+				fatalf("read quarantine release decision: %v", err)
+			}
+			decision, err = kernelfabric.EvaluateQuarantineReleasedRestart(
+				state,
+				priorGrant,
+				activation,
+				release,
+				remote,
+				policy,
+			)
+			if err != nil {
+				fatalf("%v", err)
+			}
 		}
 	case kernelfabric.LifecycleStateQuarantined:
 		fatalf("lifecycle is QUARANTINED; explicit operator recovery is required")

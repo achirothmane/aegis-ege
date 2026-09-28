@@ -95,6 +95,7 @@ func readLifecycleState(path string) (WorkloadLifecycleState, bool, error) {
 	if err := json.Unmarshal(payload, &state); err != nil {
 		return WorkloadLifecycleState{}, false, fmt.Errorf("decode workload lifecycle state: %w", err)
 	}
+	state = NormalizeWorkloadLifecycleState(state)
 	if err := ValidateWorkloadLifecycleState(state); err != nil {
 		return WorkloadLifecycleState{}, false, err
 	}
@@ -102,6 +103,7 @@ func readLifecycleState(path string) (WorkloadLifecycleState, bool, error) {
 }
 
 func writeLifecycleState(path string, state WorkloadLifecycleState) error {
+	state = NormalizeWorkloadLifecycleState(state)
 	if err := ValidateWorkloadLifecycleState(state); err != nil {
 		return err
 	}

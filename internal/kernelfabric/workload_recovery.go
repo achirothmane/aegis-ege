@@ -44,6 +44,7 @@ type WorkloadRecoveryObservation struct {
 	Generation              uint64                `json:"generation"`
 	ActivationID            string                `json:"activation_id"`
 	ActivationDigest        string                `json:"activation_digest"`
+	PriorRecoveryDigest     string                `json:"prior_recovery_digest,omitempty"`
 	ProcessID               int                   `json:"process_id"`
 	ExpectedProcessIdentity *LinuxProcessIdentity `json:"expected_process_identity,omitempty"`
 	ObservedProcessIdentity *LinuxProcessIdentity `json:"observed_process_identity,omitempty"`
@@ -82,6 +83,11 @@ func ValidateWorkloadRecoveryObservation(obs WorkloadRecoveryObservation) error 
 	}
 	if _, err := ParseSHA256Digest(obs.ActivationDigest); err != nil {
 		return fmt.Errorf("%w: activation digest: %v", ErrRecoveryObservationInvalid, err)
+	}
+	if obs.PriorRecoveryDigest != "" {
+		if _, err := ParseSHA256Digest(obs.PriorRecoveryDigest); err != nil {
+			return fmt.Errorf("%w: prior recovery digest: %v", ErrRecoveryObservationInvalid, err)
+		}
 	}
 	if obs.ExpectedProcessIdentity != nil {
 		if err := ValidateLinuxProcessIdentity(*obs.ExpectedProcessIdentity); err != nil {
@@ -300,6 +306,9 @@ func EvaluateWorkloadReconciliation(
 		return SignedWorkloadReconciliationDecision{}, err
 	}
 	obs := observation.Observation
+	if obs.PriorRecoveryDigest != "" {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
 	if state.DeviceID != activation.Receipt.DeviceID ||
 		state.WorkloadID != activation.Receipt.WorkloadID ||
 		state.ActivationDigest != activationDigest ||
@@ -649,6 +658,7 @@ func EvaluateRecoveredWorkloadRestart(
 		TargetCgroupID:              activation.Receipt.TargetCgroupID,
 		BootstrapDigest:             priorGrant.Grant.BootstrapDigest,
 		PreviousGeneration:          state.Generation,
+		LifecycleEpoch:              EffectiveLifecycleEpoch(state),
 		PreviousActivationDigest:    activationDigest,
 		PreviousRecoveryDigest:      recoveryDigest,
 		CurrentRemoteDecisionDigest: remoteDigest,
