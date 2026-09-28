@@ -315,6 +315,9 @@ That feedback is the gate for major product expansion.
 
 ## Docs
 
+- [IDGI v0.1 — Level -3 → Level -2](docs/architecture/idgi-v0.1.md)
+- [Doctrine Epoch 0 candidate](doctrine/epoch-0/doctrine.json)
+- [Doctrine Epoch formal model](formal/doctrine_epoch/README.md)
 - [Aegis-EGE v0 protocol](docs/aegis-ege-v0.md)
 - [Evidence producers](docs/evidence-producers.md)
 - [Evidence composition](docs/evidence-composition.md)

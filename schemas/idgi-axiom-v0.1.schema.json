@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/achirothmane/aegis-ege/schemas/idgi-axiom-v0.1.schema.json",
+  "title": "IDGI Axiom v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "axiom_id",
+    "semantic_version",
+    "normative_statement",
+    "applies_when",
+    "requires",
+    "forbids",
+    "failure_behavior",
+    "permitted_exceptions",
+    "authority_to_change",
+    "rationale",
+    "positive_cases",
+    "negative_cases",
+    "boundary_cases",
+    "adversarial_cases",
+    "formal_invariants"
+  ],
+  "properties": {
+    "axiom_id": {
+      "type": "string",
+      "pattern": "^AX-[A-Z0-9-]+-[0-9]{3}$"
+    },
+    "semantic_version": {
+      "type": "string",
+      "pattern": "^0\\.[0-9]+\\.[0-9]+$"
+    },
+    "normative_statement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "applies_when": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "forbids": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "failure_behavior": {
+      "type": "string",
+      "enum": ["DENY", "HALT", "QUARANTINE", "REQUIRE_REVIEW"]
+    },
+    "permitted_exceptions": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "authority_to_change": {
+      "type": "string",
+      "enum": ["DOCTRINE_REPLACEMENT_ONLY", "NEW_SYSTEM_IDENTITY_ONLY"]
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "positive_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "negative_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "boundary_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "adversarial_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "formal_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
