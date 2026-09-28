@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -141,10 +142,10 @@ func TestBPFToolStoreReadsPinnedFenceJSON(t *testing.T) {
 	}
 	parts := make([]string, 0, len(raw))
 	for _, b := range raw {
-		parts = append(parts, ""0x"+hex.EncodeToString([]byte{b})+""")
+		parts = append(parts, fmt.Sprintf("%q", "0x"+hex.EncodeToString([]byte{b})))
 	}
 	runner := &fakeBPFToolRunner{
-		output: []byte("{"key":[],"value":[" + strings.Join(parts, ",") + "]}"),
+		output: []byte(`{"key":[],"value":[` + strings.Join(parts, ",") + `]}`),
 	}
 	store.Runner = runner
 
