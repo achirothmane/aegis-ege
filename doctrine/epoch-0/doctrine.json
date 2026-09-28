@@ -1,0 +1,81 @@
+{
+  "doctrine_id": "aegis-ege-doctrine",
+  "doctrine_epoch": 0,
+  "status": "CANDIDATE_UNRATIFIED",
+  "machine_authority": false,
+  "idgi_version": "0.1",
+  "operational_axioms": [
+    {
+      "axiom_id": "AX-AUTHORITY-MOMENT-001",
+      "semantic_version": "0.1.0",
+      "normative_statement": "A state-changing action may execute only if the actor is authorized for that exact action, scope, doctrine epoch, and execution moment.",
+      "applies_when": ["Any state-changing or externally consequential action is requested."],
+      "requires": ["valid principal", "valid action scope", "current non-compromised doctrine epoch", "non-revoked authority", "fresh authority evidence"],
+      "forbids": ["retrospective authorization", "authority inferred from later approval", "authority outside declared scope"],
+      "failure_behavior": "DENY",
+      "permitted_exceptions": [],
+      "authority_to_change": "DOCTRINE_REPLACEMENT_ONLY",
+      "rationale": "Authority must exist at the commit boundary rather than be reconstructed after the fact.",
+      "positive_cases": ["All authority predicates are TRUE at execution time and the doctrine epoch is current."],
+      "negative_cases": ["Approval arrives after execution.", "Authority was revoked before execution."],
+      "boundary_cases": ["Authority expires exactly at the attempted commit boundary; action is denied unless freshness rules prove validity at that instant."],
+      "adversarial_cases": ["Replay a previously valid permit under a later epoch.", "Substitute a broader scope after permit issuance."],
+      "formal_invariants": ["ExecutedOnlyWhenAdmissible", "NoNewActionUnderCompromisedEpoch"]
+    },
+    {
+      "axiom_id": "AX-SECTOR-ISOLATION-001",
+      "semantic_version": "0.1.0",
+      "normative_statement": "A decision domain must not depend directly or transitively on evidence, models, rules, or derived signals that the doctrine forbids for that domain.",
+      "applies_when": ["A decision consumes evidence, model output, policy output, cached state, or derived features."],
+      "requires": ["declared provenance", "transitive dependency closure", "domain-specific admissible evidence set"],
+      "forbids": ["direct forbidden dependency", "proxy dependency that preserves forbidden provenance", "provenance laundering through generic scores"],
+      "failure_behavior": "DENY",
+      "permitted_exceptions": [],
+      "authority_to_change": "DOCTRINE_REPLACEMENT_ONLY",
+      "rationale": "Renaming or deriving a forbidden signal must not erase its provenance.",
+      "positive_cases": ["All transitive dependencies belong to the admissible domain evidence set."],
+      "negative_cases": ["A recovery decision consumes a generic risk score derived from a forbidden criminal-fraud model."],
+      "boundary_cases": ["A mixed model includes both allowed and forbidden upstream features; the output is treated as derived from forbidden provenance."],
+      "adversarial_cases": ["Hide a forbidden model behind a feature store alias.", "Cache a forbidden score and present it as local evidence."],
+      "formal_invariants": ["ExecutedOnlyWhenAdmissible"]
+    },
+    {
+      "axiom_id": "AX-EVIDENCE-COMPLETE-001",
+      "semantic_version": "0.1.0",
+      "normative_statement": "Every mandatory evidence predicate must evaluate positively before a consequential action may execute.",
+      "applies_when": ["A consequential action requires evidence predicates."],
+      "requires": ["every mandatory predicate evaluates TRUE"],
+      "forbids": ["FALSE", "UNKNOWN", "MISSING", "STALE", "UNVERIFIABLE", "best-effort allow"],
+      "failure_behavior": "DENY",
+      "permitted_exceptions": [],
+      "authority_to_change": "DOCTRINE_REPLACEMENT_ONLY",
+      "rationale": "Absence of positive evidence is not equivalent to safety.",
+      "positive_cases": ["All required evidence is present, fresh, verifiable, and TRUE."],
+      "negative_cases": ["One required source is unavailable.", "A required predicate is UNKNOWN."],
+      "boundary_cases": ["A pre-certified degraded mode may operate only under its own explicit evidence and authority contract; otherwise deny."],
+      "adversarial_cases": ["Disable telemetry to manufacture missing evidence.", "Downgrade UNKNOWN to TRUE upstream."],
+      "formal_invariants": ["ExecutedOnlyWhenAdmissible"]
+    }
+  ],
+  "constitutional_kernel": {
+    "replacement_not_in_place": true,
+    "frozen_visibility_required": true,
+    "material_change_resets_freeze_clock": true,
+    "emergency_halt_auto_restart_forbidden": true,
+    "historical_evidence_erasure_on_compromise_forbidden": true,
+    "compromised_epoch_mints_no_new_authority": true,
+    "kernel_change_requires_new_system_identity": true
+  },
+  "epoch_status_model": ["CURRENT", "SUPERSEDED", "COMPROMISED", "REVOKED"],
+  "decision_conformance_model": ["CONFORMANT_AT_EXECUTION", "NON_CONFORMANT", "INDETERMINATE"],
+  "trust_status_model": ["TRUSTED", "TRUST_DEGRADED", "TRUST_COMPROMISED"],
+  "formal_model": {
+    "module": "formal/doctrine_epoch/DoctrineEpoch.tla",
+    "config": "formal/doctrine_epoch/DoctrineEpoch.cfg"
+  },
+  "ratification": {
+    "genesis_signing_ceremony_completed": false,
+    "threshold_signatures_present": false,
+    "frozen_visibility_completed": false
+  }
+}
