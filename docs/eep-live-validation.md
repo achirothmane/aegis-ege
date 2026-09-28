@@ -108,4 +108,6 @@ A run is evidence of external end-to-end behavior only if the command returns:
 
 with non-empty packet, permit, and outcome digests.
 
-A locally green CI run is not the same thing as this external validation. Until the manual workflow has run successfully against real endpoints, the repository should continue to describe external EEP validation as pending.
+A locally green CI run is not the same thing as external validation.
+
+The first external run has now passed. See [EEP external validation v1](eep-external-validation-v1.md) for the recorded run, digests, result, and limitations.
