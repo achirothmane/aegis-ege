@@ -343,3 +343,49 @@ func TestRuntimeTrustDecisionSignatureCoversOutcome(t *testing.T) {
 		t.Fatalf("tampered runtime trust decision was not rejected: %v", err)
 	}
 }
+
+
+func TestRuntimeTrustEvaluationRejectsOlderRemoteBlockReplay(t *testing.T) {
+	f := newRuntimeTrustFixture(t)
+	oldBlock := admissionTestRemoteDecision(
+		t,
+		f.lease.Lease.RemoteVerifiedAt.Add(-time.Second),
+		"BLOCK",
+		f.state.DeviceID,
+		f.recovery.bootstrap,
+		f.recovery.verifierPriv,
+	)
+	_, err := EvaluateRuntimeTrust(
+		f.state,
+		f.recovery.activation,
+		f.lease,
+		&oldBlock,
+		f.evalPolicy(f.now.Add(time.Second)),
+	)
+	if !errors.Is(err, ErrRuntimeTrustRollback) {
+		t.Fatalf("older remote BLOCK replay was not rejected: %v", err)
+	}
+}
+
+func TestRuntimeTrustEvaluationRejectsFutureRemoteDecision(t *testing.T) {
+	f := newRuntimeTrustFixture(t)
+	now := f.now.Add(time.Second)
+	future := admissionTestRemoteDecision(
+		t,
+		now.Add(DefaultRuntimeClockSkew+time.Second),
+		"BLOCK",
+		f.state.DeviceID,
+		f.recovery.bootstrap,
+		f.recovery.verifierPriv,
+	)
+	_, err := EvaluateRuntimeTrust(
+		f.state,
+		f.recovery.activation,
+		f.lease,
+		&future,
+		f.evalPolicy(now),
+	)
+	if !errors.Is(err, ErrRuntimeTrustInvalid) {
+		t.Fatalf("future remote decision was not rejected: %v", err)
+	}
+}
