@@ -357,10 +357,11 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	writeJSONFile(t, remoteDecisionPath, signedDecision)
 
 	revocations := RevocationList{
-		Version:                     RevocationListVersion,
-		Epoch:                       1,
-		MinimumAcceptedGenesisEpoch: 7,
-		MinimumTrustRootEpoch:       7,
+		Version:                      RevocationListVersion,
+		Epoch:                        1,
+		MinimumAcceptedGenesisEpoch:  7,
+		MinimumAcceptedDoctrineEpoch: 3,
+		MinimumTrustRootEpoch:        7,
 		IssuedAt:                    now.Add(-time.Hour),
 		ExpiresAt:                   now.Add(time.Hour),
 	}
