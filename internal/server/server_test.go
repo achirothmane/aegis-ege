@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/achirothmane/easl"
+
 	"github.com/achirothmane/aegis-ege/internal/decision"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
@@ -177,7 +179,7 @@ func TestHealth(t *testing.T) {
 }
 
 
-func TestMutationsCannotEnableWithoutGenesisRuntime(t *testing.T) {
+func TestMutationsRejectExplicitUnreadyGenesisRuntime(t *testing.T) {
 	store := kubeadapter.NewMemoryDrainCheckpointStore()
 	replay, err := NewFileReplayGuard(t.TempDir())
 	if err != nil {
@@ -185,12 +187,13 @@ func TestMutationsCannotEnableWithoutGenesisRuntime(t *testing.T) {
 	}
 	_, err = New(&fakeController{}, store, Config{
 		MutationsEnabled: true,
+		EASLRuntime: &easl.Runtime{},
 		RequireAuthentication: true,
 		Authorizer: allowAuthorizer{},
 		ReplayGuard: replay,
 	})
 	if err == nil || !strings.Contains(err.Error(), "Genesis-gated EASL runtime") {
-		t.Fatalf("expected Genesis runtime requirement, got %v", err)
+		t.Fatalf("expected unready Genesis runtime rejection, got %v", err)
 	}
 }
 
