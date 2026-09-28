@@ -449,7 +449,6 @@ systemd/Kubernetes native restart-controller integration
 container/OCI lifecycle specialization
 graceful-drain policy before planned restart
 health-check based restart causes
-automatic runtime-trust scheduler/watchdog
 
 ```
 
@@ -460,6 +459,12 @@ A RUNNING generation can now hold a short-lived runtime trust lease. The lifecyc
 Runtime trust metadata is cleared automatically when the workload leaves RUNNING, so a lease cannot cross generations or recovery transitions.
 
 See [runtime-trust-lease.md](runtime-trust-lease.md).
+
+### Automatic expiry enforcement
+
+Applied runtime leases now carry a boot-bound `CLOCK_BOOTTIME` deadline in the lifecycle ledger. A host watchdog re-reads the current ledger, follows renewals, and automatically revokes the cgroup network fence when the current deadline is reached.
+
+Expiry evidence is reconciled into the same `QUARANTINED` / `EXITED_UNKNOWN` lifecycle states already used elsewhere.
 
 ## Crash reconciliation
 
