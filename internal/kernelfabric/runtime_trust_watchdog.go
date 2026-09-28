@@ -238,3 +238,137 @@ func canonicalRuntimeTrustExpiryEvidencePayload(
 	}
 	return append([]byte("aegis-ege/runtime-trust-expiry-evidence/v1\x00"), body...), nil
 }
+
+
+func EvaluateRuntimeTrustExpiryReconciliation(
+	state WorkloadLifecycleState,
+	activation SignedWorkloadActivationReceipt,
+	lease SignedRuntimeTrustLease,
+	expiry SignedRuntimeTrustExpiryEvidence,
+	hostAttestorPublicKey ed25519.PublicKey,
+	lifecycleAuthorityKey ed25519.PrivateKey,
+	lifecycleAuthorityID string,
+	now time.Time,
+) (SignedWorkloadReconciliationDecision, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	state = NormalizeWorkloadLifecycleState(state)
+	if err := ValidateWorkloadLifecycleState(state); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	if state.State != LifecycleStateRunning ||
+		state.RuntimeTrustEpoch == 0 ||
+		state.RuntimeTrustLeaseDigest == "" {
+		return SignedWorkloadReconciliationDecision{}, ErrReconciliationRejected
+	}
+	if len(lifecycleAuthorityKey) != ed25519.PrivateKeySize ||
+		len(hostAttestorPublicKey) != ed25519.PublicKeySize {
+		return SignedWorkloadReconciliationDecision{}, errors.New("runtime trust expiry reconciliation keys are incomplete")
+	}
+	lifecycleAuthorityID = strings.TrimSpace(lifecycleAuthorityID)
+	if lifecycleAuthorityID == "" {
+		return SignedWorkloadReconciliationDecision{}, errors.New("lifecycle authority id is required")
+	}
+	lifecyclePub := lifecycleAuthorityKey.Public().(ed25519.PublicKey)
+	if err := VerifySignedRuntimeTrustLease(lease, lifecyclePub, time.Time{}); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	if err := VerifySignedWorkloadActivationReceipt(activation, hostAttestorPublicKey); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	if err := VerifySignedRuntimeTrustExpiryEvidence(expiry, hostAttestorPublicKey); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+
+	activationDigest, err := SignedWorkloadActivationReceiptDigest(activation)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	leaseDigest, err := SignedRuntimeTrustLeaseDigest(lease)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	expiryDigest, err := SignedRuntimeTrustExpiryEvidenceDigest(expiry)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	e := expiry.Evidence
+	l := lease.Lease
+
+	if state.DeviceID != activation.Receipt.DeviceID ||
+		state.WorkloadID != activation.Receipt.WorkloadID ||
+		state.ActivationDigest != activationDigest ||
+		state.RuntimeTrustEpoch != l.LeaseEpoch ||
+		state.RuntimeTrustEpoch != e.RuntimeTrustLeaseEpoch ||
+		state.RuntimeTrustLeaseDigest != leaseDigest ||
+		state.RuntimeTrustLeaseDigest != e.RuntimeTrustLeaseDigest ||
+		state.RuntimeTrustExpiresAt.UTC() != l.ExpiresAt.UTC() ||
+		state.RuntimeTrustExpiresAt.UTC() != e.RuntimeTrustExpiresAt.UTC() ||
+		state.RuntimeTrustBootIDHash != e.RuntimeTrustBootIDHash ||
+		state.RuntimeTrustInstalledBootNS != e.RuntimeTrustInstalledBootNS ||
+		state.RuntimeTrustDeadlineBootNS != e.RuntimeTrustDeadlineBootNS ||
+		l.DeviceID != state.DeviceID ||
+		l.WorkloadID != state.WorkloadID ||
+		l.Generation != state.Generation ||
+		l.LifecycleEpoch != EffectiveLifecycleEpoch(state) ||
+		l.ActivationDigest != activationDigest ||
+		l.WorkloadSpecDigest != activation.Receipt.WorkloadSpecDigest ||
+		l.TargetCgroupID != activation.Receipt.TargetCgroupID ||
+		filepath.Clean(l.TargetCgroup) != filepath.Clean(activation.Receipt.TargetCgroup) ||
+		e.DeviceID != state.DeviceID ||
+		e.WorkloadID != state.WorkloadID ||
+		e.Generation != state.Generation ||
+		e.LifecycleEpoch != EffectiveLifecycleEpoch(state) ||
+		e.ActivationDigest != activationDigest ||
+		e.TargetCgroupID != activation.Receipt.TargetCgroupID ||
+		filepath.Clean(e.TargetCgroup) != filepath.Clean(activation.Receipt.TargetCgroup) {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
+	if activation.Receipt.Version != WorkloadActivationReceiptVersionV2 ||
+		activation.Receipt.ProcessIdentity == nil ||
+		e.ExpectedProcessIdentity == nil ||
+		*e.ExpectedProcessIdentity != *activation.Receipt.ProcessIdentity {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
+
+	outcome := ReconciliationQuarantine
+	reasons := []string{
+		"RUNTIME_TRUST_LEASE_EXPIRED",
+		"KERNEL_NETWORK_SCOPE_REVOKED",
+	}
+	switch e.ProcessState {
+	case RuntimeExpiryProcessRunning:
+		reasons = append(reasons, "EXPIRED_WORKLOAD_STILL_RUNNING")
+	case RuntimeExpiryProcessCgroupMismatch:
+		reasons = append(reasons, "EXPIRED_WORKLOAD_CGROUP_MISMATCH")
+	case RuntimeExpiryProcessAbsent:
+		outcome = ReconciliationMarkExitedUnknown
+		reasons = append(reasons, "WORKLOAD_ABSENT_AFTER_EXPIRY")
+	case RuntimeExpiryProcessPIDReused:
+		outcome = ReconciliationMarkExitedUnknown
+		reasons = append(reasons, "ORIGINAL_WORKLOAD_GONE_PID_REUSED")
+	default:
+		return SignedWorkloadReconciliationDecision{}, ErrRuntimeTrustInvalid
+	}
+
+	decisionID, err := randomToken(24)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	decision := WorkloadReconciliationDecision{
+		Version:           WorkloadReconciliationDecisionVersion,
+		DecisionID:        decisionID,
+		DeviceID:          state.DeviceID,
+		WorkloadID:        state.WorkloadID,
+		Generation:        state.Generation,
+		ActivationDigest:  activationDigest,
+		ObservationDigest: expiryDigest,
+		Outcome:           outcome,
+		ReasonCodes:       reasons,
+		ObservedAt:        e.ObservedAt.UTC(),
+		DecidedAt:         now.UTC(),
+		AuthorityID:       lifecycleAuthorityID,
+	}
+	return SignWorkloadReconciliationDecision(decision, lifecycleAuthorityKey)
+}
