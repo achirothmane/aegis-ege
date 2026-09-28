@@ -40,6 +40,7 @@ type Config struct {
 	EGEPrometheusNodeHealthURL         string
 	EGEPrometheusNodeHealthTrustDomain string
 	EGEPrometheusHTTPClient            *http.Client
+	EnableN8NEEPAdapter                 bool
 }
 
 type Server struct {
@@ -70,6 +71,9 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	}
 	if config.RequireAuthentication && config.Authorizer == nil {
 		return nil, fmt.Errorf("authorizer is required when authentication is enabled")
+	}
+	if config.EnableN8NEEPAdapter && (!config.RequireAuthentication || config.Authorizer == nil) {
+		return nil, fmt.Errorf("n8n EEP adapter requires authenticated transport")
 	}
 	if config.MutationsEnabled && store == nil {
 		return nil, fmt.Errorf("checkpoint store is required when mutations are enabled")
@@ -222,6 +226,12 @@ func (s *Server) routes() {
 	}
 	s.mux.Handle("POST /v1/ege/prepare", egePrepare)
 	s.mux.Handle("POST /v1/ege/execute", egeExecute)
+
+	if s.config.EnableN8NEEPAdapter {
+		n8nEEPCompile := http.Handler(http.HandlerFunc(s.handleN8NEEPCompile))
+		n8nEEPCompile = s.authenticated(PermissionPrepare, n8nEEPCompile)
+		s.mux.Handle("POST /v1/eep/n8n/compile", n8nEEPCompile)
+	}
 }
 
 type prepareRequest struct {
