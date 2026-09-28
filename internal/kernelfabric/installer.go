@@ -137,6 +137,25 @@ func (i Installer) RevokeCurrentScope(
 	ctx context.Context,
 	key ScopeFenceKey,
 ) (ScopeFenceState, error) {
+	return i.revokeCurrentScope(ctx, key, nil)
+}
+
+func (i Installer) RevokeCurrentScopeForBoot(
+	ctx context.Context,
+	key ScopeFenceKey,
+	expectedBootIDHash [32]byte,
+) (ScopeFenceState, error) {
+	if expectedBootIDHash == [32]byte{} {
+		return ScopeFenceState{}, fmt.Errorf("%w: expected boot id hash is required", ErrInvalidCapsule)
+	}
+	return i.revokeCurrentScope(ctx, key, &expectedBootIDHash)
+}
+
+func (i Installer) revokeCurrentScope(
+	ctx context.Context,
+	key ScopeFenceKey,
+	expectedBootIDHash *[32]byte,
+) (ScopeFenceState, error) {
 	if i.Store == nil {
 		return ScopeFenceState{}, ErrKernelStoreUnavailable
 	}
@@ -147,6 +166,9 @@ func (i Installer) RevokeCurrentScope(
 	current, err := reader.GetFence(ctx, key)
 	if err != nil {
 		return ScopeFenceState{}, fmt.Errorf("read current kernel scope fence: %w", err)
+	}
+	if expectedBootIDHash != nil && current.BootIDHash != *expectedBootIDHash {
+		return ScopeFenceState{}, fmt.Errorf("%w: kernel scope fence boot identity mismatch", ErrLeaseInvalid)
 	}
 	if current.RevocationEpoch == math.MaxUint64 {
 		return ScopeFenceState{}, errors.New("kernel scope revocation epoch exhausted")
