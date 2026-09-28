@@ -24,7 +24,7 @@ func TestBootstrapProductionAllowsFullyBoundGenesis(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
-		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
+		mustAnchoredAcceptanceLedger(t, fixture.acceptanceLedgerPath, fixture.anchor),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -56,7 +56,7 @@ func TestBootstrapProductionRejectsImplementationDigestTamper(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
-		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
+		mustAnchoredAcceptanceLedger(t, fixture.acceptanceLedgerPath, fixture.anchor),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -113,7 +113,7 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
-		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
+		mustAnchoredAcceptanceLedger(t, fixture.acceptanceLedgerPath, fixture.anchor),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -137,7 +137,7 @@ func TestBootstrapProductionRejectsDoctrineEpochRollback(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
-		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
+		mustAnchoredAcceptanceLedger(t, fixture.acceptanceLedgerPath, fixture.anchor),
 		7,
 		4,
 		genesis.ConformanceC3,
@@ -162,7 +162,7 @@ func TestBootstrapProductionRejectsDoctrineManifestTamper(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
-		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
+		mustAnchoredAcceptanceLedger(t, fixture.acceptanceLedgerPath, fixture.anchor),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -190,7 +190,7 @@ func TestBootstrapProductionRejectsDoctrineAuthoritySignatureTamper(t *testing.T
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
-		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
+		mustAnchoredAcceptanceLedger(t, fixture.acceptanceLedgerPath, fixture.anchor),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -227,6 +227,7 @@ func TestManifestRevocationHashIgnoresRevocationRef(t *testing.T) {
 
 type productionFixture struct {
 	now                   time.Time
+	anchor                *memoryMonotonicAnchor
 	manifestPath          string
 	bundlePath            string
 	acceptanceLedgerPath  string
@@ -498,6 +499,7 @@ func buildProductionFixture(t *testing.T) productionFixture {
 
 	return productionFixture{
 		now:                   now,
+		anchor:                &memoryMonotonicAnchor{id: "memory-anchor:production-fixture"},
 		manifestPath:          manifestPath,
 		bundlePath:            bundlePath,
 		acceptanceLedgerPath:  filepath.Join(dir, "genesis-acceptance.log"),
@@ -510,11 +512,11 @@ func buildProductionFixture(t *testing.T) productionFixture {
 }
 
 
-func mustAcceptanceLedger(t *testing.T, path string) *FileAcceptanceLedger {
+func mustAnchoredAcceptanceLedger(t *testing.T, path string, anchor MonotonicAnchor) *FileAcceptanceLedger {
 	t.Helper()
-	ledger, err := NewFileAcceptanceLedger(path)
+	ledger, err := NewAnchoredFileAcceptanceLedger(path, anchor)
 	if err != nil {
-		t.Fatalf("NewFileAcceptanceLedger() error = %v", err)
+		t.Fatalf("NewAnchoredFileAcceptanceLedger() error = %v", err)
 	}
 	return ledger
 }
