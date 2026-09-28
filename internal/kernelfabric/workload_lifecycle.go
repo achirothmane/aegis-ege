@@ -215,7 +215,10 @@ type WorkloadLifecycleState struct {
 	RecoveryDigest          string    `json:"recovery_digest,omitempty"`
 	RuntimeTrustEpoch       uint64    `json:"runtime_trust_epoch,omitempty"`
 	RuntimeTrustLeaseDigest string    `json:"runtime_trust_lease_digest,omitempty"`
-	RuntimeTrustExpiresAt   time.Time `json:"runtime_trust_expires_at,omitempty"`
+	RuntimeTrustExpiresAt     time.Time `json:"runtime_trust_expires_at,omitempty"`
+	RuntimeTrustBootIDHash    string    `json:"runtime_trust_boot_id_hash,omitempty"`
+	RuntimeTrustInstalledBootNS uint64  `json:"runtime_trust_installed_boot_ns,omitempty"`
+	RuntimeTrustDeadlineBootNS  uint64  `json:"runtime_trust_deadline_boot_ns,omitempty"`
 	RestartCountInWindow    uint32    `json:"restart_count_in_window"`
 	RestartWindowStartedAt  time.Time `json:"restart_window_started_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
@@ -270,7 +273,11 @@ func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
 		return fmt.Errorf("lifecycle activation digest: %w", err)
 	}
 	if state.RuntimeTrustEpoch == 0 {
-		if state.RuntimeTrustLeaseDigest != "" || !state.RuntimeTrustExpiresAt.IsZero() {
+		if state.RuntimeTrustLeaseDigest != "" ||
+			!state.RuntimeTrustExpiresAt.IsZero() ||
+			state.RuntimeTrustBootIDHash != "" ||
+			state.RuntimeTrustInstalledBootNS != 0 ||
+			state.RuntimeTrustDeadlineBootNS != 0 {
 			return errors.New("runtime trust metadata exists without runtime trust epoch")
 		}
 	} else {
@@ -280,8 +287,14 @@ func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
 		if _, err := ParseSHA256Digest(state.RuntimeTrustLeaseDigest); err != nil {
 			return fmt.Errorf("runtime trust lease digest: %w", err)
 		}
-		if state.RuntimeTrustExpiresAt.IsZero() {
-			return errors.New("runtime trust expiry is required when runtime trust lease is active")
+		if _, err := ParseSHA256Digest(state.RuntimeTrustBootIDHash); err != nil {
+			return fmt.Errorf("runtime trust boot id hash: %w", err)
+		}
+		if state.RuntimeTrustExpiresAt.IsZero() ||
+			state.RuntimeTrustInstalledBootNS == 0 ||
+			state.RuntimeTrustDeadlineBootNS == 0 ||
+			state.RuntimeTrustDeadlineBootNS <= state.RuntimeTrustInstalledBootNS {
+			return errors.New("runtime trust local deadline binding is invalid")
 		}
 	}
 	return nil
