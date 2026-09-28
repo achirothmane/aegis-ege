@@ -48,6 +48,7 @@ func StartGovernedWorkload(
 					DeviceID:               grant.DeviceID,
 					WorkloadID:             grant.WorkloadID,
 					Generation:             1,
+					LifecycleEpoch:         1,
 					State:                  LifecycleStateRunning,
 					RestartCountInWindow:   0,
 					RestartWindowStartedAt: now,
