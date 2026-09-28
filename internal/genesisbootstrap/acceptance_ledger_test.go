@@ -166,6 +166,16 @@ func acceptCandidate(t *testing.T, path string, candidate AcceptanceCandidate) {
 	}
 }
 
+
+func mustAcceptanceLedger(t *testing.T, path string) *FileAcceptanceLedger {
+	t.Helper()
+	ledger, err := NewFileAcceptanceLedger(path)
+	if err != nil {
+		t.Fatalf("NewFileAcceptanceLedger() error = %v", err)
+	}
+	return ledger
+}
+
 func mustAcceptanceCandidate(t *testing.T, manifest genesis.Manifest, revocations SignedRevocationList, now time.Time) AcceptanceCandidate {
 	t.Helper()
 	candidate, err := NewAcceptanceCandidate(manifest, revocations, now)
