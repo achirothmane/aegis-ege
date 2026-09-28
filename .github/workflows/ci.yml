@@ -19,6 +19,8 @@ jobs:
         with:
           go-version: "1.25.x"
           cache: true
+      - name: Resolve JCS checksum
+        run: go mod download -json github.com/ucarion/jcs@v0.0.0-20200929210745-ee7b8c714a50
       - run: go mod download
       - run: go mod verify
       - name: Compile kernel DecisionCapsule BPF adapter
