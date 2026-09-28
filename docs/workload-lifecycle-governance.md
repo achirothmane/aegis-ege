@@ -440,8 +440,14 @@ systemd/Kubernetes native restart-controller integration
 container/OCI lifecycle specialization
 graceful-drain policy before planned restart
 health-check based restart causes
-remote reconciliation of orphaned RUNNING state after supervisor crash
+
 ```
+
+## Crash reconciliation
+
+Orphaned RUNNING state is now reconciled through process-bound activation receipt v2, signed recovery observations, and an independent lifecycle authority decision. Recovery may preserve RUNNING, mark EXITED_UNKNOWN, or quarantine the lifecycle. EXITED_UNKNOWN requires post-recovery TPM + IMA attestation before a fresh restart grant can be issued.
+
+See [orphaned-running-reconciliation.md](orphaned-running-reconciliation.md).
 
 ## Invariant
 

@@ -54,7 +54,8 @@ func StartGovernedWorkload(
 					UpdatedAt:              now,
 				}
 			} else {
-				if state.State != LifecycleStateExited || req.RestartDecision == nil {
+				if (state.State != LifecycleStateExited && state.State != LifecycleStateExitedUnknown) ||
+					req.RestartDecision == nil {
 					return ErrRestartDecisionRejected
 				}
 				if len(req.LifecycleAuthorityPublicKey) != ed25519.PublicKeySize {
@@ -74,6 +75,7 @@ func StartGovernedWorkload(
 				nextState.Generation = state.Generation + 1
 				nextState.State = LifecycleStateRunning
 				nextState.ExitDigest = ""
+				nextState.RecoveryDigest = ""
 				nextState.RestartCountInWindow = decision.RestartCountInWindow + 1
 				nextState.RestartWindowStartedAt = decision.RestartWindowStartedAt
 				nextState.UpdatedAt = now

@@ -146,9 +146,16 @@ func StartAttestedWorkload(
 		_, _ = cmd.Process.Wait()
 		return AttestedWorkloadProcess{}, err
 	}
+	processIdentity, err := CaptureLinuxProcessIdentity(cmd.Process.Pid, cgroupID)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		return AttestedWorkloadProcess{}, fmt.Errorf("capture process identity after start; workload killed: %w", err)
+	}
+
 	receipt, err := SignWorkloadActivationReceipt(
 		WorkloadActivationReceipt{
-			Version:            WorkloadActivationReceiptVersion,
+			Version:            WorkloadActivationReceiptVersionV2,
 			ActivationID:       activationID,
 			GrantID:            grant.GrantID,
 			GrantDigest:        consumption.GrantDigest,
@@ -158,6 +165,7 @@ func StartAttestedWorkload(
 			TargetCgroup:       targetCgroup,
 			TargetCgroupID:     cgroupID,
 			ProcessID:          cmd.Process.Pid,
+			ProcessIdentity:    &processIdentity,
 			StartedAt:          time.Now().UTC(),
 		},
 		req.HostAttestorKey,
