@@ -82,6 +82,14 @@ func ObserveLinuxProcess(pid int) (LinuxProcessObservation, error) {
 		return LinuxProcessObservation{}, errors.New("observed process cgroup identity unavailable")
 	}
 
+	finalStartTicks, stillExists, err := readLinuxProcessStartTicks(pid)
+	if err != nil {
+		return LinuxProcessObservation{}, err
+	}
+	if !stillExists || finalStartTicks != startTicks {
+		return LinuxProcessObservation{}, errors.New("process identity changed while observation was collected")
+	}
+
 	return LinuxProcessObservation{
 		Exists: true,
 		Identity: LinuxProcessIdentity{
@@ -114,8 +122,11 @@ func readLinuxProcessStartTicks(pid int) (uint64, bool, error) {
 		return 0, false, errors.New("process stat missing starttime")
 	}
 	start, err := strconv.ParseUint(fields[19], 10, 64)
-	if err != nil || start == 0 {
+	if err != nil {
 		return 0, false, fmt.Errorf("parse process starttime: %w", err)
+	}
+	if start == 0 {
+		return 0, false, errors.New("process starttime is zero")
 	}
 	return start, true, nil
 }
