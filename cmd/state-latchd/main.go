@@ -47,6 +47,9 @@ func main() {
 		genesisManifestFile = flag.String("genesis-manifest", "", "signed Level -1 GenesisManifest JSON; required for mutations")
 		genesisVerificationBundleFile = flag.String("genesis-verification-bundle", "", "production Genesis verification bundle JSON; required for mutations")
 		genesisAcceptanceLedgerFile = flag.String("genesis-acceptance-ledger", "", "append-only Genesis acceptance ledger; default <data-dir>/genesis-acceptance.log")
+		genesisTPMDevice = flag.String("genesis-tpm-device", "/dev/tpmrm0", "TPM2 device used for the Genesis monotonic NV counter")
+		genesisTPMNVIndex = flag.Uint("genesis-tpm-nv-index", 0, "pre-provisioned TPM2 NV counter index; required for mutations")
+		genesisTPMNVAuthFile = flag.String("genesis-tpm-nv-auth-file", "", "owner-only file containing base64 TPM NV index auth; required for mutations")
 		genesisMinimumEpoch = flag.Uint64("genesis-minimum-epoch", 1, "minimum accepted Genesis epoch")
 		genesisMinimumDoctrineEpoch = flag.Uint64("genesis-minimum-doctrine-epoch", 1, "minimum accepted Level -2 doctrine epoch")
 		genesisRequiredConformance = flag.String("genesis-required-conformance", "C3", "minimum Genesis implementation conformance: C0..C4")
@@ -80,9 +83,20 @@ func main() {
 		if acceptanceLedgerPath == "" {
 			acceptanceLedgerPath = filepath.Join(*dataDir, "genesis-acceptance.log")
 		}
-		acceptanceLedger, err := genesisbootstrap.NewFileAcceptanceLedger(acceptanceLedgerPath)
+		if *genesisTPMNVIndex == 0 || strings.TrimSpace(*genesisTPMNVAuthFile) == "" {
+			fatal("invalid Genesis monotonic-anchor configuration", fmt.Errorf("genesis-tpm-nv-index and genesis-tpm-nv-auth-file are required when mutations are enabled"))
+		}
+		nvAuth, err := genesisbootstrap.LoadTPMNVAuthFile(*genesisTPMNVAuthFile)
 		if err != nil {
-			fatal("configure Genesis acceptance ledger", err)
+			fatal("load Genesis TPM NV auth", err)
+		}
+		anchor, err := genesisbootstrap.NewTPMNVCounterAnchor(*genesisTPMDevice, uint32(*genesisTPMNVIndex), nvAuth)
+		if err != nil {
+			fatal("configure Genesis TPM NV monotonic anchor", err)
+		}
+		acceptanceLedger, err := genesisbootstrap.NewAnchoredFileAcceptanceLedger(acceptanceLedgerPath, anchor)
+		if err != nil {
+			fatal("configure anchored Genesis acceptance ledger", err)
 		}
 
 		runtime, result, err := genesisbootstrap.BootstrapProduction(
@@ -106,6 +120,8 @@ func main() {
 			"minimum_doctrine_epoch", *genesisMinimumDoctrineEpoch,
 			"required_conformance", *genesisRequiredConformance,
 			"acceptance_ledger", acceptanceLedgerPath,
+			"monotonic_anchor", "tpm2-nv",
+			"tpm_nv_index", fmt.Sprintf("0x%08x", uint32(*genesisTPMNVIndex)),
 		)
 	}
 
