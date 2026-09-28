@@ -144,7 +144,7 @@ func NewAcceptanceCandidate(m genesis.Manifest, revocations SignedRevocationList
 	}, nil
 }
 
-func (l *FileAcceptanceLedger) Begin(_ context.Context, candidate AcceptanceCandidate) (*AcceptanceSession, AcceptanceFloor, error) {
+func (l *FileAcceptanceLedger) Begin(ctx context.Context, candidate AcceptanceCandidate) (*AcceptanceSession, AcceptanceFloor, error) {
 	if l == nil || strings.TrimSpace(l.path) == "" {
 		return nil, AcceptanceFloor{}, errors.New("Genesis acceptance ledger is unavailable")
 	}
@@ -202,7 +202,7 @@ func (l *FileAcceptanceLedger) Begin(_ context.Context, candidate AcceptanceCand
 	var anchorID string
 	var anchorValue uint64
 	if l.anchor != nil {
-		anchorID, err = l.anchor.Identity(context.Background())
+		anchorID, err = l.anchor.Identity(ctx)
 		if err != nil {
 			cleanup()
 			return nil, AcceptanceFloor{}, fmt.Errorf("read monotonic anchor identity: %w", err)
@@ -211,7 +211,7 @@ func (l *FileAcceptanceLedger) Begin(_ context.Context, candidate AcceptanceCand
 			cleanup()
 			return nil, AcceptanceFloor{}, errors.New("monotonic anchor returned an empty identity")
 		}
-		anchorValue, err = l.anchor.Read(context.Background())
+		anchorValue, err = l.anchor.Read(ctx)
 		if err != nil {
 			cleanup()
 			return nil, AcceptanceFloor{}, fmt.Errorf("read monotonic anchor: %w", err)
