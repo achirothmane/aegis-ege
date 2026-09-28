@@ -198,15 +198,14 @@ func tpmNVAnchorIdentity(pub legacytpm2.NVPublic, expectedIndex tpmutil.Handle) 
 		return "", fmt.Errorf("TPM NV counter 0x%08x does not permit index-authenticated increments", uint32(expectedIndex))
 	}
 
-	wire, err := tpmutil.Pack(pub)
+	stable := pub
+	stable.Attributes &^= legacytpm2.AttrWritten | legacytpm2.AttrReadLocked | legacytpm2.AttrWriteLocked
+	wire, err := tpmutil.Pack(stable)
 	if err != nil {
-		return "", fmt.Errorf("marshal TPM NV public area: %w", err)
+		return "", fmt.Errorf("marshal stable TPM NV definition: %w", err)
 	}
 	sum := sha256.Sum256(wire)
-	name := make([]byte, 2+len(sum))
-	binary.BigEndian.PutUint16(name[:2], uint16(legacytpm2.AlgSHA256))
-	copy(name[2:], sum[:])
-	return fmt.Sprintf("tpm2-nv:0x%08x:name:%s", uint32(expectedIndex), hex.EncodeToString(name)), nil
+	return fmt.Sprintf("tpm2-nv:0x%08x:definition-sha256:%s", uint32(expectedIndex), hex.EncodeToString(sum[:])), nil
 }
 
 func readTPMNVCounter(rwc io.ReadWriter, index tpmutil.Handle, auth []byte) (uint64, error) {
