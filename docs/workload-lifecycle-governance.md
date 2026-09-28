@@ -96,7 +96,8 @@ The record contains:
 
 ```text
 generation
-RUNNING | EXITED
+lifecycle_epoch
+RUNNING | EXITED | EXITED_UNKNOWN | QUARANTINED
 activation_digest
 exit_digest
 restart_count_in_window
@@ -113,6 +114,14 @@ The lifecycle lock is held while a workload start is authorized and created.
 Therefore two concurrent starts for the same device/workload cannot both pass the local lifecycle transition.
 
 A `RUNNING` state rejects another start.
+
+## Lifecycle epoch
+
+Lifecycle state carries a separate `lifecycle_epoch` fence. Normal starts and restarts remain within the same epoch. A successful operator-approved quarantine release is the exceptional transition that advances the epoch by exactly one, invalidating restart authority from the pre-release security context.
+
+Legacy ledgers without an explicit epoch normalize to epoch 1.
+
+See [quarantine-operator-release.md](quarantine-operator-release.md).
 
 ## Generation semantics
 
