@@ -5,8 +5,15 @@ Mutation-capable Aegis-EGE startup is fail-closed behind the Level -1 Genesis ga
 The production path is:
 
 ```text
+Level -2 DoctrineManifest
+  |
+  +-- independent Doctrine Authority signature
+  +-- doctrine epoch rollback fence
+  |
+  v
 GenesisManifest
   |
+  +-- exact doctrine ID / epoch / manifest-hash binding
   +-- RFC8785/JCS + Ed25519 authenticity
   +-- running executable SHA-256
   +-- signed TPM/IMA remote ALLOW
@@ -29,8 +36,9 @@ When `-enable-mutations` is set, `state-latchd` also requires:
 ```text
 -genesis-manifest <path>
 -genesis-verification-bundle <path>
--genesis-minimum-epoch <n>             # default 1
--genesis-required-conformance <C0..C4> # default C3
+-genesis-minimum-epoch <n>              # default 1
+-genesis-minimum-doctrine-epoch <n>      # default 1
+-genesis-required-conformance <C0..C4>  # default C3
 ```
 
 Read-only startup does not require Genesis.
@@ -46,6 +54,9 @@ Relative paths are resolved relative to the bundle JSON.
 ```json
 {
   "version": "aegis.ege/genesis-verification-bundle/v1",
+  "doctrine_manifest": "doctrine/assumption-decay-doctrine.md",
+  "signed_doctrine_authority_statement": "doctrine/authority-statement.json",
+  "doctrine_authority_public_key": "keys/doctrine-authority.pub",
   "manifest_signer_public_key": "keys/genesis-manifest.pub",
   "remote_attestation_decision": "attestation/decision.json",
   "remote_attestation_verifier_public_key": "keys/remote-verifier.pub",
@@ -81,6 +92,46 @@ Relative paths are resolved relative to the bundle JSON.
 
 The production profile requires `supply_chain.build_provenance_ref` and every
 entry in `verification.proof_artifacts` to be `sha256:<hex>` digests.
+
+
+## Level -2 doctrine authority
+
+Genesis does not self-certify the doctrine from which its authority originates.
+
+The production bundle therefore carries three independent inputs:
+
+```text
+DoctrineManifest
+SignedDoctrineAuthorityStatement
+DoctrineAuthorityPublicKey
+```
+
+The authority statement binds:
+
+```text
+doctrine_id
+doctrine_epoch
+doctrine_manifest_hash
+issued_at
+expires_at
+```
+
+and is signed with a dedicated Ed25519 doctrine-authority key. The production
+verifier hashes the actual doctrine file, verifies the authority signature and
+validity window, and requires the Genesis `doctrine` object to match the
+statement exactly.
+
+`state-latchd` also applies a minimum doctrine epoch. The signed revocation
+list may raise that floor through `minimum_accepted_doctrine_epoch`; the
+effective floor is the maximum of the operator/persisted floor and the signed
+revocation floor.
+
+This enforces:
+
+```text
+NO_GENESIS_WITHOUT_VALID_DOCTRINE
+NO_BOOTSTRAP_WITHOUT_VALID_GENESIS
+```
 
 ## Authenticity
 
