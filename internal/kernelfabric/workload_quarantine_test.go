@@ -399,3 +399,113 @@ func TestReleasedQuarantineRequiresFreshGrantInNewEpoch(t *testing.T) {
 		t.Fatalf("old lifecycle epoch restart was not rejected: %v", err)
 	}
 }
+
+
+func TestReleasedQuarantineAcceptsFreshPostReleaseReattestation(t *testing.T) {
+	q := newQuarantineFixture(t)
+	releaseDigest, err := SignedQuarantineReleaseDecisionDigest(q.release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := q.state
+	state.State = LifecycleStateExitedUnknown
+	state.LifecycleEpoch = q.release.Decision.NewLifecycleEpoch
+	state.RecoveryDigest = releaseDigest
+	state.UpdatedAt = q.release.Decision.DecidedAt
+
+	freshRemote := admissionTestRemoteDecision(
+		t,
+		q.release.Decision.DecidedAt.Add(time.Second),
+		"ALLOW",
+		state.DeviceID,
+		q.recovery.bootstrap,
+		q.recovery.verifierPriv,
+	)
+	now := q.release.Decision.DecidedAt.Add(2 * time.Second)
+	policy := WorkloadRestartPolicy{
+		MaxRestartsPerWindow:     3,
+		RestartWindow:            10 * time.Minute,
+		BaseBackoff:              time.Second,
+		MaxBackoff:               time.Minute,
+		ReattestAfter:            2 * time.Minute,
+		DecisionTTL:              time.Minute,
+		LifecycleAuthorityKey:    q.recovery.lifecyclePriv,
+		LifecycleAuthorityID:     "lifecycle-authority",
+		RemoteVerifierPublicKey:  q.recovery.verifierPub,
+		AdmissionIssuerPublicKey: q.recovery.issuerPub,
+		HostAttestorPublicKey:    q.recovery.hostPub,
+		Now:                      func() time.Time { return now },
+	}
+	restart, err := EvaluateQuarantineReleasedRestart(
+		state,
+		q.recovery.priorGrant,
+		q.recovery.activation,
+		q.release,
+		freshRemote,
+		policy,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restart.Decision.Outcome != RestartOutcomeRequireFreshGrant {
+		t.Fatalf("fresh post-release re-attestation was not accepted: %+v", restart.Decision)
+	}
+	newDigest, err := SignedRemoteAttestationDecisionDigest(freshRemote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restart.Decision.CurrentRemoteDecisionDigest != newDigest {
+		t.Fatalf("restart decision did not bind replacement attestation: %+v", restart.Decision)
+	}
+}
+
+func TestReleasedQuarantineRejectsDifferentPreReleaseAttestation(t *testing.T) {
+	q := newQuarantineFixture(t)
+	releaseDigest, err := SignedQuarantineReleaseDecisionDigest(q.release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := q.state
+	state.State = LifecycleStateExitedUnknown
+	state.LifecycleEpoch = q.release.Decision.NewLifecycleEpoch
+	state.RecoveryDigest = releaseDigest
+	state.UpdatedAt = q.release.Decision.DecidedAt
+
+	otherOldRemote := admissionTestRemoteDecision(
+		t,
+		q.release.Decision.DecidedAt.Add(-time.Second),
+		"ALLOW",
+		state.DeviceID,
+		q.recovery.bootstrap,
+		q.recovery.verifierPriv,
+	)
+	now := q.release.Decision.DecidedAt.Add(2 * time.Second)
+	policy := WorkloadRestartPolicy{
+		MaxRestartsPerWindow:     3,
+		RestartWindow:            10 * time.Minute,
+		BaseBackoff:              time.Second,
+		MaxBackoff:               time.Minute,
+		ReattestAfter:            2 * time.Minute,
+		DecisionTTL:              time.Minute,
+		LifecycleAuthorityKey:    q.recovery.lifecyclePriv,
+		LifecycleAuthorityID:     "lifecycle-authority",
+		RemoteVerifierPublicKey:  q.recovery.verifierPub,
+		AdmissionIssuerPublicKey: q.recovery.issuerPub,
+		HostAttestorPublicKey:    q.recovery.hostPub,
+		Now:                      func() time.Time { return now },
+	}
+	restart, err := EvaluateQuarantineReleasedRestart(
+		state,
+		q.recovery.priorGrant,
+		q.recovery.activation,
+		q.release,
+		otherOldRemote,
+		policy,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restart.Decision.Outcome != RestartOutcomeRequireReattestation {
+		t.Fatalf("different pre-release attestation should not be accepted: %+v", restart.Decision)
+	}
+}
