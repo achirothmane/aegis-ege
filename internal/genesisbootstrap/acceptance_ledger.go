@@ -259,10 +259,8 @@ func ManifestHash(m genesis.Manifest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	h := sha256.New()
-	h.Write([]byte("aegis-ege/genesis-manifest/v1\x00"))
-	h.Write([]byte(canonical))
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+	sum := sha256.Sum256([]byte(canonical))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func readAcceptanceRecords(file *os.File) ([]AcceptanceRecord, error) {
