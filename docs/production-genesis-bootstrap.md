@@ -36,6 +36,7 @@ When `-enable-mutations` is set, `state-latchd` also requires:
 ```text
 -genesis-manifest <path>
 -genesis-verification-bundle <path>
+-genesis-acceptance-ledger <path>        # default <data-dir>/genesis-acceptance.log
 -genesis-minimum-epoch <n>              # default 1
 -genesis-minimum-doctrine-epoch <n>      # default 1
 -genesis-required-conformance <C0..C4>  # default C3
@@ -46,6 +47,60 @@ Read-only startup does not require Genesis.
 The implementation digest is not supplied by a flag. Aegis hashes the running
 executable returned by `os.Executable()` and requires that digest to equal
 `implementation.implementation_digest` in the manifest.
+
+
+## Persistent Genesis acceptance ledger
+
+Production bootstrap also requires a durable append-only acceptance ledger.
+The daemon defaults this to:
+
+```text
+<data-dir>/genesis-acceptance.log
+```
+
+Every accepted bootstrap appends a hash-chained record containing:
+
+```text
+Genesis epoch + sequence + full manifest hash
+Doctrine epoch + doctrine manifest hash
+Revocation epoch + signed revocation-list digest
+Trust-root epoch
+previous accepted manifest hash
+previous acceptance-record hash
+```
+
+Before EASL is allowed to return an operational Runtime, the ledger enforces:
+
+```text
+new Genesis epoch >= last accepted Genesis epoch
+new Doctrine epoch >= last accepted Doctrine epoch
+new Revocation epoch >= last accepted Revocation epoch
+new Trust-root epoch >= last accepted Trust-root epoch
+same Genesis epoch/sequence => exact same manifest hash
+successor => previous_manifest_hash == last accepted manifest hash
+```
+
+A nonzero Genesis sequence cannot initialize an empty ledger because its
+predecessor cannot be proven locally.
+
+The ledger is opened with no-symlink semantics, locked while bootstrap is in
+progress, written append-only, and `fsync`ed before mutation startup is allowed.
+If persistence fails, bootstrap is converted back to `GENESIS_LOCKED`.
+
+Repeated startup with the exact same accepted manifest is idempotent and does
+not append duplicate records.
+
+### Security boundary
+
+This v1 ledger prevents rollback across ordinary process/host restarts as long
+as the durable ledger itself is preserved. Its hash chain detects corruption
+and broken lineage, but a privileged attacker who can restore the entire
+storage volume to an older valid snapshot could restore both the manifest and
+the ledger together.
+
+Therefore this layer is deliberately described as **durable monotonic
+acceptance**, not a complete hardware rollback anchor. A TPM NV / HSM / remote
+monotonic anchor is the next hardening boundary for hostile-storage rollback.
 
 ## Verification bundle
 
