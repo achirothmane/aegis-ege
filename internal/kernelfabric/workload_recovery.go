@@ -427,3 +427,179 @@ func canonicalWorkloadReconciliationDecisionPayload(
 	}
 	return append([]byte("aegis-ege/workload-reconciliation-decision/v1\x00"), body...), nil
 }
+
+
+func EvaluateRecoveredWorkloadRestart(
+	state WorkloadLifecycleState,
+	priorGrant SignedWorkloadAdmissionGrant,
+	activation SignedWorkloadActivationReceipt,
+	reconciliation SignedWorkloadReconciliationDecision,
+	remote SignedRemoteAttestationDecision,
+	policy WorkloadRestartPolicy,
+) (SignedWorkloadRestartDecision, error) {
+	now := time.Now().UTC()
+	if policy.Now != nil {
+		now = policy.Now().UTC()
+	}
+	if len(policy.LifecycleAuthorityKey) != ed25519.PrivateKeySize ||
+		len(policy.RemoteVerifierPublicKey) != ed25519.PublicKeySize ||
+		len(policy.AdmissionIssuerPublicKey) != ed25519.PublicKeySize ||
+		len(policy.HostAttestorPublicKey) != ed25519.PublicKeySize {
+		return SignedWorkloadRestartDecision{}, errors.New("recovered restart requires lifecycle, verifier, admission and host trust keys")
+	}
+	if err := ValidateWorkloadLifecycleState(state); err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	if state.State != LifecycleStateExitedUnknown {
+		return SignedWorkloadRestartDecision{}, ErrRestartDecisionRejected
+	}
+	if err := VerifySignedWorkloadAdmissionGrant(
+		priorGrant,
+		policy.AdmissionIssuerPublicKey,
+		activation.Receipt.StartedAt,
+	); err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	if err := VerifySignedWorkloadActivationReceipt(
+		activation,
+		policy.HostAttestorPublicKey,
+	); err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	lifecyclePub := policy.LifecycleAuthorityKey.Public().(ed25519.PublicKey)
+	if err := VerifySignedWorkloadReconciliationDecision(
+		reconciliation,
+		lifecyclePub,
+	); err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	if err := VerifySignedRemoteAttestationDecision(
+		remote,
+		policy.RemoteVerifierPublicKey,
+	); err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+
+	activationDigest, err := SignedWorkloadActivationReceiptDigest(activation)
+	if err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	recoveryDigest, err := SignedWorkloadReconciliationDecisionDigest(reconciliation)
+	if err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	priorGrantDigest, err := SignedWorkloadAdmissionGrantDigest(priorGrant)
+	if err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	remoteDigest, err := SignedRemoteAttestationDecisionDigest(remote)
+	if err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	if state.DeviceID != activation.Receipt.DeviceID ||
+		state.WorkloadID != activation.Receipt.WorkloadID ||
+		state.ActivationDigest != activationDigest ||
+		state.RecoveryDigest != recoveryDigest ||
+		activation.Receipt.GrantID != priorGrant.Grant.GrantID ||
+		activation.Receipt.GrantDigest != priorGrantDigest ||
+		activation.Receipt.WorkloadSpecDigest != priorGrant.Grant.WorkloadSpecDigest ||
+		activation.Receipt.TargetCgroupID != priorGrant.Grant.TargetCgroupID {
+		return SignedWorkloadRestartDecision{}, ErrLifecycleInvalidLineage
+	}
+	rec := reconciliation.Decision
+	if rec.Outcome != ReconciliationMarkExitedUnknown ||
+		rec.DeviceID != state.DeviceID ||
+		rec.WorkloadID != state.WorkloadID ||
+		rec.Generation != state.Generation ||
+		rec.ActivationDigest != activationDigest {
+		return SignedWorkloadRestartDecision{}, ErrLifecycleInvalidLineage
+	}
+
+	window := policy.RestartWindow
+	if window <= 0 {
+		window = 10 * time.Minute
+	}
+	maxRestarts := policy.MaxRestartsPerWindow
+	if maxRestarts == 0 {
+		maxRestarts = 3
+	}
+	baseBackoff := policy.BaseBackoff
+	if baseBackoff <= 0 {
+		baseBackoff = time.Second
+	}
+	maxBackoff := policy.MaxBackoff
+	if maxBackoff <= 0 {
+		maxBackoff = time.Minute
+	}
+	reattestAfter := policy.ReattestAfter
+	if reattestAfter <= 0 {
+		reattestAfter = DefaultAdmissionAttestationMaxAge
+	}
+	ttl := policy.DecisionTTL
+	if ttl <= 0 {
+		ttl = time.Minute
+	}
+
+	restartCount := state.RestartCountInWindow
+	windowStart := state.RestartWindowStartedAt
+	if windowStart.IsZero() || !now.Before(windowStart.Add(window)) {
+		restartCount = 0
+		windowStart = now
+	}
+
+	outcome := RestartOutcomeRequireFreshGrant
+	reasons := []string{"RECOVERED_EXIT_REQUIRES_FRESH_GRANT"}
+	if restartCount >= maxRestarts {
+		outcome = RestartOutcomeBlock
+		reasons = []string{"RESTART_BUDGET_EXHAUSTED"}
+	} else if remote.Decision.BootstrapDigest != priorGrant.Grant.BootstrapDigest {
+		outcome = RestartOutcomeBlock
+		reasons = []string{"BOOTSTRAP_CHANGED_REQUIRES_NEW_LIFECYCLE"}
+	} else if remote.Decision.Decision != "ALLOW" ||
+		remote.Decision.DeviceID != state.DeviceID ||
+		remote.Decision.VerifiedAt.IsZero() ||
+		!remote.Decision.VerifiedAt.UTC().After(rec.DecidedAt.UTC()) ||
+		!now.Before(remote.Decision.VerifiedAt.UTC().Add(reattestAfter)) {
+		outcome = RestartOutcomeRequireReattestation
+		reasons = []string{"POST_RECOVERY_REATTESTATION_REQUIRED"}
+	}
+
+	delay := time.Duration(0)
+	if outcome != RestartOutcomeBlock {
+		delay = boundedRestartBackoff(baseBackoff, maxBackoff, restartCount)
+	}
+	notBefore := now
+	if outcome != RestartOutcomeBlock {
+		backoffDeadline := rec.DecidedAt.UTC().Add(delay)
+		if backoffDeadline.After(notBefore) {
+			notBefore = backoffDeadline
+		}
+	}
+	decisionID, err := randomToken(24)
+	if err != nil {
+		return SignedWorkloadRestartDecision{}, err
+	}
+	decision := WorkloadRestartDecision{
+		Version:                     WorkloadRestartDecisionVersion,
+		DecisionID:                  decisionID,
+		DeviceID:                    state.DeviceID,
+		WorkloadID:                  state.WorkloadID,
+		WorkloadSpecDigest:          activation.Receipt.WorkloadSpecDigest,
+		TargetCgroup:                activation.Receipt.TargetCgroup,
+		TargetCgroupID:              activation.Receipt.TargetCgroupID,
+		BootstrapDigest:             priorGrant.Grant.BootstrapDigest,
+		PreviousGeneration:          state.Generation,
+		PreviousActivationDigest:    activationDigest,
+		PreviousRecoveryDigest:      recoveryDigest,
+		CurrentRemoteDecisionDigest: remoteDigest,
+		Outcome:                     outcome,
+		ReasonCodes:                 reasons,
+		RestartCountInWindow:        restartCount,
+		RestartWindowStartedAt:      windowStart,
+		NotBefore:                   notBefore,
+		ExpiresAt:                   notBefore.Add(ttl),
+		EvaluatedAt:                 now,
+		AuthorityID:                 policy.LifecycleAuthorityID,
+	}
+	return SignWorkloadRestartDecision(decision, policy.LifecycleAuthorityKey)
+}
