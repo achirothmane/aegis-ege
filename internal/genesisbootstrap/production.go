@@ -123,6 +123,7 @@ func BootstrapProduction(
 	ctx context.Context,
 	manifestPath string,
 	bundlePath string,
+	acceptanceLedger *FileAcceptanceLedger,
 	minimumAcceptedEpoch uint64,
 	minimumAcceptedDoctrineEpoch uint64,
 	requiredConformance genesis.ConformanceLevel,
@@ -146,13 +147,51 @@ func BootstrapProduction(
 	if err != nil {
 		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("construct production Genesis verifier: %w", err)
 	}
+	if acceptanceLedger == nil {
+		result := genesis.Result{
+			State: genesis.StateLocked,
+			Failures: []genesis.Failure{{
+				Code:   genesis.FailureVerifierUnavailable,
+				Detail: "persistent Genesis acceptance ledger is required",
+			}},
+		}
+		return nil, result, errors.New("persistent Genesis acceptance ledger is required")
+	}
+
+	candidate, err := NewAcceptanceCandidate(manifest, verifier.revocations, now)
+	if err != nil {
+		result := genesis.Result{
+			State: genesis.StateLocked,
+			Failures: []genesis.Failure{{
+				Code:   genesis.FailureVerifierUnavailable,
+				Detail: err.Error(),
+			}},
+		}
+		return nil, result, fmt.Errorf("construct Genesis acceptance candidate: %w", err)
+	}
+	session, floor, err := acceptanceLedger.Begin(ctx, candidate)
+	if err != nil {
+		code := genesis.FailureVerifierUnavailable
+		if errors.Is(err, ErrAcceptanceRollback) || errors.Is(err, ErrAcceptanceContinuity) {
+			code = genesis.FailureEpochRollback
+		}
+		result := genesis.Result{
+			State: genesis.StateLocked,
+			Failures: []genesis.Failure{{
+				Code:   code,
+				Detail: err.Error(),
+			}},
+		}
+		return nil, result, fmt.Errorf("Genesis acceptance preflight failed: %w", err)
+	}
+	defer session.Close()
 
 	runtime, result := easl.Bootstrap(ctx, easl.BootstrapInput{
 		Manifest: manifest,
 		Verification: genesis.Context{
 			Now:                          now,
-			MinimumAcceptedEpoch:         maxUint64(minimumAcceptedEpoch, verifier.revocations.List.MinimumAcceptedGenesisEpoch),
-			MinimumAcceptedDoctrineEpoch: maxUint64(minimumAcceptedDoctrineEpoch, verifier.revocations.List.MinimumAcceptedDoctrineEpoch),
+			MinimumAcceptedEpoch:         maxUint64(maxUint64(minimumAcceptedEpoch, verifier.revocations.List.MinimumAcceptedGenesisEpoch), floor.GenesisEpoch),
+			MinimumAcceptedDoctrineEpoch: maxUint64(maxUint64(minimumAcceptedDoctrineEpoch, verifier.revocations.List.MinimumAcceptedDoctrineEpoch), floor.DoctrineEpoch),
 			ExpectedDoctrineManifestHash: verifier.doctrineDigest,
 			ExpectedImplementationDigest: verifier.executableDigest,
 			RequiredConformance:          requiredConformance,
@@ -161,6 +200,26 @@ func BootstrapProduction(
 	})
 	if result.State != genesis.StateReady || runtime == nil {
 		return nil, result, fmt.Errorf("Genesis verification did not reach BOOTSTRAP_READY")
+	}
+	if err := session.Commit(); err != nil {
+		locked := genesis.Result{
+			State: genesis.StateLocked,
+			Failures: []genesis.Failure{{
+				Code:   genesis.FailureVerifierUnavailable,
+				Detail: "persist accepted Genesis state: " + err.Error(),
+			}},
+		}
+		return nil, locked, fmt.Errorf("persist accepted Genesis state: %w", err)
+	}
+	if err := session.Close(); err != nil {
+		locked := genesis.Result{
+			State: genesis.StateLocked,
+			Failures: []genesis.Failure{{
+				Code:   genesis.FailureVerifierUnavailable,
+				Detail: "close Genesis acceptance ledger: " + err.Error(),
+			}},
+		}
+		return nil, locked, fmt.Errorf("close Genesis acceptance ledger: %w", err)
 	}
 	return runtime, result, nil
 }
