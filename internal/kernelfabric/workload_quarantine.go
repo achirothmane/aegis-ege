@@ -779,7 +779,6 @@ func EvaluateQuarantineReleasedRestart(
 		remote.Decision.DeviceID != state.DeviceID ||
 		remoteDigest != r.RemoteDecisionDigest ||
 		remote.Decision.VerifiedAt.IsZero() ||
-		remote.Decision.VerifiedAt.UTC().Before(r.DecidedAt.UTC()) ||
 		!now.Before(remote.Decision.VerifiedAt.UTC().Add(reattestAfter)) {
 		outcome = RestartOutcomeRequireReattestation
 		reasons = []string{"POST_QUARANTINE_ATTESTATION_REQUIRED"}
