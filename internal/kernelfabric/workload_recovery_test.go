@@ -154,10 +154,12 @@ func (f recoveryFixture) signedObservation(
 		observed.ProcessStartTimeTicks++
 		obs.ObservedProcessIdentity = &observed
 		obs.ObservedCgroupID = f.activation.Receipt.TargetCgroupID
+		obs.ObservedCgroup = f.activation.Receipt.TargetCgroup
 	case RecoveryObservationCgroupMismatch:
 		observed := expected
 		obs.ObservedProcessIdentity = &observed
 		obs.ObservedCgroupID = f.activation.Receipt.TargetCgroupID + 1
+		obs.ObservedCgroup = "/sys/fs/cgroup/other-workload"
 	case RecoveryObservationAbsent:
 	case RecoveryObservationBootChanged:
 		obs.CurrentBootIDHash = "sha256:" + strings.Repeat("c", 64)
@@ -399,6 +401,7 @@ func TestRecoveryObservationRejectsInconsistentRunningLabel(t *testing.T) {
 			CurrentBootIDHash:       expected.BootIDHash,
 			ExpectedCgroup:          f.activation.Receipt.TargetCgroup,
 			ExpectedCgroupID:        f.activation.Receipt.TargetCgroupID,
+			ObservedCgroup:          f.activation.Receipt.TargetCgroup,
 			ObservedCgroupID:        f.activation.Receipt.TargetCgroupID + 1,
 			State:                   RecoveryObservationMatchRunning,
 			ObservedAt:              f.base.Add(5 * time.Second),
