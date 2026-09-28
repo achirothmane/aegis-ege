@@ -34,7 +34,8 @@ type Event struct {
 	Target         string    `json:"target,omitempty"`
 	Decision       string    `json:"decision,omitempty"`
 	ReasonCodes    []string  `json:"reason_codes,omitempty"`
-	EvidenceDigest string    `json:"evidence_digest,omitempty"`
+	EvidenceDigest       string    `json:"evidence_digest,omitempty"`
+	EvidencePacketDigest string    `json:"evidence_packet_digest,omitempty"`
 	PlanDigest     string    `json:"plan_digest,omitempty"`
 	OutcomeVerdict string    `json:"outcome_verdict,omitempty"`
 	PayloadDigest  string    `json:"payload_digest,omitempty"`
