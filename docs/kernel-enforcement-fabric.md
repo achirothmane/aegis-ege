@@ -271,6 +271,34 @@ Restart decisions bind prior activation/exit lineage, immutable workload identit
 
 See [workload-lifecycle-governance.md](workload-lifecycle-governance.md).
 
+## Orphaned RUNNING reconciliation
+
+Supervisor failure no longer leaves a RUNNING ledger as an unresolvable truth claim.
+
+New activation receipts bind a persistent Linux process identity:
+
+```text
+boot id hash
++ PID
++ process starttime ticks
++ executable device/inode
++ cgroup path/inode
+```
+
+Recovery then follows:
+
+```text
+RUNNING ledger
+-> signed host observation
+-> independent lifecycle decision
+-> KEEP_RUNNING | MARK_EXITED_UNKNOWN | QUARANTINE
+-> signed ledger transition
+```
+
+`EXITED_UNKNOWN` requires a remote attestation taken after reconciliation before a fresh restart grant can be issued.
+
+See [orphaned-running-reconciliation.md](orphaned-running-reconciliation.md).
+
 ## Governing invariant
 
 > A stale, revoked, expired, superseded, reboot-crossing, or absent DecisionCapsule must fail closed before the protected kernel operation is allowed.
