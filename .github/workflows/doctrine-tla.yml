@@ -1,0 +1,47 @@
+name: Doctrine TLA+ Model Check
+
+on:
+  pull_request:
+    paths:
+      - "formal/doctrine_epoch/**"
+      - "doctrine/**"
+      - "schemas/idgi-axiom-v0.1.schema.json"
+      - "docs/architecture/idgi-v0.1.md"
+      - ".github/workflows/doctrine-tla.yml"
+  push:
+    branches: [main]
+    paths:
+      - "formal/doctrine_epoch/**"
+      - "doctrine/**"
+      - "schemas/idgi-axiom-v0.1.schema.json"
+      - "docs/architecture/idgi-v0.1.md"
+      - ".github/workflows/doctrine-tla.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  tlc:
+    name: TLC doctrine epoch invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Fetch pinned TLA+ tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar             -o /tmp/tla2tools.jar
+          echo "2b8c20402dc740fed5b03f9d39f652e85d70b17c  /tmp/tla2tools.jar" | sha1sum -c -
+
+      - name: Model-check Doctrine Epoch
+        working-directory: formal/doctrine_epoch
+        run: java -jar /tmp/tla2tools.jar -config DoctrineEpoch.cfg DoctrineEpoch.tla
