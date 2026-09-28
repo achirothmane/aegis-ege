@@ -67,6 +67,31 @@ func BindExternalLease(lease ExternalLease, clock ClockSnapshot) (LocalLease, er
 	}, nil
 }
 
+func AdvanceClockSnapshot(
+	base ClockSnapshot,
+	current ClockSnapshot,
+) (ClockSnapshot, error) {
+	if base.WallNow.IsZero() ||
+		base.MonoNowNS == 0 ||
+		base.BootIDHash == [32]byte{} ||
+		current.MonoNowNS == 0 ||
+		current.BootIDHash == [32]byte{} {
+		return ClockSnapshot{}, fmt.Errorf("%w: clock snapshot is incomplete", ErrLeaseInvalid)
+	}
+	if base.BootIDHash != current.BootIDHash {
+		return ClockSnapshot{}, fmt.Errorf("%w: boot identity changed", ErrLeaseInvalid)
+	}
+	if current.MonoNowNS < base.MonoNowNS {
+		return ClockSnapshot{}, fmt.Errorf("%w: monotonic clock moved backwards", ErrLeaseInvalid)
+	}
+	delta := current.MonoNowNS - base.MonoNowNS
+	if delta > uint64(math.MaxInt64) {
+		return ClockSnapshot{}, fmt.Errorf("%w: monotonic elapsed duration overflow", ErrLeaseInvalid)
+	}
+	current.WallNow = base.WallNow.UTC().Add(time.Duration(delta))
+	return current, nil
+}
+
 func ReadBootIDHash(path string) ([32]byte, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
