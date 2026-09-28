@@ -121,6 +121,12 @@ func IssueRuntimeTrustLease(
 	); err != nil {
 		return SignedRuntimeTrustLease{}, err
 	}
+	if activation.Receipt.Version != WorkloadActivationReceiptVersionV2 ||
+		activation.Receipt.ProcessIdentity == nil {
+		return SignedRuntimeTrustLease{}, errors.New(
+			"runtime trust requires process-bound activation receipt v2",
+		)
+	}
 	if err := VerifySignedRemoteAttestationDecision(
 		remote,
 		policy.RemoteVerifierPublicKey,
