@@ -309,12 +309,12 @@ func (v *ProductionVerifier) VerifyRevocation(_ context.Context, m genesis.Manif
 	if m.GenesisEpoch < v.revocations.List.MinimumAcceptedGenesisEpoch {
 		return fmt.Errorf("Genesis epoch %d is below revocation floor %d", m.GenesisEpoch, v.revocations.List.MinimumAcceptedGenesisEpoch)
 	}
-	payloadHash, err := ManifestPayloadHash(m)
+	revocationHash, err := ManifestRevocationHash(m)
 	if err != nil {
 		return err
 	}
-	if containsString(v.revocations.List.RevokedManifestHashes, payloadHash) {
-		return errors.New("Genesis manifest payload is revoked")
+	if containsString(v.revocations.List.RevokedManifestHashes, revocationHash) {
+		return errors.New("Genesis manifest revocation id is revoked")
 	}
 	if containsString(v.revocations.List.RevokedSignerKeyIDs, m.Authenticity.SignerKeyID) {
 		return errors.New("Genesis manifest signer is revoked")
@@ -503,6 +503,19 @@ func ManifestPayloadHash(m genesis.Manifest) (string, error) {
 	}
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func ManifestRevocationHash(m genesis.Manifest) (string, error) {
+	stable := m
+	stable.Trust.RevocationRef = ""
+	payload, err := CanonicalManifestPayload(stable)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	h.Write([]byte("aegis-ege/genesis-revocation-id/v1\x00"))
+	h.Write(payload)
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func SignManifest(m genesis.Manifest, privateKey ed25519.PrivateKey) (genesis.Manifest, error) {
