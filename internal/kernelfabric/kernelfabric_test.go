@@ -354,3 +354,69 @@ func TestRevokeCurrentScopeFailsBeforeWriteWhenReadFails(t *testing.T) {
 		t.Fatalf("unsafe revocation operations: %v", store.ops)
 	}
 }
+
+
+func TestAdvanceClockSnapshotUsesMonotonicElapsedTime(t *testing.T) {
+	base := testClock()
+	current := base
+	current.WallNow = base.WallNow.Add(24 * time.Hour)
+	current.MonoNowNS = base.MonoNowNS + uint64((250 * time.Millisecond).Nanoseconds())
+
+	advanced, err := AdvanceClockSnapshot(base, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWall := base.WallNow.Add(250 * time.Millisecond)
+	if !advanced.WallNow.Equal(wantWall) {
+		t.Fatalf("advanced wall=%s want=%s", advanced.WallNow, wantWall)
+	}
+	if advanced.MonoNowNS != current.MonoNowNS {
+		t.Fatalf("advanced monotonic=%d want=%d", advanced.MonoNowNS, current.MonoNowNS)
+	}
+}
+
+func TestAdvanceClockSnapshotRejectsBootChangeAndClockRollback(t *testing.T) {
+	base := testClock()
+	otherBoot := base
+	otherBoot.BootIDHash[0] ^= 0xff
+	if _, err := AdvanceClockSnapshot(base, otherBoot); err == nil {
+		t.Fatal("boot change was accepted")
+	}
+
+	rollback := base
+	rollback.MonoNowNS--
+	if _, err := AdvanceClockSnapshot(base, rollback); err == nil {
+		t.Fatal("monotonic clock rollback was accepted")
+	}
+}
+
+
+func TestRevokeCurrentScopeForBootRejectsMismatchBeforeWrite(t *testing.T) {
+	var storedBoot [32]byte
+	storedBoot[0] = 1
+	var currentBoot [32]byte
+	currentBoot[0] = 2
+	store := &recordingKernelStore{
+		fence: ScopeFenceState{
+			BootIDHash:      storedBoot,
+			AuthorityTerm:   7,
+			DecisionEpoch:   31,
+			RevocationEpoch: 4,
+		},
+	}
+	key, err := FenceKey(42, ActionClassNetworkConnect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (Installer{Store: store}).RevokeCurrentScopeForBoot(
+		context.Background(),
+		key,
+		currentBoot,
+	)
+	if !errors.Is(err, ErrLeaseInvalid) {
+		t.Fatalf("boot mismatch error=%v", err)
+	}
+	if len(store.ops) != 1 || store.ops[0] != "get-fence" {
+		t.Fatalf("kernel fence was written despite boot mismatch: %v", store.ops)
+	}
+}

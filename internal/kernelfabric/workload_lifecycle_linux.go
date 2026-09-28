@@ -77,9 +77,7 @@ func StartGovernedWorkload(
 				nextState.State = LifecycleStateRunning
 				nextState.ExitDigest = ""
 				nextState.RecoveryDigest = ""
-				nextState.RuntimeTrustEpoch = 0
-				nextState.RuntimeTrustLeaseDigest = ""
-				nextState.RuntimeTrustExpiresAt = time.Time{}
+				clearRuntimeTrustState(&nextState)
 				nextState.RestartCountInWindow = decision.RestartCountInWindow + 1
 				nextState.RestartWindowStartedAt = decision.RestartWindowStartedAt
 				nextState.UpdatedAt = now
@@ -179,9 +177,7 @@ func WaitGovernedWorkload(
 			}
 			state.State = LifecycleStateExited
 			state.ExitDigest = exitDigest
-			state.RuntimeTrustEpoch = 0
-			state.RuntimeTrustLeaseDigest = ""
-			state.RuntimeTrustExpiresAt = time.Time{}
+			clearRuntimeTrustState(&state)
 			state.UpdatedAt = exitedAt
 			return writeLifecycleState(path, state)
 		},

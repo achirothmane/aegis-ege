@@ -59,6 +59,9 @@ func newRuntimeTrustFixture(t *testing.T) runtimeTrustFixture {
 	state.RuntimeTrustEpoch = lease.Lease.LeaseEpoch
 	state.RuntimeTrustLeaseDigest = digest
 	state.RuntimeTrustExpiresAt = lease.Lease.ExpiresAt
+	state.RuntimeTrustBootIDHash = f.activation.Receipt.ProcessIdentity.BootIDHash
+	state.RuntimeTrustInstalledBootNS = 100
+	state.RuntimeTrustDeadlineBootNS = 100 + uint64((30*time.Second).Nanoseconds())
 	state.UpdatedAt = now
 	return runtimeTrustFixture{
 		recovery: f,

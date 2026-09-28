@@ -123,6 +123,139 @@ Runtime trust state is cleared when the workload:
 
 A lease therefore cannot cross a generation or lifecycle transition.
 
+## Boot-bound local deadline
+
+When a signed Runtime Trust Lease is applied, Aegis binds its wall-clock expiry to the current boot using `CLOCK_BOOTTIME`.
+
+The durable lifecycle state records:
+
+```text
+runtime_trust_boot_id_hash
+runtime_trust_installed_boot_ns
+runtime_trust_deadline_boot_ns
+```
+
+The deadline is derived from the signed lease expiry at application time.
+
+After that point, wall-clock rollback cannot extend the active lease.
+
+`CLOCK_BOOTTIME` includes suspend time, so suspending the host does not pause the trust deadline.
+
+A watchdog restart during the same boot reuses the persisted boot-bound deadline.
+
+If the boot identity changes, the watchdog does not attempt to apply the old fence to the new boot. The existing orphaned-RUNNING / BOOT_CHANGED reconciliation path applies instead.
+
+## Automatic expiry watchdog
+
+`aegis-runtime-trust-watchdog` turns lease expiry into an execution trigger.
+
+It repeatedly re-reads the lifecycle ledger. This lets it observe a successfully applied renewal without keeping the lifecycle authority key.
+
+For the current lease it computes:
+
+```text
+remaining =
+  runtime_trust_deadline_boot_ns
+  - current_CLOCK_BOOTTIME
+```
+
+At the deadline it acquires the lifecycle lock again and re-checks that the same runtime-trust epoch is still current.
+
+This closes the race:
+
+```text
+old lease reaches deadline
+vs.
+renewed lease being applied
+```
+
+If renewal was applied first, the watchdog sees the new deadline and continues.
+
+If expiry wins first, any later renewal is rejected because the previous monotonic deadline has already passed.
+
+### Authority separation
+
+The watchdog holds:
+
+```text
+host attestor key
+kernel enforcement access
+```
+
+It does **not** require the lifecycle authority private key.
+
+The signed lease and the boot-bound ledger deadline are sufficient to trigger expiry containment.
+
+The lifecycle authority remains separate and signs the later reconciliation decision.
+
+## Automatic expiry evidence
+
+After the deadline, the watchdog first advances the current network fence:
+
+```text
+read current fence
+-> revocation_epoch N
+-> write revocation_epoch N+1
+```
+
+Only after that kernel mutation does it produce a host-signed `RuntimeTrustExpiryEvidence`.
+
+The evidence binds:
+
+```text
+device/workload/generation/lifecycle epoch
+activation digest
+runtime trust lease digest + epoch
+signed wall-clock lease expiry
+boot-bound installation/deadline
+observed boot id + CLOCK_BOOTTIME
+target cgroup path + inode
+action class = network connect
+kernel authority term
+kernel decision epoch
+kernel revocation N -> N+1
+persistent process identity
+post-revocation process state
+observation time
+```
+
+Process state is one of:
+
+```text
+MATCH_RUNNING
+ABSENT
+PID_REUSED
+CGROUP_MISMATCH
+```
+
+This preserves races that happen exactly as trust expires instead of inventing a single generic "revoked" state.
+
+## Expiry reconciliation
+
+The lifecycle authority independently verifies:
+
+```text
+current RUNNING lifecycle state
++ signed Runtime Trust Lease
++ Activation Receipt v2
++ host-signed expiry evidence
+```
+
+It then emits the existing standard `SignedWorkloadReconciliationDecision`.
+
+Mapping:
+
+```text
+MATCH_RUNNING   -> QUARANTINE
+CGROUP_MISMATCH -> QUARANTINE
+ABSENT          -> EXITED_UNKNOWN
+PID_REUSED      -> EXITED_UNKNOWN
+```
+
+The existing `aegis-reconcile-apply` command performs the durable lifecycle mutation.
+
+No second quarantine or recovery system is introduced.
+
 ## Renewal
 
 Renewal requires:
@@ -363,7 +496,43 @@ go run ./cmd/aegis-runtime-trust-apply \
   -lifecycle-authority-pub lifecycle-authority.pub
 ```
 
-### 3. Evaluate current runtime trust
+### 3. Run automatic expiry enforcement
+
+After applying the lease, run the host watchdog:
+
+```bash
+sudo go run ./cmd/aegis-runtime-trust-watchdog \
+  -lifecycle-dir /var/lib/aegis/workload-lifecycle \
+  -device node-01 \
+  -workload payments-worker \
+  -activation workload-activation-receipt.json \
+  -host-attestor-key host-attestation.key \
+  -out runtime-trust-expiry-evidence.json
+```
+
+The watchdog automatically follows renewed deadlines from the lifecycle ledger.
+
+If it produces an expiry artifact, reconcile it with the lifecycle authority:
+
+```bash
+go run ./cmd/aegis-runtime-trust-expiry-reconcile \
+  -lifecycle-dir /var/lib/aegis/workload-lifecycle \
+  -device node-01 \
+  -workload payments-worker \
+  -activation workload-activation-receipt.json \
+  -lease runtime-trust-lease.json \
+  -expiry-evidence runtime-trust-expiry-evidence.json \
+  -host-attestor-pub host-attestation.pub \
+  -lifecycle-key lifecycle-authority.key \
+  -lifecycle-authority-id prod-lifecycle \
+  -out runtime-trust-expiry-reconciliation.json
+```
+
+Then apply the standard reconciliation artifact with `aegis-reconcile-apply`.
+
+### 4. Evaluate current runtime trust manually
+
+
 
 Without new remote evidence:
 
@@ -388,7 +557,7 @@ A newer remote decision can be supplied with:
 -remote-verifier-pub
 ```
 
-### 4. Renew before expiry
+### 5. Renew before expiry
 
 Obtain fresh remote attestation, then issue a new lease using:
 
@@ -398,7 +567,7 @@ Obtain fresh remote attestation, then issue a new lease using:
 
 Apply the renewed lease with `aegis-runtime-trust-apply`.
 
-### 5. Contain REVOKE
+### 6. Contain non-expiry REVOKE
 
 When evaluation returns `REVOKE`:
 
@@ -416,7 +585,7 @@ sudo go run ./cmd/aegis-runtime-trust-contain \
 
 This updates the current network fence first.
 
-### 6. Convert containment evidence to standard QUARANTINE
+### 7. Convert non-expiry containment evidence to standard QUARANTINE
 
 ```bash
 go run ./cmd/aegis-runtime-trust-reconcile \
@@ -462,12 +631,17 @@ network authority fail-closed revocation
 host-signed runtime containment evidence
 standard reconciliation QUARANTINE integration
 lifecycle clearing across exit/restart/quarantine
+boot-bound CLOCK_BOOTTIME expiry deadlines
+automatic expiry watchdog
+renewal-vs-expiry lifecycle-lock fencing
+host-signed expiry evidence
+automatic kernel network revocation at expiry
+independent expiry reconciliation
 ```
 
 Not yet implemented:
 
 ```text
-automatic periodic scheduler/watchdog
 automatic TPM attestation refresh
 automatic cgroup freeze or kill
 BPF-LSM filesystem/process revocation
