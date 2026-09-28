@@ -18,7 +18,8 @@ func main() {
 	workloadID := flag.String("workload", "", "workload id")
 	priorGrantPath := flag.String("prior-grant", "", "prior signed workload admission grant")
 	activationPath := flag.String("activation", "", "prior signed workload activation receipt")
-	exitPath := flag.String("exit", "", "prior signed workload exit receipt")
+	exitPath := flag.String("exit", "", "prior signed workload exit receipt for normal EXITED state")
+	reconciliationPath := flag.String("reconciliation", "", "signed reconciliation decision for EXITED_UNKNOWN state")
 	remotePath := flag.String("remote-decision", "", "current signed remote attestation decision")
 	remoteVerifierPubPath := flag.String("remote-verifier-pub", "", "remote verifier public key")
 	admissionIssuerPubPath := flag.String("admission-issuer-pub", "", "admission issuer public key")
@@ -38,7 +39,7 @@ func main() {
 	flag.Parse()
 
 	if *lifecycleDir == "" || *deviceID == "" || *workloadID == "" ||
-		*priorGrantPath == "" || *activationPath == "" || *exitPath == "" ||
+		*priorGrantPath == "" || *activationPath == "" ||
 		*remotePath == "" || *remoteVerifierPubPath == "" ||
 		*admissionIssuerPubPath == "" || *hostAttestorPubPath == "" ||
 		*lifecycleKeyPath == "" || *lifecycleAuthorityID == "" {
@@ -58,8 +59,6 @@ func main() {
 	if err != nil { fatalf("read prior grant: %v", err) }
 	activation, err := cliio.ReadJSON[kernelfabric.SignedWorkloadActivationReceipt](*activationPath)
 	if err != nil { fatalf("read activation receipt: %v", err) }
-	exit, err := cliio.ReadJSON[kernelfabric.SignedWorkloadExitReceipt](*exitPath)
-	if err != nil { fatalf("read exit receipt: %v", err) }
 	remote, err := cliio.ReadJSON[kernelfabric.SignedRemoteAttestationDecision](*remotePath)
 	if err != nil { fatalf("read remote decision: %v", err) }
 
@@ -72,31 +71,67 @@ func main() {
 	lifecycleKey, err := kernelfabric.LoadEd25519PrivateKey(*lifecycleKeyPath)
 	if err != nil { fatalf("load lifecycle authority key: %v", err) }
 
-	decision, err := kernelfabric.EvaluateWorkloadRestart(
-		state,
-		priorGrant,
-		activation,
-		exit,
-		remote,
-		kernelfabric.WorkloadRestartPolicy{
-			MaxRestartsPerWindow:     uint32(*maxRestarts),
-			RestartWindow:            *window,
-			BaseBackoff:              *baseBackoff,
-			MaxBackoff:               *maxBackoff,
-			ReattestAfter:            *reattestAfter,
-			ReattestOnNonZero:        *reattestNonZero,
-			ReattestOnSignal:         *reattestSignal,
-			AllowCleanExitRestart:    *allowClean,
-			DecisionTTL:              *decisionTTL,
-			LifecycleAuthorityKey:    lifecycleKey,
-			LifecycleAuthorityID:     *lifecycleAuthorityID,
-			RemoteVerifierPublicKey:  remoteVerifierPub,
-			AdmissionIssuerPublicKey: admissionIssuerPub,
-			HostAttestorPublicKey:    hostAttestorPub,
-		},
-	)
-	if err != nil {
-		fatalf("%v", err)
+	policy := kernelfabric.WorkloadRestartPolicy{
+		MaxRestartsPerWindow:     uint32(*maxRestarts),
+		RestartWindow:            *window,
+		BaseBackoff:              *baseBackoff,
+		MaxBackoff:               *maxBackoff,
+		ReattestAfter:            *reattestAfter,
+		ReattestOnNonZero:        *reattestNonZero,
+		ReattestOnSignal:         *reattestSignal,
+		AllowCleanExitRestart:    *allowClean,
+		DecisionTTL:              *decisionTTL,
+		LifecycleAuthorityKey:    lifecycleKey,
+		LifecycleAuthorityID:     *lifecycleAuthorityID,
+		RemoteVerifierPublicKey:  remoteVerifierPub,
+		AdmissionIssuerPublicKey: admissionIssuerPub,
+		HostAttestorPublicKey:    hostAttestorPub,
+	}
+
+	var decision kernelfabric.SignedWorkloadRestartDecision
+	switch state.State {
+	case kernelfabric.LifecycleStateExited:
+		if *exitPath == "" || *reconciliationPath != "" {
+			fatalf("EXITED state requires -exit and forbids -reconciliation")
+		}
+		exit, err := cliio.ReadJSON[kernelfabric.SignedWorkloadExitReceipt](*exitPath)
+		if err != nil {
+			fatalf("read exit receipt: %v", err)
+		}
+		decision, err = kernelfabric.EvaluateWorkloadRestart(
+			state,
+			priorGrant,
+			activation,
+			exit,
+			remote,
+			policy,
+		)
+		if err != nil {
+			fatalf("%v", err)
+		}
+	case kernelfabric.LifecycleStateExitedUnknown:
+		if *reconciliationPath == "" || *exitPath != "" {
+			fatalf("EXITED_UNKNOWN state requires -reconciliation and forbids -exit")
+		}
+		reconciliation, err := cliio.ReadJSON[kernelfabric.SignedWorkloadReconciliationDecision](*reconciliationPath)
+		if err != nil {
+			fatalf("read reconciliation decision: %v", err)
+		}
+		decision, err = kernelfabric.EvaluateRecoveredWorkloadRestart(
+			state,
+			priorGrant,
+			activation,
+			reconciliation,
+			remote,
+			policy,
+		)
+		if err != nil {
+			fatalf("%v", err)
+		}
+	case kernelfabric.LifecycleStateQuarantined:
+		fatalf("lifecycle is QUARANTINED; explicit operator recovery is required")
+	default:
+		fatalf("restart evaluation requires EXITED or EXITED_UNKNOWN lifecycle state, got %s", state.State)
 	}
 	if err := cliio.WriteJSON(*out, decision, 0o600); err != nil {
 		fatalf("write restart decision: %v", err)
