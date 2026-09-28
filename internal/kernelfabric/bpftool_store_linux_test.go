@@ -4,14 +4,16 @@ package kernelfabric
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
 )
 
 type fakeBPFToolRunner struct {
-	calls [][]string
-	err   error
+	calls  [][]string
+	err    error
+	output []byte
 }
 
 func (f *fakeBPFToolRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -20,7 +22,7 @@ func (f *fakeBPFToolRunner) Run(_ context.Context, name string, args ...string) 
 	if f.err != nil {
 		return []byte("bpftool failure"), f.err
 	}
-	return nil, nil
+	return append([]byte(nil), f.output...), nil
 }
 
 func TestBPFToolStoreUsesPinnedMapsWithoutShell(t *testing.T) {
@@ -111,4 +113,77 @@ func containsSequence(got []string, want ...string) bool {
 		}
 	}
 	return false
+}
+
+
+func TestBPFToolStoreReadsPinnedFenceJSON(t *testing.T) {
+	store, err := NewBPFToolStore(
+		"/usr/sbin/bpftool",
+		"/sys/fs/bpf/aegis/maps/aegis_capsules",
+		"/sys/fs/bpf/aegis/maps/aegis_fences",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var boot [32]byte
+	for i := range boot {
+		boot[i] = byte(i + 1)
+	}
+	want := ScopeFenceState{
+		BootIDHash:      boot,
+		AuthorityTerm:   7,
+		DecisionEpoch:   31,
+		RevocationEpoch: 4,
+	}
+	raw, err := MarshalScopeFenceState(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := make([]string, 0, len(raw))
+	for _, b := range raw {
+		parts = append(parts, ""0x"+hex.EncodeToString([]byte{b})+""")
+	}
+	runner := &fakeBPFToolRunner{
+		output: []byte("{"key":[],"value":[" + strings.Join(parts, ",") + "]}"),
+	}
+	store.Runner = runner
+
+	key, err := FenceKey(42, ActionClassNetworkConnect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetFence(context.Background(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("fence=%+v want=%+v", got, want)
+	}
+	if len(runner.calls) != 1 ||
+		!containsSequence(runner.calls[0], "-j", "map", "lookup", "pinned", store.FenceMapPath, "key", "hex") {
+		t.Fatalf("unexpected lookup command: %v", runner.calls)
+	}
+}
+
+func TestDecodeBPFToolLookupValueAcceptsNumericBytes(t *testing.T) {
+	got, err := decodeBPFToolLookupValue([]byte(`{"value":[0,1,254,255]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{0, 1, 254, 255}
+	if len(got) != len(want) {
+		t.Fatalf("value=%v want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("value=%v want=%v", got, want)
+		}
+	}
+}
+
+func TestDecodeBPFToolLookupValueRejectsMalformedByte(t *testing.T) {
+	_, err := decodeBPFToolLookupValue([]byte(`{"value":["0x0011"]}`))
+	if err == nil {
+		t.Fatal("expected malformed bpftool byte rejection")
+	}
 }
