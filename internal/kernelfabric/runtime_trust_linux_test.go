@@ -44,7 +44,10 @@ func TestApplyRuntimeTrustLeaseAdvancesLedgerEpochAndRejectsReplay(t *testing.T)
 	}
 	if state.RuntimeTrustEpoch != 1 ||
 		state.RuntimeTrustLeaseDigest != digest ||
-		!state.RuntimeTrustExpiresAt.Equal(f.lease.Lease.ExpiresAt) {
+		!state.RuntimeTrustExpiresAt.Equal(f.lease.Lease.ExpiresAt) ||
+		state.RuntimeTrustBootIDHash == "" ||
+		state.RuntimeTrustInstalledBootNS == 0 ||
+		state.RuntimeTrustDeadlineBootNS <= state.RuntimeTrustInstalledBootNS {
 		t.Fatalf("runtime trust lease not persisted: %+v", state)
 	}
 
@@ -105,10 +108,13 @@ func TestRuntimeTrustRevocationRaisesKernelFenceBeforeQuarantineEvidence(t *test
 		LifecycleEpoch:          1,
 		State:                   LifecycleStateRunning,
 		ActivationDigest:        activationDigest,
-		RuntimeTrustEpoch:       1,
-		RuntimeTrustLeaseDigest: leaseDigest,
-		RuntimeTrustExpiresAt:   now.Add(time.Minute),
-		RestartWindowStartedAt:  now.Add(-time.Minute),
+		RuntimeTrustEpoch:          1,
+		RuntimeTrustLeaseDigest:    leaseDigest,
+		RuntimeTrustExpiresAt:      now.Add(time.Minute),
+		RuntimeTrustBootIDHash:     identity.BootIDHash,
+		RuntimeTrustInstalledBootNS: 100,
+		RuntimeTrustDeadlineBootNS:  200,
+		RestartWindowStartedAt:     now.Add(-time.Minute),
 		UpdatedAt:               now.Add(-time.Second),
 	}
 	decision, err := SignRuntimeTrustDecision(
