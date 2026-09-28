@@ -447,7 +447,10 @@ func EvaluateRuntimeTrust(
 	); err != nil {
 		return SignedRuntimeTrustDecision{}, err
 	}
-	leaseValidationErr := VerifySignedRuntimeTrustLease(lease, lifecyclePub, time.Time{})
+	if err := VerifySignedRuntimeTrustLease(lease, lifecyclePub, time.Time{}); err != nil {
+		return SignedRuntimeTrustDecision{}, err
+	}
+	leaseValidationErr := ValidateRuntimeTrustLease(lease.Lease, now)
 	activationDigest, err := SignedWorkloadActivationReceiptDigest(activation)
 	if err != nil {
 		return SignedRuntimeTrustDecision{}, err
@@ -664,4 +667,126 @@ func canonicalRuntimeTrustDecisionPayload(
 		return nil, err
 	}
 	return append([]byte("aegis-ege/runtime-trust-decision/v1\x00"), body...), nil
+}
+
+
+func EvaluateRuntimeTrustReconciliation(
+	state WorkloadLifecycleState,
+	activation SignedWorkloadActivationReceipt,
+	observation SignedWorkloadRecoveryObservation,
+	runtimeDecision SignedRuntimeTrustDecision,
+	hostAttestorPublicKey ed25519.PublicKey,
+	lifecycleAuthorityKey ed25519.PrivateKey,
+	lifecycleAuthorityID string,
+	now time.Time,
+) (SignedWorkloadReconciliationDecision, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	state = NormalizeWorkloadLifecycleState(state)
+	if err := ValidateWorkloadLifecycleState(state); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	if state.State != LifecycleStateRunning {
+		return SignedWorkloadReconciliationDecision{}, ErrReconciliationRejected
+	}
+	if len(lifecycleAuthorityKey) != ed25519.PrivateKeySize ||
+		len(hostAttestorPublicKey) != ed25519.PublicKeySize {
+		return SignedWorkloadReconciliationDecision{}, errors.New("runtime trust reconciliation keys are incomplete")
+	}
+	lifecycleAuthorityID = strings.TrimSpace(lifecycleAuthorityID)
+	if lifecycleAuthorityID == "" {
+		return SignedWorkloadReconciliationDecision{}, errors.New("lifecycle authority id is required")
+	}
+	lifecyclePub := lifecycleAuthorityKey.Public().(ed25519.PublicKey)
+	if err := VerifySignedRuntimeTrustDecision(runtimeDecision, lifecyclePub); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	if runtimeDecision.Decision.Outcome != RuntimeTrustRevoke {
+		return SignedWorkloadReconciliationDecision{}, ErrRuntimeTrustRevokeRequired
+	}
+	if err := VerifySignedWorkloadActivationReceipt(
+		activation,
+		hostAttestorPublicKey,
+	); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	if err := VerifySignedWorkloadRecoveryObservation(
+		observation,
+		hostAttestorPublicKey,
+	); err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+
+	activationDigest, err := SignedWorkloadActivationReceiptDigest(activation)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	runtimeDigest, err := SignedRuntimeTrustDecisionDigest(runtimeDecision)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	observationDigest, err := SignedWorkloadRecoveryObservationDigest(observation)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+
+	d := runtimeDecision.Decision
+	obs := observation.Observation
+	if d.DeviceID != state.DeviceID ||
+		d.WorkloadID != state.WorkloadID ||
+		d.Generation != state.Generation ||
+		d.LifecycleEpoch != EffectiveLifecycleEpoch(state) ||
+		d.ActivationDigest != activationDigest ||
+		d.RuntimeLeaseEpoch != state.RuntimeTrustEpoch ||
+		d.RuntimeLeaseDigest != state.RuntimeTrustLeaseDigest ||
+		d.TargetCgroupID != activation.Receipt.TargetCgroupID ||
+		filepath.Clean(d.TargetCgroup) != filepath.Clean(activation.Receipt.TargetCgroup) ||
+		state.ActivationDigest != activationDigest ||
+		obs.State != RecoveryObservationRuntimeTrustRevoked ||
+		obs.RuntimeTrustDecisionDigest != runtimeDigest ||
+		obs.DeviceID != state.DeviceID ||
+		obs.WorkloadID != state.WorkloadID ||
+		obs.Generation != state.Generation ||
+		obs.ActivationID != activation.Receipt.ActivationID ||
+		obs.ActivationDigest != activationDigest ||
+		obs.ProcessID != activation.Receipt.ProcessID ||
+		obs.ExpectedCgroupID != activation.Receipt.TargetCgroupID ||
+		filepath.Clean(obs.ExpectedCgroup) != filepath.Clean(activation.Receipt.TargetCgroup) ||
+		obs.ObservedCgroupID != activation.Receipt.TargetCgroupID ||
+		filepath.Clean(obs.ObservedCgroup) != filepath.Clean(activation.Receipt.TargetCgroup) ||
+		obs.ObservedAt.UTC().Before(d.DecidedAt.UTC()) {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
+	if activation.Receipt.Version != WorkloadActivationReceiptVersionV2 ||
+		activation.Receipt.ProcessIdentity == nil ||
+		obs.ExpectedProcessIdentity == nil ||
+		obs.ObservedProcessIdentity == nil ||
+		*obs.ExpectedProcessIdentity != *activation.Receipt.ProcessIdentity ||
+		*obs.ObservedProcessIdentity != *activation.Receipt.ProcessIdentity {
+		return SignedWorkloadReconciliationDecision{}, ErrLifecycleInvalidLineage
+	}
+
+	decisionID, err := randomToken(24)
+	if err != nil {
+		return SignedWorkloadReconciliationDecision{}, err
+	}
+	decision := WorkloadReconciliationDecision{
+		Version:           WorkloadReconciliationDecisionVersion,
+		DecisionID:        decisionID,
+		DeviceID:          state.DeviceID,
+		WorkloadID:        state.WorkloadID,
+		Generation:        state.Generation,
+		ActivationDigest:  activationDigest,
+		ObservationDigest: observationDigest,
+		Outcome:           ReconciliationQuarantine,
+		ReasonCodes: []string{
+			"RUNTIME_TRUST_REVOKED",
+			"KERNEL_NETWORK_SCOPE_REVOKED",
+		},
+		ObservedAt:  obs.ObservedAt.UTC(),
+		DecidedAt:   now.UTC(),
+		AuthorityID: lifecycleAuthorityID,
+	}
+	return SignWorkloadReconciliationDecision(decision, lifecycleAuthorityKey)
 }
