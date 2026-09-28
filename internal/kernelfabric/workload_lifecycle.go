@@ -27,8 +27,10 @@ const (
 	ExitClassNonZero = "NONZERO"
 	ExitClassSignal  = "SIGNAL"
 
-	LifecycleStateRunning = "RUNNING"
-	LifecycleStateExited  = "EXITED"
+	LifecycleStateRunning       = "RUNNING"
+	LifecycleStateExited        = "EXITED"
+	LifecycleStateExitedUnknown = "EXITED_UNKNOWN"
+	LifecycleStateQuarantined   = "QUARANTINED"
 )
 
 var (
@@ -209,6 +211,7 @@ type WorkloadLifecycleState struct {
 	State                   string    `json:"state"`
 	ActivationDigest        string    `json:"activation_digest"`
 	ExitDigest              string    `json:"exit_digest,omitempty"`
+	RecoveryDigest          string    `json:"recovery_digest,omitempty"`
 	RestartCountInWindow    uint32    `json:"restart_count_in_window"`
 	RestartWindowStartedAt  time.Time `json:"restart_window_started_at"`
 	UpdatedAt               time.Time `json:"updated_at"`
@@ -219,20 +222,34 @@ func ValidateWorkloadLifecycleState(state WorkloadLifecycleState) error {
 		strings.TrimSpace(state.DeviceID) == "" ||
 		strings.TrimSpace(state.WorkloadID) == "" ||
 		state.Generation == 0 ||
-		(state.State != LifecycleStateRunning && state.State != LifecycleStateExited) ||
 		state.RestartWindowStartedAt.IsZero() ||
 		state.UpdatedAt.IsZero() {
 		return errors.New("workload lifecycle state is invalid")
 	}
-	if _, err := ParseSHA256Digest(state.ActivationDigest); err != nil {
-		return fmt.Errorf("lifecycle activation digest: %w", err)
-	}
-	if state.State == LifecycleStateExited {
+	switch state.State {
+	case LifecycleStateRunning:
+		if state.ExitDigest != "" || state.RecoveryDigest != "" {
+			return errors.New("running lifecycle state cannot carry exit/recovery digest")
+		}
+	case LifecycleStateExited:
 		if _, err := ParseSHA256Digest(state.ExitDigest); err != nil {
 			return fmt.Errorf("lifecycle exit digest: %w", err)
 		}
-	} else if state.ExitDigest != "" {
-		return errors.New("running lifecycle state cannot carry an exit digest")
+		if state.RecoveryDigest != "" {
+			return errors.New("normal exited state cannot carry recovery digest")
+		}
+	case LifecycleStateExitedUnknown, LifecycleStateQuarantined:
+		if state.ExitDigest != "" {
+			return errors.New("recovered lifecycle state cannot carry normal exit digest")
+		}
+		if _, err := ParseSHA256Digest(state.RecoveryDigest); err != nil {
+			return fmt.Errorf("lifecycle recovery digest: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported workload lifecycle state %q", state.State)
+	}
+	if _, err := ParseSHA256Digest(state.ActivationDigest); err != nil {
+		return fmt.Errorf("lifecycle activation digest: %w", err)
 	}
 	return nil
 }
@@ -266,7 +283,8 @@ type WorkloadRestartDecision struct {
 	BootstrapDigest             string    `json:"bootstrap_digest"`
 	PreviousGeneration          uint64    `json:"previous_generation"`
 	PreviousActivationDigest   string    `json:"previous_activation_digest"`
-	PreviousExitDigest         string    `json:"previous_exit_digest"`
+	PreviousExitDigest         string    `json:"previous_exit_digest,omitempty"`
+	PreviousRecoveryDigest     string    `json:"previous_recovery_digest,omitempty"`
 	CurrentRemoteDecisionDigest string   `json:"current_remote_decision_digest"`
 	Outcome                     string    `json:"outcome"`
 	ReasonCodes                 []string  `json:"reason_codes,omitempty"`
@@ -575,13 +593,12 @@ func ValidateRestartForLifecycleState(
 		return ErrRestartDecisionRejected
 	}
 	if state.Version != WorkloadLifecycleStateVersion ||
-		state.State != LifecycleStateExited ||
+		(state.State != LifecycleStateExited && state.State != LifecycleStateExitedUnknown) ||
 		state.Generation == 0 ||
 		decision.DeviceID != state.DeviceID ||
 		decision.WorkloadID != state.WorkloadID ||
 		decision.PreviousGeneration != state.Generation ||
 		decision.PreviousActivationDigest != state.ActivationDigest ||
-		decision.PreviousExitDigest != state.ExitDigest ||
 		decision.CurrentRemoteDecisionDigest != grant.Grant.RemoteDecisionDigest ||
 		grant.Grant.DeviceID != state.DeviceID ||
 		grant.Grant.WorkloadID != state.WorkloadID ||
@@ -589,6 +606,18 @@ func ValidateRestartForLifecycleState(
 		grant.Grant.TargetCgroup != decision.TargetCgroup ||
 		grant.Grant.TargetCgroupID != decision.TargetCgroupID ||
 		grant.Grant.BootstrapDigest != decision.BootstrapDigest {
+		return ErrLifecycleInvalidLineage
+	}
+	switch state.State {
+	case LifecycleStateExited:
+		if decision.PreviousExitDigest != state.ExitDigest || decision.PreviousRecoveryDigest != "" {
+			return ErrLifecycleInvalidLineage
+		}
+	case LifecycleStateExitedUnknown:
+		if decision.PreviousRecoveryDigest != state.RecoveryDigest || decision.PreviousExitDigest != "" {
+			return ErrLifecycleInvalidLineage
+		}
+	default:
 		return ErrLifecycleInvalidLineage
 	}
 	return nil
@@ -674,11 +703,25 @@ func ValidateWorkloadRestartDecision(
 		"workload_spec_digest": decision.WorkloadSpecDigest,
 		"bootstrap_digest": decision.BootstrapDigest,
 		"previous_activation_digest": decision.PreviousActivationDigest,
-		"previous_exit_digest": decision.PreviousExitDigest,
 		"current_remote_decision_digest": decision.CurrentRemoteDecisionDigest,
 	} {
 		if _, err := ParseSHA256Digest(digest); err != nil {
 			return fmt.Errorf("%s: %w", field, err)
+		}
+	}
+	hasExit := strings.TrimSpace(decision.PreviousExitDigest) != ""
+	hasRecovery := strings.TrimSpace(decision.PreviousRecoveryDigest) != ""
+	if hasExit == hasRecovery {
+		return errors.New("restart decision must bind exactly one exit or recovery digest")
+	}
+	if hasExit {
+		if _, err := ParseSHA256Digest(decision.PreviousExitDigest); err != nil {
+			return fmt.Errorf("previous_exit_digest: %w", err)
+		}
+	}
+	if hasRecovery {
+		if _, err := ParseSHA256Digest(decision.PreviousRecoveryDigest); err != nil {
+			return fmt.Errorf("previous_recovery_digest: %w", err)
 		}
 	}
 	if filepath.Clean(decision.TargetCgroup) != decision.TargetCgroup ||
