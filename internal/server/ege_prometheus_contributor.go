@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 	"github.com/achirothmane/aegis-ege/internal/prometheusprobe"
 	"github.com/achirothmane/easl"
 )
@@ -120,7 +121,7 @@ func (c *prometheusNodeHealthEvidenceContributor) Contribute(
 		contradicts = []easl.AssumptionID{assumptionID}
 	}
 
-	evaluation, err := easl.Evaluate(easl.Snapshot{
+	evaluation, err := easlruntime.Evaluate(easl.Snapshot{
 		At: now,
 		Evidence: []easl.Evidence{{
 			ID:          evidenceID,
