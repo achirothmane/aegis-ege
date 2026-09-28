@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -52,6 +53,7 @@ func ObserveOrphanedWorkload(
 		ActivationID:     activation.Receipt.ActivationID,
 		ActivationDigest: activationDigest,
 		ProcessID:        activation.Receipt.ProcessID,
+		ExpectedCgroup:   filepath.Clean(activation.Receipt.TargetCgroup),
 		ExpectedCgroupID: activation.Receipt.TargetCgroupID,
 		ObservedAt:       now.UTC(),
 	}
@@ -100,7 +102,8 @@ func ObserveOrphanedWorkload(
 		obs.Detail = "pid exists but persistent process identity differs"
 		return SignWorkloadRecoveryObservation(obs, hostAttestorPrivateKey)
 	}
-	if current.ObservedCgroupID != activation.Receipt.TargetCgroupID {
+	if current.ObservedCgroupID != activation.Receipt.TargetCgroupID ||
+		filepath.Clean(current.ObservedCgroup) != filepath.Clean(activation.Receipt.TargetCgroup) {
 		obs.State = RecoveryObservationCgroupMismatch
 		obs.Detail = "matching process identity is outside signed target cgroup"
 		return SignWorkloadRecoveryObservation(obs, hostAttestorPrivateKey)
