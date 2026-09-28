@@ -65,6 +65,15 @@ func ApplyRuntimeTrustLease(
 				l.LeaseEpoch != expectedEpoch {
 				return ErrRuntimeTrustRollback
 			}
+			if state.RuntimeTrustEpoch != 0 {
+				currentBoot := "sha256:" + hex.EncodeToString(clock.BootIDHash[:])
+				if state.RuntimeTrustBootIDHash != currentBoot {
+					return ErrRuntimeTrustBootChanged
+				}
+				if clock.MonoNowNS >= state.RuntimeTrustDeadlineBootNS {
+					return ErrRuntimeTrustLeaseExpired
+				}
+			}
 			state.RuntimeTrustEpoch = l.LeaseEpoch
 			state.RuntimeTrustLeaseDigest = leaseDigest
 			state.RuntimeTrustExpiresAt = l.ExpiresAt.UTC()
