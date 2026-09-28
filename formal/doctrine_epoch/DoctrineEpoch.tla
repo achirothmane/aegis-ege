@@ -1,13 +1,27 @@
 ---- MODULE DoctrineEpoch ----
-EXTENDS Naturals, FiniteSets, Sequences
+EXTENDS Naturals, FiniteSets
 
-CONSTANTS Epochs, Signers, Quorum, FreezeTicks, MaxTime, MaxDecisions, MaxAmendments, MaxRestarts, InitialEpoch, NullEpoch
+CONSTANTS
+    Epochs,
+    Signers,
+    Quorum,
+    FreezeTicks,
+    MaxTime,
+    MaxDecisions,
+    MaxAmendments,
+    MaxRestarts,
+    InitialEpoch,
+    NullEpoch
 
 ASSUME /\ InitialEpoch \in Epochs
        /\ NullEpoch \notin Epochs
        /\ Quorum > 1
        /\ Quorum <= Cardinality(Signers)
        /\ FreezeTicks > 0
+       /\ MaxTime > FreezeTicks
+       /\ MaxDecisions > 0
+       /\ MaxAmendments > 0
+       /\ MaxRestarts > 0
 
 EpochStatuses == {"CURRENT", "SUPERSEDED", "COMPROMISED", "REVOKED"}
 ProposalStates == {"NONE", "FROZEN", "RATIFIED"}
@@ -22,31 +36,24 @@ VARIABLES
     approvals,
     halted,
     restartApprovals,
-    decisionLog,
-    amendmentLog,
-    restartLog
+
+    decisionCount,
+    lastDecisionEpoch,
+    lastDecisionAdmissible,
+
+    amendmentCount,
+    lastAmendmentFreeze,
+    lastAmendmentApprovals,
+
+    restartCount,
+    lastRestartApprovals
 
 vars ==
     << now, activeEpoch, epochStatus, proposalEpoch, proposalState,
        proposedAt, approvals, halted, restartApprovals,
-       decisionLog, amendmentLog, restartLog >>
-
-DecisionRecordSet ==
-    [ epoch : Epochs,
-      authority : BOOLEAN,
-      evidence : BOOLEAN,
-      sector_isolated : BOOLEAN,
-      epoch_status_at_execution : EpochStatuses ]
-
-AmendmentRecordSet ==
-    [ from_epoch : Epochs,
-      to_epoch : Epochs,
-      freeze_elapsed : Nat,
-      approval_count : Nat ]
-
-RestartRecordSet ==
-    [ epoch : Epochs,
-      approval_count : Nat ]
+       decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+       amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+       restartCount, lastRestartApprovals >>
 
 Init ==
     /\ now = 0
@@ -59,15 +66,26 @@ Init ==
     /\ approvals = {}
     /\ halted = FALSE
     /\ restartApprovals = {}
-    /\ decisionLog = <<>>
-    /\ amendmentLog = <<>>
-    /\ restartLog = <<>>
+
+    /\ decisionCount = 0
+    /\ lastDecisionEpoch = NullEpoch
+    /\ lastDecisionAdmissible = TRUE
+
+    /\ amendmentCount = 0
+    /\ lastAmendmentFreeze = 0
+    /\ lastAmendmentApprovals = 0
+
+    /\ restartCount = 0
+    /\ lastRestartApprovals = 0
 
 Tick ==
+    /\ now < MaxTime
     /\ now' = now + 1
     /\ UNCHANGED << activeEpoch, epochStatus, proposalEpoch, proposalState,
                      proposedAt, approvals, halted, restartApprovals,
-                     decisionLog, amendmentLog, restartLog >>
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 Propose(e) ==
     /\ e \in Epochs
@@ -80,7 +98,9 @@ Propose(e) ==
     /\ proposedAt' = now
     /\ approvals' = {}
     /\ UNCHANGED << now, activeEpoch, epochStatus, halted, restartApprovals,
-                     decisionLog, amendmentLog, restartLog >>
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 Approve(s) ==
     /\ s \in Signers
@@ -88,7 +108,9 @@ Approve(s) ==
     /\ approvals' = approvals \cup {s}
     /\ UNCHANGED << now, activeEpoch, epochStatus, proposalEpoch, proposalState,
                      proposedAt, halted, restartApprovals,
-                     decisionLog, amendmentLog, restartLog >>
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 Ratify ==
     /\ proposalState = "FROZEN"
@@ -97,29 +119,35 @@ Ratify ==
     /\ proposalState' = "RATIFIED"
     /\ UNCHANGED << now, activeEpoch, epochStatus, proposalEpoch, proposedAt,
                      approvals, halted, restartApprovals,
-                     decisionLog, amendmentLog, restartLog >>
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 Activate ==
+    /\ amendmentCount < MaxAmendments
     /\ proposalState = "RATIFIED"
     /\ now - proposedAt >= FreezeTicks
     /\ epochStatus[proposalEpoch] # "COMPROMISED"
     /\ epochStatus[proposalEpoch] # "REVOKED"
-    /\ amendmentLog' =
-        Append(amendmentLog,
-            [ from_epoch |-> activeEpoch,
-              to_epoch |-> proposalEpoch,
-              freeze_elapsed |-> now - proposedAt,
-              approval_count |-> Cardinality(approvals) ])
+
     /\ epochStatus' =
         [epochStatus EXCEPT
             ![activeEpoch] = "SUPERSEDED",
             ![proposalEpoch] = "CURRENT"]
     /\ activeEpoch' = proposalEpoch
+
+    /\ amendmentCount' = amendmentCount + 1
+    /\ lastAmendmentFreeze' = now - proposedAt
+    /\ lastAmendmentApprovals' = Cardinality(approvals)
+
     /\ proposalEpoch' = NullEpoch
     /\ proposalState' = "NONE"
     /\ proposedAt' = 0
     /\ approvals' = {}
-    /\ UNCHANGED << now, halted, restartApprovals, decisionLog, restartLog >>
+
+    /\ UNCHANGED << now, halted, restartApprovals,
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     restartCount, lastRestartApprovals >>
 
 Compromise(e) ==
     /\ e \in Epochs
@@ -130,14 +158,20 @@ Compromise(e) ==
                /\ restartApprovals' = {}
           ELSE /\ UNCHANGED << halted, restartApprovals >>
     /\ UNCHANGED << now, activeEpoch, proposalEpoch, proposalState, proposedAt,
-                     approvals, decisionLog, amendmentLog, restartLog >>
+                     approvals,
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 EmergencyHalt ==
     /\ ~halted
     /\ halted' = TRUE
     /\ restartApprovals' = {}
     /\ UNCHANGED << now, activeEpoch, epochStatus, proposalEpoch, proposalState,
-                     proposedAt, approvals, decisionLog, amendmentLog, restartLog >>
+                     proposedAt, approvals,
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 ApproveRestart(s) ==
     /\ halted
@@ -145,40 +179,46 @@ ApproveRestart(s) ==
     /\ restartApprovals' = restartApprovals \cup {s}
     /\ UNCHANGED << now, activeEpoch, epochStatus, proposalEpoch, proposalState,
                      proposedAt, approvals, halted,
-                     decisionLog, amendmentLog, restartLog >>
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals,
+                     restartCount, lastRestartApprovals >>
 
 Restart ==
+    /\ restartCount < MaxRestarts
     /\ halted
     /\ epochStatus[activeEpoch] = "CURRENT"
     /\ Cardinality(restartApprovals) >= Quorum
+
     /\ halted' = FALSE
-    /\ restartLog' =
-        Append(restartLog,
-            [ epoch |-> activeEpoch,
-              approval_count |-> Cardinality(restartApprovals) ])
+    /\ restartCount' = restartCount + 1
+    /\ lastRestartApprovals' = Cardinality(restartApprovals)
     /\ restartApprovals' = {}
+
     /\ UNCHANGED << now, activeEpoch, epochStatus, proposalEpoch, proposalState,
-                     proposedAt, approvals, decisionLog, amendmentLog >>
+                     proposedAt, approvals,
+                     decisionCount, lastDecisionEpoch, lastDecisionAdmissible,
+                     amendmentCount, lastAmendmentFreeze, lastAmendmentApprovals >>
 
 AttemptExecute(authorityOK, evidenceOK, sectorOK) ==
     /\ authorityOK \in BOOLEAN
     /\ evidenceOK \in BOOLEAN
     /\ sectorOK \in BOOLEAN
-    /\ IF ~halted
+    /\ IF decisionCount < MaxDecisions
+          /\ ~halted
           /\ epochStatus[activeEpoch] = "CURRENT"
           /\ authorityOK
           /\ evidenceOK
           /\ sectorOK
-       THEN /\ decisionLog' =
-                    Append(decisionLog,
-                        [ epoch |-> activeEpoch,
-                          authority |-> authorityOK,
-                          evidence |-> evidenceOK,
-                          sector_isolated |-> sectorOK,
-                          epoch_status_at_execution |-> epochStatus[activeEpoch] ])
+       THEN /\ decisionCount' = decisionCount + 1
+            /\ lastDecisionEpoch' = activeEpoch
+            /\ lastDecisionAdmissible' =
+                    authorityOK /\ evidenceOK /\ sectorOK
             /\ UNCHANGED << now, activeEpoch, epochStatus, proposalEpoch,
                              proposalState, proposedAt, approvals, halted,
-                             restartApprovals, amendmentLog, restartLog >>
+                             restartApprovals,
+                             amendmentCount, lastAmendmentFreeze,
+                             lastAmendmentApprovals,
+                             restartCount, lastRestartApprovals >>
        ELSE UNCHANGED vars
 
 Next ==
@@ -197,51 +237,59 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 TypeOK ==
-    /\ now \in Nat
+    /\ now \in 0..MaxTime
     /\ activeEpoch \in Epochs
     /\ epochStatus \in [Epochs -> EpochStatuses]
     /\ proposalEpoch \in Epochs \cup {NullEpoch}
     /\ proposalState \in ProposalStates
-    /\ proposedAt \in Nat
+    /\ proposedAt \in 0..MaxTime
     /\ approvals \subseteq Signers
     /\ halted \in BOOLEAN
     /\ restartApprovals \subseteq Signers
-    /\ decisionLog \in Seq(DecisionRecordSet)
-    /\ amendmentLog \in Seq(AmendmentRecordSet)
-    /\ restartLog \in Seq(RestartRecordSet)
+
+    /\ decisionCount \in 0..MaxDecisions
+    /\ lastDecisionEpoch \in Epochs \cup {NullEpoch}
+    /\ lastDecisionAdmissible \in BOOLEAN
+
+    /\ amendmentCount \in 0..MaxAmendments
+    /\ lastAmendmentFreeze \in Nat
+    /\ lastAmendmentApprovals \in Nat
+
+    /\ restartCount \in 0..MaxRestarts
+    /\ lastRestartApprovals \in Nat
 
 ExecutedOnlyWhenAdmissible ==
-    \A i \in 1..Len(decisionLog) :
-        /\ decisionLog[i].authority = TRUE
-        /\ decisionLog[i].evidence = TRUE
-        /\ decisionLog[i].sector_isolated = TRUE
-        /\ decisionLog[i].epoch_status_at_execution = "CURRENT"
+    (decisionCount = 0) \/ lastDecisionAdmissible
 
 AmendmentRequiresFrozenVisibility ==
-    \A i \in 1..Len(amendmentLog) :
-        /\ amendmentLog[i].freeze_elapsed >= FreezeTicks
-        /\ amendmentLog[i].approval_count >= Quorum
+    (amendmentCount = 0)
+    \/ /\ lastAmendmentFreeze >= FreezeTicks
+       /\ lastAmendmentApprovals >= Quorum
 
 RestartRequiresIndependentQuorum ==
-    \A i \in 1..Len(restartLog) :
-        restartLog[i].approval_count >= Quorum
+    (restartCount = 0) \/ (lastRestartApprovals >= Quorum)
 
-DecisionHistoryMonotonic ==
-    Len(decisionLog') >= Len(decisionLog)
+DecisionHistoryMonotonicAction ==
+    decisionCount' >= decisionCount
 
-AmendmentHistoryMonotonic ==
-    Len(amendmentLog') >= Len(amendmentLog)
+AmendmentHistoryMonotonicAction ==
+    amendmentCount' >= amendmentCount
 
-RestartHistoryMonotonic ==
-    Len(restartLog') >= Len(restartLog)
+RestartHistoryMonotonicAction ==
+    restartCount' >= restartCount
 
-DecisionHistoryAppendOnly == [][DecisionHistoryMonotonic]_vars
-AmendmentHistoryAppendOnly == [][AmendmentHistoryMonotonic]_vars
-RestartHistoryAppendOnly == [][RestartHistoryMonotonic]_vars
+DecisionHistoryAppendOnly ==
+    [][DecisionHistoryMonotonicAction]_vars
+
+AmendmentHistoryAppendOnly ==
+    [][AmendmentHistoryMonotonicAction]_vars
+
+RestartHistoryAppendOnly ==
+    [][RestartHistoryMonotonicAction]_vars
 
 NoNewActionUnderCompromisedEpochAction ==
     (epochStatus[activeEpoch] = "COMPROMISED")
-    => decisionLog' = decisionLog
+    => decisionCount' = decisionCount
 
 NoNewActionUnderCompromisedEpoch ==
     [][NoNewActionUnderCompromisedEpochAction]_vars
