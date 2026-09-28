@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 )
 
 var ErrKernelStoreUnavailable = errors.New("kernel enforcement store unavailable")
@@ -13,6 +14,10 @@ type KernelStore interface {
 	PutFence(context.Context, ScopeFenceKey, ScopeFenceState) error
 	PutCapsule(context.Context, ScopeKey, DecisionCapsule) error
 	DeleteCapsule(context.Context, ScopeKey) error
+}
+
+type KernelFenceReader interface {
+	GetFence(context.Context, ScopeFenceKey) (ScopeFenceState, error)
 }
 
 type InstallRequest struct {
@@ -126,6 +131,32 @@ func (i Installer) Install(
 		Scope:    req.Scope,
 		Capsule:  capsule,
 	}, nil
+}
+
+func (i Installer) RevokeCurrentScope(
+	ctx context.Context,
+	key ScopeFenceKey,
+) (ScopeFenceState, error) {
+	if i.Store == nil {
+		return ScopeFenceState{}, ErrKernelStoreUnavailable
+	}
+	reader, ok := i.Store.(KernelFenceReader)
+	if !ok {
+		return ScopeFenceState{}, errors.New("kernel enforcement store cannot read current scope fence")
+	}
+	current, err := reader.GetFence(ctx, key)
+	if err != nil {
+		return ScopeFenceState{}, fmt.Errorf("read current kernel scope fence: %w", err)
+	}
+	if current.RevocationEpoch == math.MaxUint64 {
+		return ScopeFenceState{}, errors.New("kernel scope revocation epoch exhausted")
+	}
+	next := current
+	next.RevocationEpoch++
+	if err := i.RevokeScope(ctx, key, next); err != nil {
+		return ScopeFenceState{}, err
+	}
+	return next, nil
 }
 
 func (i Installer) RevokeScope(
