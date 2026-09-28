@@ -74,7 +74,7 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payloadHash, err := ManifestPayloadHash(manifest)
+	payloadHash, err := ManifestRevocationHash(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +119,27 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 		t.Fatalf("expected GENESIS_LOCKED, got runtime=%v result=%+v", runtime, result)
 	}
 	assertFailureCode(t, result, genesis.FailureRevoked)
+}
+
+
+func TestManifestRevocationHashIgnoresRevocationRef(t *testing.T) {
+	fixture := buildProductionFixture(t)
+	manifest, err := LoadManifest(fixture.manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := ManifestRevocationHash(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Trust.RevocationRef = digestBytes([]byte("another-revocation-list"))
+	second, err := ManifestRevocationHash(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("revocation identity changed with revocation_ref: %s != %s", first, second)
+	}
 }
 
 type productionFixture struct {
