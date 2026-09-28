@@ -649,6 +649,7 @@ func EvaluateRecoveredWorkloadRestart(
 		TargetCgroupID:              activation.Receipt.TargetCgroupID,
 		BootstrapDigest:             priorGrant.Grant.BootstrapDigest,
 		PreviousGeneration:          state.Generation,
+		LifecycleEpoch:              EffectiveLifecycleEpoch(state),
 		PreviousActivationDigest:    activationDigest,
 		PreviousRecoveryDigest:      recoveryDigest,
 		CurrentRemoteDecisionDigest: remoteDigest,
