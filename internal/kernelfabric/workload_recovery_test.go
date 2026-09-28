@@ -137,6 +137,7 @@ func (f recoveryFixture) signedObservation(
 		ActivationDigest:        f.state.ActivationDigest,
 		ProcessID:               f.activation.Receipt.ProcessID,
 		ExpectedProcessIdentity: &expected,
+		CurrentBootIDHash:       expected.BootIDHash,
 		ExpectedCgroupID:        f.activation.Receipt.TargetCgroupID,
 		State:                   state,
 		ObservedAt:              observedAt,
@@ -156,7 +157,9 @@ func (f recoveryFixture) signedObservation(
 		observed := expected
 		obs.ObservedProcessIdentity = &observed
 		obs.ObservedCgroupID = f.activation.Receipt.TargetCgroupID + 1
-	case RecoveryObservationAbsent, RecoveryObservationBootChanged:
+	case RecoveryObservationAbsent:
+	case RecoveryObservationBootChanged:
+		obs.CurrentBootIDHash = "sha256:" + strings.Repeat("c", 64)
 	default:
 		t.Fatalf("unsupported fixture observation state %s", state)
 	}
@@ -372,5 +375,50 @@ func TestRecoveredRestartGrantValidatesRecoveryLineage(t *testing.T) {
 		state, grant, restart, f.lifecyclePub, issueAt,
 	); err != nil {
 		t.Fatalf("recovered restart lineage rejected: %v", err)
+	}
+}
+
+
+func TestRecoveryObservationRejectsInconsistentRunningLabel(t *testing.T) {
+	f := newRecoveryFixture(t)
+	expected := *f.activation.Receipt.ProcessIdentity
+	observed := expected
+	_, err := SignWorkloadRecoveryObservation(
+		WorkloadRecoveryObservation{
+			Version:                 WorkloadRecoveryObservationVersion,
+			ObservationID:           "bad-running-observation",
+			DeviceID:                f.state.DeviceID,
+			WorkloadID:              f.state.WorkloadID,
+			Generation:              f.state.Generation,
+			ActivationID:            f.activation.Receipt.ActivationID,
+			ActivationDigest:        f.state.ActivationDigest,
+			ProcessID:               f.activation.Receipt.ProcessID,
+			ExpectedProcessIdentity: &expected,
+			ObservedProcessIdentity: &observed,
+			CurrentBootIDHash:       expected.BootIDHash,
+			ExpectedCgroupID:        f.activation.Receipt.TargetCgroupID,
+			ObservedCgroupID:        f.activation.Receipt.TargetCgroupID + 1,
+			State:                   RecoveryObservationMatchRunning,
+			ObservedAt:              f.base.Add(5 * time.Second),
+		},
+		f.hostPriv,
+	)
+	if !errors.Is(err, ErrRecoveryObservationInvalid) {
+		t.Fatalf("inconsistent MATCH_RUNNING label accepted: %v", err)
+	}
+}
+
+func TestReconciliationBootChangeMarksExitedUnknown(t *testing.T) {
+	f := newRecoveryFixture(t)
+	obs := f.signedObservation(t, RecoveryObservationBootChanged, f.base.Add(5*time.Second))
+	decision, err := EvaluateWorkloadReconciliation(
+		f.state, f.activation, obs, f.hostPub,
+		f.lifecyclePriv, "lifecycle-authority", f.base.Add(6*time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Decision.Outcome != ReconciliationMarkExitedUnknown {
+		t.Fatalf("expected boot change to mark unknown exit, got %+v", decision.Decision)
 	}
 }
