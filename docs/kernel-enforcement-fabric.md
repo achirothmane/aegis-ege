@@ -338,6 +338,22 @@ Only the currently implemented cgroup network-connect adapter is revoked in v1; 
 
 See [runtime-trust-lease.md](runtime-trust-lease.md).
 
+### Expiry watchdog
+
+The host can now enforce lease expiry without waiting for a new lifecycle-authority decision:
+
+```text
+signed lease
+-> boot-bound local deadline
+-> lifecycle-lock recheck
+-> current fence read
+-> revocation_epoch++
+-> signed expiry evidence
+-> independent lifecycle reconciliation
+```
+
+The automatic mutation remains limited to the implemented cgroup network-connect enforcement scope.
+
 ## Governing invariant
 
 > A stale, revoked, expired, superseded, reboot-crossing, or absent DecisionCapsule must fail closed before the protected kernel operation is allowed.
