@@ -124,6 +124,7 @@ func TestExecuteEnabledPassesBoundAuthorization(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	s, err := New(controller, store, Config{
 		MutationsEnabled: true,
+		EASLRuntime: readyEASLRuntime(t),
 		RequireAuthentication: true,
 		Authorizer: allowAuthorizer{},
 		ReplayGuard: replay,
@@ -175,6 +176,52 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+
+func TestMutationsCannotEnableWithoutGenesisRuntime(t *testing.T) {
+	store := kubeadapter.NewMemoryDrainCheckpointStore()
+	replay, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(&fakeController{}, store, Config{
+		MutationsEnabled: true,
+		RequireAuthentication: true,
+		Authorizer: allowAuthorizer{},
+		ReplayGuard: replay,
+	})
+	if err == nil || !strings.Contains(err.Error(), "Genesis-gated EASL runtime") {
+		t.Fatalf("expected Genesis runtime requirement, got %v", err)
+	}
+}
+
+func TestHealthReportsGenesisReadyForMutationServer(t *testing.T) {
+	store := kubeadapter.NewMemoryDrainCheckpointStore()
+	replay, err := NewFileReplayGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(&fakeController{}, store, Config{
+		MutationsEnabled: true,
+		EASLRuntime: readyEASLRuntime(t),
+		RequireAuthentication: true,
+		Authorizer: allowAuthorizer{},
+		ReplayGuard: replay,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	recorder := httptest.NewRecorder()
+	s.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "\"genesis\":\"BOOTSTRAP_READY\"") {
+		t.Fatalf("expected BOOTSTRAP_READY health status, got %s", recorder.Body.String())
+	}
+}
+
 func TestMutationsCannotEnableWithoutAuthentication(t *testing.T) {
 	store := kubeadapter.NewMemoryDrainCheckpointStore()
 	replay, err := NewFileReplayGuard(t.TempDir())
@@ -183,6 +230,7 @@ func TestMutationsCannotEnableWithoutAuthentication(t *testing.T) {
 	}
 	_, err = New(&fakeController{}, store, Config{
 		MutationsEnabled: true,
+		EASLRuntime: readyEASLRuntime(t),
 		ReplayGuard: replay,
 	})
 	if err == nil || !strings.Contains(err.Error(), "authenticated authorization") {
@@ -194,6 +242,7 @@ func TestMutationsCannotEnableWithoutReplayGuard(t *testing.T) {
 	store := kubeadapter.NewMemoryDrainCheckpointStore()
 	_, err := New(&fakeController{}, store, Config{
 		MutationsEnabled: true,
+		EASLRuntime: readyEASLRuntime(t),
 		RequireAuthentication: true,
 		Authorizer: allowAuthorizer{},
 	})
