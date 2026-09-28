@@ -5,6 +5,7 @@ package kernelfabric
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -31,6 +32,10 @@ func ApplyRuntimeTrustLease(
 	if err != nil {
 		return WorkloadLifecycleState{}, err
 	}
+	baseClock, err := CaptureBootClockSnapshot(now, DefaultBootIDPath)
+	if err != nil {
+		return WorkloadLifecycleState{}, err
+	}
 	l := lease.Lease
 	var updated WorkloadLifecycleState
 	err = store.withLockedState(
@@ -41,6 +46,25 @@ func ApplyRuntimeTrustLease(
 				return ErrLifecycleInvalidLineage
 			}
 			state = NormalizeWorkloadLifecycleState(state)
+			currentClockRaw, err := CaptureBootClockSnapshot(time.Time{}, DefaultBootIDPath)
+			if err != nil {
+				return err
+			}
+			clock, err := AdvanceClockSnapshot(baseClock, currentClockRaw)
+			if err != nil {
+				return err
+			}
+			localLease, err := BindExternalLease(
+				ExternalLease{
+					IssuedAt:    lease.Lease.IssuedAt,
+					NotAfter:    lease.Lease.ExpiresAt,
+					MaxLifetime: lease.Lease.ExpiresAt.Sub(lease.Lease.IssuedAt),
+				},
+				clock,
+			)
+			if err != nil {
+				return err
+			}
 			expectedEpoch := state.RuntimeTrustEpoch + 1
 			if state.State != LifecycleStateRunning ||
 				state.Generation != l.Generation ||
@@ -49,9 +73,21 @@ func ApplyRuntimeTrustLease(
 				l.LeaseEpoch != expectedEpoch {
 				return ErrRuntimeTrustRollback
 			}
+			if state.RuntimeTrustEpoch != 0 {
+				currentBoot := "sha256:" + hex.EncodeToString(clock.BootIDHash[:])
+				if state.RuntimeTrustBootIDHash != currentBoot {
+					return ErrRuntimeTrustBootChanged
+				}
+				if clock.MonoNowNS >= state.RuntimeTrustDeadlineBootNS {
+					return ErrRuntimeTrustLeaseExpired
+				}
+			}
 			state.RuntimeTrustEpoch = l.LeaseEpoch
 			state.RuntimeTrustLeaseDigest = leaseDigest
 			state.RuntimeTrustExpiresAt = l.ExpiresAt.UTC()
+			state.RuntimeTrustBootIDHash = "sha256:" + hex.EncodeToString(localLease.BootIDHash[:])
+			state.RuntimeTrustInstalledBootNS = localLease.InstalledAtMonoNS
+			state.RuntimeTrustDeadlineBootNS = localLease.DeadlineMonoNS
 			state.UpdatedAt = now.UTC()
 			if err := writeLifecycleState(path, state); err != nil {
 				return fmt.Errorf("persist runtime trust lease: %w", err)
