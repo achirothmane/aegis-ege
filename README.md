@@ -142,6 +142,33 @@ The same replay then passed without changing the success criterion.
 
 See [Real incident replay benchmark v3](docs/real-incident-replay-v3.md).
 
+## External EEP validation v1
+
+The first externally executed EEP path has now passed against a real n8n Cloud production webhook and an external stateful CRM mock:
+
+```text
+GitHub Actions
+→ n8n Cloud
+→ Evidence Packet
+→ signed permit
+→ external CRM mutation
+→ state reread
+→ Outcome Evidence
+→ tamper-evident journal
+```
+
+Recorded result:
+
+```text
+status          PASS
+outcome         APPLIED
+journal_entries 2
+```
+
+This is evidence that the current protocol crosses real external service boundaries. It is **not** production-readiness or market-demand evidence. The CRM target was synthetic and stateful, not a production Salesforce/HubSpot account.
+
+See [EEP external validation v1](docs/eep-external-validation-v1.md).
+
 ## Evidence composition
 
 Aegis-EGE can bind multiple named evidence sources into one Evidence Manifest and require a composition policy before permit minting.
