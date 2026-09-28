@@ -299,6 +299,24 @@ RUNNING ledger
 
 See [orphaned-running-reconciliation.md](orphaned-running-reconciliation.md).
 
+## Operator-approved quarantine release
+
+Unsafe reconciliation can place a lifecycle into `QUARANTINED`. Leaving quarantine now requires a new evidence chain:
+
+```text
+post-remediation process clearance
+-> fresh TPM/IMA ALLOW
+-> signed operator approval
+-> lifecycle-authority release decision
+-> lifecycle epoch N -> N+1
+-> EXITED_UNKNOWN
+-> fresh one-shot restart grant
+```
+
+Old restart decisions are fenced by the lifecycle epoch and cannot cross this security-boundary transition.
+
+See [quarantine-operator-release.md](quarantine-operator-release.md).
+
 ## Governing invariant
 
 > A stale, revoked, expired, superseded, reboot-crossing, or absent DecisionCapsule must fail closed before the protected kernel operation is allowed.
