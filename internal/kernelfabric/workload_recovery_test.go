@@ -427,3 +427,87 @@ func TestReconciliationBootChangeMarksExitedUnknown(t *testing.T) {
 		t.Fatalf("expected boot change to mark unknown exit, got %+v", decision.Decision)
 	}
 }
+
+
+func TestReconciliationRejectsObserverSubstitutedExpectedIdentity(t *testing.T) {
+	f := newRecoveryFixture(t)
+	expected := *f.activation.Receipt.ProcessIdentity
+	expected.ProcessStartTimeTicks++
+	observed := expected
+	obs := WorkloadRecoveryObservation{
+		Version:                 WorkloadRecoveryObservationVersion,
+		ObservationID:           "substituted-expected",
+		DeviceID:                f.state.DeviceID,
+		WorkloadID:              f.state.WorkloadID,
+		Generation:              f.state.Generation,
+		ActivationID:            f.activation.Receipt.ActivationID,
+		ActivationDigest:        f.state.ActivationDigest,
+		ProcessID:               f.activation.Receipt.ProcessID,
+		ExpectedProcessIdentity: &expected,
+		ObservedProcessIdentity: &observed,
+		CurrentBootIDHash:       expected.BootIDHash,
+		ExpectedCgroup:          f.activation.Receipt.TargetCgroup,
+		ExpectedCgroupID:        f.activation.Receipt.TargetCgroupID,
+		ObservedCgroup:          f.activation.Receipt.TargetCgroup,
+		ObservedCgroupID:        f.activation.Receipt.TargetCgroupID,
+		State:                   RecoveryObservationMatchRunning,
+		ObservedAt:              f.base.Add(5 * time.Second),
+	}
+	signed, err := SignWorkloadRecoveryObservation(obs, f.hostPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = EvaluateWorkloadReconciliation(
+		f.state, f.activation, signed, f.hostPub,
+		f.lifecyclePriv, "lifecycle-authority", f.base.Add(6*time.Second),
+	)
+	if !errors.Is(err, ErrLifecycleInvalidLineage) {
+		t.Fatalf("observer-substituted expected process identity accepted: %v", err)
+	}
+}
+
+func TestLegacyActivationRecoveryQuarantinesInsteadOfGuessing(t *testing.T) {
+	f := newRecoveryFixture(t)
+	legacy := f.activation
+	legacy.Receipt.Version = WorkloadActivationReceiptVersion
+	legacy.Receipt.ProcessIdentity = nil
+	var err error
+	legacy, err = SignWorkloadActivationReceipt(legacy.Receipt, f.hostPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyDigest, err := SignedWorkloadActivationReceiptDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := f.state
+	state.ActivationDigest = legacyDigest
+	obs := WorkloadRecoveryObservation{
+		Version:          WorkloadRecoveryObservationVersion,
+		ObservationID:    "legacy-observation",
+		DeviceID:         state.DeviceID,
+		WorkloadID:       state.WorkloadID,
+		Generation:       state.Generation,
+		ActivationID:     legacy.Receipt.ActivationID,
+		ActivationDigest: legacyDigest,
+		ProcessID:        legacy.Receipt.ProcessID,
+		ExpectedCgroup:   legacy.Receipt.TargetCgroup,
+		ExpectedCgroupID: legacy.Receipt.TargetCgroupID,
+		State:            RecoveryObservationLegacy,
+		ObservedAt:       f.base.Add(5 * time.Second),
+	}
+	signedObs, err := SignWorkloadRecoveryObservation(obs, f.hostPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := EvaluateWorkloadReconciliation(
+		state, legacy, signedObs, f.hostPub,
+		f.lifecyclePriv, "lifecycle-authority", f.base.Add(6*time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Decision.Outcome != ReconciliationQuarantine {
+		t.Fatalf("legacy activation should quarantine, got %+v", decision.Decision)
+	}
+}
