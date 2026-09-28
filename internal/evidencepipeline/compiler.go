@@ -147,26 +147,6 @@ func digestPacket(packet Packet) (string, error) {
 	return digestJSON(unsigned)
 }
 
-/*OLD_DIGEST_PACKET
-		APIVersion string           `json:"api_version"`
-		Provenance Provenance       `json:"provenance"`
-		Actor      Actor            `json:"actor"`
-		Action     Action           `json:"action"`
-		Context    BootstrapContext `json:"context"`
-		Evidence   map[string]any   `json:"evidence"`
-		Redaction  RedactionSummary `json:"redaction"`
-	}{
-		APIVersion: packet.APIVersion,
-		Provenance: packet.Provenance,
-		Actor:      packet.Actor,
-		Action:     packet.Action,
-		Context:    packet.Context,
-		Evidence:   packet.Evidence,
-		Redaction:  packet.Redaction,
-	}
-	return digestJSON(unsigned)
-}
-
 func digestJSON(value any) (string, error) {
 	body, err := json.Marshal(value)
 	if err != nil {
