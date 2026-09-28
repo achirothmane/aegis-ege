@@ -87,7 +87,11 @@ func EnforceCurrentRuntimeTrustExpiry(
 			if err != nil {
 				return err
 			}
-			nextFence, err = installer.RevokeCurrentScope(ctx, fenceKey)
+			nextFence, err = installer.RevokeCurrentScopeForBoot(
+				ctx,
+				fenceKey,
+				clock.BootIDHash,
+			)
 			if err != nil {
 				return fmt.Errorf("revoke runtime trust network authority: %w", err)
 			}
