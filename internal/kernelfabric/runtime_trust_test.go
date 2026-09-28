@@ -389,3 +389,49 @@ func TestRuntimeTrustEvaluationRejectsFutureRemoteDecision(t *testing.T) {
 		t.Fatalf("future remote decision was not rejected: %v", err)
 	}
 }
+
+
+func TestRuntimeTrustLeaseRejectsLegacyActivationReceipt(t *testing.T) {
+	f := newRecoveryFixture(t)
+	legacy := f.activation
+	legacy.Receipt.Version = WorkloadActivationReceiptVersion
+	legacy.Receipt.ProcessIdentity = nil
+	var err error
+	legacy, err = SignWorkloadActivationReceipt(legacy.Receipt, f.hostPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyDigest, err := SignedWorkloadActivationReceiptDigest(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := f.state
+	state.ActivationDigest = legacyDigest
+	remote := admissionTestRemoteDecision(
+		t,
+		f.base.Add(2*time.Second),
+		"ALLOW",
+		state.DeviceID,
+		f.bootstrap,
+		f.verifierPriv,
+	)
+	_, err = IssueRuntimeTrustLease(
+		state,
+		f.priorGrant,
+		legacy,
+		remote,
+		nil,
+		RuntimeTrustPolicy{
+			LifecycleAuthorityKey:    f.lifecyclePriv,
+			LifecycleAuthorityID:     "lifecycle-authority",
+			RemoteVerifierPublicKey:  f.verifierPub,
+			AdmissionIssuerPublicKey: f.issuerPub,
+			HostAttestorPublicKey:    f.hostPub,
+			PolicyDigest:             "sha256:" + strings.Repeat("d", 64),
+			Now:                      func() time.Time { return f.base.Add(3 * time.Second) },
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "activation receipt v2") {
+		t.Fatalf("legacy activation receipt was accepted for runtime trust: %v", err)
+	}
+}
