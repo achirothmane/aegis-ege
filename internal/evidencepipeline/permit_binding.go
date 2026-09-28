@@ -48,6 +48,26 @@ func BindPermitClaims(packet Packet, claims egeproto.PermitClaims) (egeproto.Per
 	return claims, nil
 }
 
+
+// VerifyPermitPacketBinding proves that an already-signed permit still refers
+// to the exact Evidence Packet and consequential action it claims to authorize.
+func VerifyPermitPacketBinding(packet Packet, claims egeproto.PermitClaims) error {
+	if claims.EvidencePacketDigest == "" {
+		return errors.New("execution permit is not bound to an evidence packet")
+	}
+	if claims.EvidencePacketDigest != packet.Integrity.Digest {
+		return errors.New("execution permit evidence packet digest mismatch")
+	}
+	bound, err := BindPermitClaims(packet, claims)
+	if err != nil {
+		return err
+	}
+	if bound.EvidencePacketDigest != claims.EvidencePacketDigest {
+		return errors.New("execution permit evidence packet binding changed")
+	}
+	return nil
+}
+
 // SignEvidenceBoundPermit refuses to mint a permit unless the supplied packet
 // verifies and is bound to the same intent/action/target.
 func SignEvidenceBoundPermit(
