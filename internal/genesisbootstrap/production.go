@@ -147,15 +147,15 @@ func BootstrapProduction(
 	if err != nil {
 		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("construct production Genesis verifier: %w", err)
 	}
-	if acceptanceLedger == nil {
+	if acceptanceLedger == nil || !acceptanceLedger.HasMonotonicAnchor() {
 		result := genesis.Result{
 			State: genesis.StateLocked,
 			Failures: []genesis.Failure{{
 				Code:   genesis.FailureVerifierUnavailable,
-				Detail: "persistent Genesis acceptance ledger is required",
+				Detail: "hardware-backed monotonic Genesis acceptance anchor is required",
 			}},
 		}
-		return nil, result, errors.New("persistent Genesis acceptance ledger is required")
+		return nil, result, errors.New("hardware-backed monotonic Genesis acceptance anchor is required")
 	}
 
 	candidate, err := NewAcceptanceCandidate(manifest, verifier.revocations, now)
