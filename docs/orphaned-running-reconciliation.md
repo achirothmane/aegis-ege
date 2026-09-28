@@ -244,6 +244,12 @@ For a normal `EXITED` lifecycle, the same command uses `-exit` instead of `-reco
 
 If the recovered result is `REQUIRE_FRESH_GRANT`, the existing restart grant issuer mints the next one-shot admission grant.
 
+## Quarantine release
+
+`QUARANTINED` now has an explicit evidence-gated release path. It requires post-remediation process clearance, fresh TPM + IMA attestation, signed operator approval, and a lifecycle-authority epoch transition.
+
+See [quarantine-operator-release.md](quarantine-operator-release.md).
+
 ## Current boundary
 
 Implemented:
@@ -267,7 +273,6 @@ Not yet implemented:
 ```text
 automatic supervisor daemon reconciliation loop
 remote/shared reconciliation ledger
-operator unquarantine protocol
 kernel pidfd persistence across supervisor restart
 systemd/Kubernetes reconciliation adapters
 ```
