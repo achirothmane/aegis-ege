@@ -15,6 +15,7 @@ import (
 
 type syntheticGenesisVerifier struct{}
 
+func (syntheticGenesisVerifier) VerifyDoctrineBinding(context.Context, genesis.Manifest) error { return nil }
 func (syntheticGenesisVerifier) VerifyAuthenticity(context.Context, genesis.Manifest) error { return nil }
 func (syntheticGenesisVerifier) VerifyTrustRoot(context.Context, genesis.Manifest) error { return nil }
 func (syntheticGenesisVerifier) VerifyAttestation(context.Context, genesis.Manifest) error { return nil }
@@ -29,9 +30,14 @@ func (syntheticGenesisVerifier) VerifyProofRequirements(context.Context, genesis
 func NewSyntheticEASLRuntime() (*easl.Runtime, error) {
 	now := time.Date(2026, 9, 28, 4, 45, 0, 0, time.UTC)
 	manifest := genesis.Manifest{
-		ManifestVersion:     "1.0",
+		ManifestVersion:     "1.1",
 		GenesisEpoch:        1,
-		ArchitectureVersion: "level-minus-1/v1.0",
+		ArchitectureVersion: "level-minus-1/v1.1",
+		Doctrine: genesis.DoctrineBinding{
+			DoctrineID:           "synthetic://aegis-ege-doctrine",
+			DoctrineEpoch:        1,
+			DoctrineManifestHash: digest("d"),
+		},
 		Specification: genesis.Specification{
 			SpecHash:              digest("a"),
 			InvariantSetHash:      digest("b"),
@@ -100,6 +106,8 @@ func NewSyntheticEASLRuntime() (*easl.Runtime, error) {
 		Verification: genesis.Context{
 			Now:                          now,
 			MinimumAcceptedEpoch:         1,
+			MinimumAcceptedDoctrineEpoch: 1,
+			ExpectedDoctrineManifestHash: manifest.Doctrine.DoctrineManifestHash,
 			ExpectedImplementationDigest: manifest.Implementation.ImplementationDigest,
 			RequiredConformance:          genesis.ConformanceC3,
 		},
