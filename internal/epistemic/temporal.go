@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/achirothmane/easl"
+
+	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 )
 
 type ActionSensitivity string
@@ -189,7 +191,7 @@ func assumptionExpiredByEASL(
 	validUntil := evaluatedAt.UTC().Add(maxAge)
 	id := easl.AssumptionID(assumptionID)
 
-	evaluation, err := easl.Evaluate(easl.Snapshot{
+	evaluation, err := easlruntime.Evaluate(easl.Snapshot{
 		At: now.UTC(),
 		Assumptions: []easl.Assumption{{
 			ID:         id,
