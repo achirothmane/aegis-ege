@@ -24,6 +24,7 @@ func TestBootstrapProductionAllowsFullyBoundGenesis(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
+		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -55,6 +56,7 @@ func TestBootstrapProductionRejectsImplementationDigestTamper(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
+		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -111,6 +113,7 @@ func TestBootstrapProductionRejectsRevokedManifest(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
+		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -134,6 +137,7 @@ func TestBootstrapProductionRejectsDoctrineEpochRollback(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
+		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
 		7,
 		4,
 		genesis.ConformanceC3,
@@ -158,6 +162,7 @@ func TestBootstrapProductionRejectsDoctrineManifestTamper(t *testing.T) {
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
+		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -185,6 +190,7 @@ func TestBootstrapProductionRejectsDoctrineAuthoritySignatureTamper(t *testing.T
 		t.Context(),
 		fixture.manifestPath,
 		fixture.bundlePath,
+		mustAcceptanceLedger(t, fixture.acceptanceLedgerPath),
 		7,
 		3,
 		genesis.ConformanceC3,
@@ -223,6 +229,7 @@ type productionFixture struct {
 	now                   time.Time
 	manifestPath          string
 	bundlePath            string
+	acceptanceLedgerPath  string
 	doctrineManifestPath  string
 	doctrineStatementPath string
 	revocationPath        string
@@ -493,12 +500,23 @@ func buildProductionFixture(t *testing.T) productionFixture {
 		now:                   now,
 		manifestPath:          manifestPath,
 		bundlePath:            bundlePath,
+		acceptanceLedgerPath:  filepath.Join(dir, "genesis-acceptance.log"),
 		doctrineManifestPath:  doctrineManifestPath,
 		doctrineStatementPath: doctrineStatementPath,
 		revocationPath:        revocationPath,
 		manifestSigner:        manifestPriv,
 		revocationSigner:      revocationPriv,
 	}
+}
+
+
+func mustAcceptanceLedger(t *testing.T, path string) *FileAcceptanceLedger {
+	t.Helper()
+	ledger, err := NewFileAcceptanceLedger(path)
+	if err != nil {
+		t.Fatalf("NewFileAcceptanceLedger() error = %v", err)
+	}
+	return ledger
 }
 
 func signRemoteDecisionForTest(t *testing.T, decision kernelfabric.RemoteAttestationDecision, key ed25519.PrivateKey) kernelfabric.SignedRemoteAttestationDecision {
