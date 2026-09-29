@@ -45,6 +45,14 @@ type EvidenceManifest struct {
 	Sources         []EvidenceSource `json:"sources,omitempty"`
 }
 
+type ExecutionBindingClaims struct {
+	DestinationID          string `json:"destination_id"`
+	AccountID              string `json:"account_id"`
+	Endpoint               string `json:"endpoint"`
+	AdapterProfile         string `json:"adapter_profile"`
+	ExpectedResourceVersion string `json:"expected_resource_version"`
+}
+
 type PermitClaims struct {
 	IntentID               string                 `json:"intent_id"`
 	Kind                   string                 `json:"kind"`
@@ -56,6 +64,7 @@ type PermitClaims struct {
 	EvidencePacketDigest   string                 `json:"evidence_packet_digest,omitempty"`
 	PlanDigest             string                 `json:"plan_digest"`
 	ApprovalRefs           []string               `json:"approval_refs,omitempty"`
+	ExecutionBinding       *ExecutionBindingClaims `json:"execution_binding,omitempty"`
 	EBAContextProfile      string                 `json:"eba_context_profile,omitempty"`
 	EBATraceID             string                 `json:"eba_trace_id,omitempty"`
 	EBAAudience            string                 `json:"eba_audience,omitempty"`
