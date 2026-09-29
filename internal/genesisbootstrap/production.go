@@ -444,7 +444,18 @@ func (v *ProductionVerifier) VerifyTrustRoot(_ context.Context, m genesis.Manife
 	return nil
 }
 
-func (v *ProductionVerifier) VerifyAttestation(_ context.Context, _ genesis.Manifest) error {
+func (v *ProductionVerifier) VerifyAttestation(_ context.Context, m genesis.Manifest) error {
+	manifestHash, err := ManifestPayloadHash(m)
+	if err != nil {
+		return err
+	}
+	if manifestHash != v.bundle.RelyingContext.ExpectedManifestPayloadHash {
+		return fmt.Errorf(
+			"attested relying context is pinned to manifest %s, got %s",
+			v.bundle.RelyingContext.ExpectedManifestPayloadHash,
+			manifestHash,
+		)
+	}
 	if err := kernelfabric.VerifySignedRemoteAttestationDecision(v.remoteDecision, v.remoteVerifier); err != nil {
 		return fmt.Errorf("verify signed remote attestation decision: %w", err)
 	}
