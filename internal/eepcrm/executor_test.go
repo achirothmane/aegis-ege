@@ -242,8 +242,17 @@ func TestExecutorBoundConditionalMutationAndDurableCompletion(t *testing.T) {
 	log := &memoryJournal{}
 	executor := newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, server.Client(), log, attempts)
 
-	if _, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan); err != nil {
+	outcome, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := VerifyOutcome(outcome); err != nil {
+		t.Fatalf("verify outcome: %v", err)
+	}
+	if outcome.Result != PostconditionVerified ||
+		outcome.RequestAcceptance != RequestAccepted ||
+		outcome.ObservationStatus != ObservationStable {
+		t.Fatalf("verified outcome = %+v", outcome)
 	}
 	mu.Lock()
 	gotCalls := patchCalls
