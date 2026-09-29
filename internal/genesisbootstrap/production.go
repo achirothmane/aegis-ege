@@ -175,6 +175,32 @@ func BootstrapProduction(
 	requiredConformance genesis.ConformanceLevel,
 	now time.Time,
 ) (*easl.Runtime, genesis.Result, error) {
+	subject, err := CurrentProductionSubject("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("capture current Genesis subject: %w", err)
+	}
+	return BootstrapProductionWithSubject(
+		ctx,
+		manifestPath,
+		bundlePath,
+		minimumAcceptedEpoch,
+		minimumAcceptedDoctrineEpoch,
+		requiredConformance,
+		subject,
+		now,
+	)
+}
+
+func BootstrapProductionWithSubject(
+	ctx context.Context,
+	manifestPath string,
+	bundlePath string,
+	minimumAcceptedEpoch uint64,
+	minimumAcceptedDoctrineEpoch uint64,
+	requiredConformance genesis.ConformanceLevel,
+	subject CurrentSubject,
+	now time.Time,
+) (*easl.Runtime, genesis.Result, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	} else {
@@ -189,7 +215,7 @@ func BootstrapProduction(
 	if err != nil {
 		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("load Genesis verification bundle: %w", err)
 	}
-	verifier, err := NewProductionVerifier(bundle, now)
+	verifier, err := NewProductionVerifier(bundle, subject, now)
 	if err != nil {
 		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("construct production Genesis verifier: %w", err)
 	}
@@ -212,9 +238,24 @@ func BootstrapProduction(
 	return runtime, result, nil
 }
 
-func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*ProductionVerifier, error) {
+func NewProductionVerifier(bundle VerificationBundle, subject CurrentSubject, now time.Time) (*ProductionVerifier, error) {
 	if bundle.Version != BundleVersion {
 		return nil, fmt.Errorf("unsupported verification bundle version %q", bundle.Version)
+	}
+	if bundle.AssuranceProfile != AssuranceProfileVersion {
+		return nil, fmt.Errorf("unsupported Genesis assurance profile %q", bundle.AssuranceProfile)
+	}
+	if !strings.HasPrefix(bundle.RelyingContext.ExpectedManifestPayloadHash, "sha256:") {
+		return nil, errors.New("expected_manifest_payload_hash must be a sha256 digest")
+	}
+	if strings.TrimSpace(bundle.RelyingContext.ExpectedDeviceID) == "" {
+		return nil, errors.New("expected_device_id is required")
+	}
+	if strings.TrimSpace(bundle.RelyingContext.ExpectedChallengeID) == "" {
+		return nil, errors.New("expected_challenge_id is required")
+	}
+	if !strings.HasPrefix(subject.BootIDHash, "sha256:") {
+		return nil, errors.New("current subject boot id hash is required")
 	}
 	if bundle.MaxAttestationAgeSeconds <= 0 {
 		return nil, errors.New("max_attestation_age_seconds must be positive")
@@ -279,6 +320,18 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 	if err := readStrictJSON(bundle.SignedRevocationList, &revocations); err != nil {
 		return nil, fmt.Errorf("read revocation list: %w", err)
 	}
+	var buildProvenance SignedBuildProvenanceStatement
+	if err := readStrictJSON(bundle.Artifacts.BuildProvenance, &buildProvenance); err != nil {
+		return nil, fmt.Errorf("read signed build provenance: %w", err)
+	}
+	proofRecords := make([]ProofVerificationRecord, 0, len(bundle.ProofArtifactPaths))
+	for i, path := range bundle.ProofArtifactPaths {
+		var record ProofVerificationRecord
+		if err := readStrictJSON(path, &record); err != nil {
+			return nil, fmt.Errorf("read proof verification record %d: %w", i, err)
+		}
+		proofRecords = append(proofRecords, record)
+	}
 
 	executableDigest, err := currentExecutableDigest()
 	if err != nil {
@@ -288,6 +341,7 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 	return &ProductionVerifier{
 		now:                 now.UTC(),
 		bundle:              bundle,
+		currentSubject:      subject,
 		doctrineAuthority:   doctrineAuthority,
 		doctrineStatement:   doctrineStatement,
 		doctrineDigest:      doctrineDigest,
@@ -298,10 +352,22 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 		remoteDecision:      remoteDecision,
 		bootstrapReceipt:    bootstrapReceipt,
 		revocations:         revocations,
+		buildProvenance:     buildProvenance,
+		proofRecords:        proofRecords,
 		executableDigest:    executableDigest,
 	}, nil
 }
 
+
+func CurrentProductionSubject(bootIDPath string) (CurrentSubject, error) {
+	bootHash, err := kernelfabric.ReadBootIDHash(bootIDPath)
+	if err != nil {
+		return CurrentSubject{}, err
+	}
+	return CurrentSubject{
+		BootIDHash: "sha256:" + hex.EncodeToString(bootHash[:]),
+	}, nil
+}
 
 func (v *ProductionVerifier) VerifyDoctrineBinding(_ context.Context, m genesis.Manifest) error {
 	if err := VerifySignedDoctrineAuthorityStatement(v.doctrineStatement, v.doctrineAuthority, v.now); err != nil {
