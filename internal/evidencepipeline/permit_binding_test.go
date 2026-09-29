@@ -66,6 +66,66 @@ func TestBindPermitClaimsRejectsReadOnlyPacketForExecutionPermit(t *testing.T) {
 	}
 }
 
+func TestBindPermitClaimsRejectsExecutionAccountOrVersionSubstitution(t *testing.T) {
+	req := fixtureRequest()
+	req.Context.ExecutionBinding = &ExecutionBinding{
+		DestinationID:           "crm-primary",
+		AccountID:               "acct-1",
+		Endpoint:                "https://crm.example.test",
+		AdapterProfile:          "aegis.eep/crm-http-json/v1",
+		ExpectedResourceVersion: "rv-7",
+	}
+	packet, err := Compile(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := fixturePermitClaims(packet)
+	claims.ResourceVersion = "rv-7"
+	claims.ExecutionBinding = &egeproto.ExecutionBindingClaims{
+		DestinationID:           "crm-primary",
+		AccountID:               "acct-2",
+		Endpoint:                "https://crm.example.test",
+		AdapterProfile:          "aegis.eep/crm-http-json/v1",
+		ExpectedResourceVersion: "rv-7",
+	}
+	if _, err := BindPermitClaims(packet, claims); err == nil || !strings.Contains(err.Error(), "execution binding mismatch") {
+		t.Fatalf("account substitution error = %v", err)
+	}
+
+	claims.ExecutionBinding.AccountID = "acct-1"
+	claims.ResourceVersion = "rv-8"
+	if _, err := BindPermitClaims(packet, claims); err == nil || !strings.Contains(err.Error(), "resource version mismatch") {
+		t.Fatalf("resource-version substitution error = %v", err)
+	}
+}
+
+func TestBindPermitClaimsAcceptsExactExecutionBinding(t *testing.T) {
+	req := fixtureRequest()
+	req.Context.ExecutionBinding = &ExecutionBinding{
+		DestinationID:           "crm-primary",
+		AccountID:               "acct-1",
+		Endpoint:                "https://crm.example.test",
+		AdapterProfile:          "aegis.eep/crm-http-json/v1",
+		ExpectedResourceVersion: "rv-7",
+	}
+	packet, err := Compile(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := fixturePermitClaims(packet)
+	claims.ResourceVersion = "rv-7"
+	claims.ExecutionBinding = &egeproto.ExecutionBindingClaims{
+		DestinationID:           "crm-primary",
+		AccountID:               "acct-1",
+		Endpoint:                "https://crm.example.test",
+		AdapterProfile:          "aegis.eep/crm-http-json/v1",
+		ExpectedResourceVersion: "rv-7",
+	}
+	if _, err := BindPermitClaims(packet, claims); err != nil {
+		t.Fatalf("exact execution binding rejected: %v", err)
+	}
+}
+
 func fixturePermitClaims(packet Packet) egeproto.PermitClaims {
 	return egeproto.PermitClaims{
 		IntentID:               packet.IntentID,
