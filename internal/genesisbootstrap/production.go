@@ -25,7 +25,10 @@ import (
 )
 
 const (
-	BundleVersion                     = "aegis.ege/genesis-verification-bundle/v1"
+	BundleVersion                     = "aegis.ege/genesis-verification-bundle/v2"
+	AssuranceProfileVersion           = "aegis.ege/genesis-assurance/v2"
+	BuildProvenanceStatementVersion   = "aegis.ege/build-provenance/v1"
+	ProofVerificationRecordVersion    = "aegis.ege/proof-verification-record/v1"
 	RevocationListVersion             = "aegis.ege/genesis-revocations/v1"
 	DoctrineAuthorityStatementVersion = "aegis.ege/doctrine-authority-statement/v1"
 	maxExactJSONInteger               = uint64(1<<53 - 1)
@@ -51,8 +54,20 @@ type ArtifactPaths struct {
 	ApprovalPolicy     string `json:"approval_policy"`
 }
 
+type RelyingContext struct {
+	ExpectedManifestPayloadHash string `json:"expected_manifest_payload_hash"`
+	ExpectedDeviceID            string `json:"expected_device_id"`
+	ExpectedChallengeID         string `json:"expected_challenge_id"`
+}
+
+type CurrentSubject struct {
+	BootIDHash string
+}
+
 type VerificationBundle struct {
 	Version                            string        `json:"version"`
+	AssuranceProfile                   string        `json:"assurance_profile"`
+	RelyingContext                     RelyingContext `json:"relying_context"`
 	DoctrineManifest                   string        `json:"doctrine_manifest"`
 	SignedDoctrineAuthorityStatement   string        `json:"signed_doctrine_authority_statement"`
 	DoctrineAuthorityPublicKey         string        `json:"doctrine_authority_public_key"`
@@ -103,9 +118,39 @@ type SignedRevocationList struct {
 	Signature string         `json:"signature"`
 }
 
+type BuildProvenanceStatement struct {
+	Version                     string    `json:"version"`
+	BuilderIdentity             string    `json:"builder_identity"`
+	SourceRevision              string    `json:"source_revision"`
+	SubjectImplementationDigest string    `json:"subject_implementation_digest"`
+	MaterialsHash               string    `json:"materials_hash"`
+	SBOMHash                    string    `json:"sbom_hash"`
+	BuiltAt                     time.Time `json:"built_at"`
+	IssuedAt                    time.Time `json:"issued_at"`
+	ExpiresAt                   time.Time `json:"expires_at"`
+}
+
+type SignedBuildProvenanceStatement struct {
+	Statement BuildProvenanceStatement `json:"statement"`
+	KeyID     string                   `json:"key_id"`
+	Signature string                   `json:"signature"`
+}
+
+type ProofVerificationRecord struct {
+	Version          string    `json:"version"`
+	Result           string    `json:"result"`
+	VerificationMode string    `json:"verification_mode"`
+	SpecHash         string    `json:"spec_hash"`
+	ProofScopeHash   string    `json:"proof_scope_hash"`
+	Toolchain        []string  `json:"toolchain"`
+	ModelBounds      []string  `json:"model_bounds"`
+	CheckedAt        time.Time `json:"checked_at"`
+}
+
 type ProductionVerifier struct {
 	now                 time.Time
 	bundle              VerificationBundle
+	currentSubject      CurrentSubject
 	doctrineAuthority   ed25519.PublicKey
 	doctrineStatement   SignedDoctrineAuthorityStatement
 	doctrineDigest      string
@@ -116,6 +161,8 @@ type ProductionVerifier struct {
 	remoteDecision      kernelfabric.SignedRemoteAttestationDecision
 	bootstrapReceipt    kernelfabric.SignedBootstrapReceipt
 	revocations         SignedRevocationList
+	buildProvenance     SignedBuildProvenanceStatement
+	proofRecords        []ProofVerificationRecord
 	executableDigest    string
 }
 
