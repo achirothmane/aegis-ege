@@ -184,10 +184,18 @@ func newEGEEvidenceComposer(
 			)
 		}
 
-		policy.RequiredSources = normalizedUniqueStrings(policy.RequiredSources)
 		for _, source := range policy.RequiredSources {
-			if source == "" {
+			if strings.TrimSpace(source) == "" {
 				return nil, fmt.Errorf("EGE evidence composition policy for %q has empty required source", kind)
+			}
+		}
+		policy.RequiredSources = normalizedUniqueStrings(policy.RequiredSources)
+		for _, dependencyKind := range policy.RequiredDependencyKinds {
+			if strings.TrimSpace(dependencyKind) == "" {
+				return nil, fmt.Errorf(
+					"EGE evidence composition policy for %q has empty required dependency kind",
+					kind,
+				)
 			}
 		}
 		policy.RequiredDependencyKinds = normalizedUniqueStrings(policy.RequiredDependencyKinds)
