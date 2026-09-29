@@ -1,6 +1,6 @@
 # Aegis-EGE evidence composition
 
-Aegis-EGE can now evaluate a **composition policy** before minting an execution permit.
+Aegis-EGE evaluates a versioned composition profile before minting an execution permit.
 
 The control path is:
 
@@ -8,9 +8,10 @@ The control path is:
 Execution Intent
 → primary Evidence Producer
 → zero or more Evidence Contributors
-→ composition policy
+→ source declarations
+→ evidence-composition/v1 assessment
 → ALLOW / BLOCK / ESCALATE
-→ Evidence Manifest v0alpha2
+→ Evidence Manifest
 → signed state-bound permit
 → Execution Adapter
 → live revalidation
@@ -18,31 +19,259 @@ Execution Intent
 → outcome verification
 ```
 
-## Why composition exists
+## C09 claim boundary
 
-A single evidence producer can be correct and still share the same failure domain as the system it observes.
+A source name or trust-domain label is **not evidence of independence**.
 
-Aegis therefore models evidence as named sources with explicit trust domains:
+The versioned composition contract is:
 
 ```text
-source name
-+ trust domain
-+ evidence digest
-+ observed_at
-+ evidence classes
+aegis.ege/evidence-composition/v1
 ```
 
-A composition policy can require:
+For each source, the profile can bind:
 
-- a minimum number of evidence sources;
-- a minimum number of distinct trust domains;
-- specific named sources.
+```text
+producer_id
+subject
+observation_path
+dependency_coverage[]
+dependencies[] {
+  kind
+  id
+  material
+}
+declaration assurance:
+  UNKNOWN | ASSERTED | CORROBORATED
+corroboration_refs[]
+```
 
-A permit is minted only when the composition satisfies that policy.
+The subject is bound by the composer to the exact action target. Producers and
+contributors do not submit an `independent=true` bit at runtime.
+
+The manifest records a typed composition assessment:
+
+```text
+required_independence
+independent_source_count
+overall_independence
+pair_assessments[]
+```
+
+Pair status is one of:
+
+```text
+DEPENDENT
+UNKNOWN
+ASSERTED
+CORROBORATED
+```
+
+## What those statuses mean
+
+### DEPENDENT
+
+The profile found a dependency that defeats the stated independence claim, for
+example:
+
+- the same producer;
+- the same observation path;
+- a shared dependency marked material to the claim.
+
+Different source names or different `trust_domain` strings cannot override
+this result.
+
+### UNKNOWN
+
+The profile cannot establish the requested independence because a declaration
+is missing, dependency coverage is incomplete, or declaration assurance is
+unknown.
+
+UNKNOWN may still be usable by a profile that only requires multiple named
+sources. It cannot satisfy a policy that requires independent sources.
+
+### ASSERTED
+
+Both declarations cover the dependency classes required by the profile, use
+different producers and observation paths, and have no shared material
+dependency in that declared scope.
+
+ASSERTED means exactly that: the profile owner supplied those declarations.
+Aegis does not turn them into a claim of universal physical independence.
+
+### CORROBORATED
+
+CORROBORATED satisfies all ASSERTED conditions and both declarations are marked
+`CORROBORATED` with non-empty corroboration references.
+
+Those references are bound into the signed evidence manifest. Their presence
+means the deployment profile says the declarations were reviewed/corroborated;
+Aegis does not introduce a topology database or universal verifier for arbitrary
+reference schemes.
+
+## Material dependency scope
+
+The profile explicitly declares the dependency classes it requires, for
+example:
+
+```text
+upstream
+credential
+administrative
+```
+
+A source declaration must state that it covered every required class before it
+can count toward an independence requirement.
+
+Dependencies can also be declared as non-material for the profile's stated
+claim. Two sources may legitimately share such a dependency without being
+classified dependent for that particular claim.
+
+Example:
+
+```text
+source A:
+  upstream       = kubernetes-api       material
+  credential     = kube-reader          material
+  administrative = kubernetes-admin     material
+  facility       = dc-1                 non-material
+
+source B:
+  upstream       = prometheus-store     material
+  credential     = prometheus-reader    material
+  administrative = observability-admin  material
+  facility       = dc-1                 non-material
+```
+
+The shared facility is outside this profile's material independence claim. A
+shared cache, upstream, credential, or administrative domain that is declared
+material would make the pair DEPENDENT.
+
+## Trust domains remain descriptive
+
+`trust_domain` is retained for compatibility and operator visibility. Policies
+may still require multiple trust-domain labels.
+
+That is a label-diversity constraint only.
+
+It does **not** satisfy:
+
+```text
+min_independent_sources
+required_independence
+```
+
+Those fields are evaluated from the typed declaration/dependency predicate.
+
+## Current Kubernetes + Prometheus behavior
+
+Without a Prometheus contributor, the node-drain path remains a one-source
+profile.
+
+When Prometheus is configured without an independence profile, Aegis can still
+require:
+
+```text
+two named sources
+two distinct trust-domain labels
+agreement on node health
+```
+
+but the signed composition assessment remains:
+
+```text
+required_independence = UNKNOWN
+overall_independence  = UNKNOWN
+independent_source_count = 0
+```
+
+That is intentionally the narrower claim.
+
+To require independence, the operator supplies
+`--prometheus-independence-profile=<json>`. The profile must declare both
+`statelatch.kubernetes.node_drain` and `prometheus.node_health`, the
+dependency classes that matter, and the required assurance level.
+
+A profile asking for two ASSERTED or CORROBORATED independent sources fails
+closed when that predicate is not established.
+
+## Example bounded profile
+
+```json
+{
+  "required_independence": "ASSERTED",
+  "min_independent_sources": 2,
+  "required_dependency_kinds": [
+    "administrative",
+    "credential",
+    "upstream"
+  ],
+  "source_declarations": {
+    "statelatch.kubernetes.node_drain": {
+      "producer_id": "producer:kubernetes-node-drain",
+      "observation_path": "path:kubernetes-api-live",
+      "dependency_coverage": [
+        "administrative",
+        "credential",
+        "upstream"
+      ],
+      "dependencies": [
+        {
+          "kind": "upstream",
+          "id": "upstream:kubernetes-api",
+          "material": true
+        },
+        {
+          "kind": "credential",
+          "id": "credential:kubernetes-reader",
+          "material": true
+        },
+        {
+          "kind": "administrative",
+          "id": "admin:kubernetes",
+          "material": true
+        }
+      ],
+      "assurance": "ASSERTED"
+    },
+    "prometheus.node_health": {
+      "producer_id": "producer:prometheus-node-health",
+      "observation_path": "path:prometheus-query",
+      "dependency_coverage": [
+        "administrative",
+        "credential",
+        "upstream"
+      ],
+      "dependencies": [
+        {
+          "kind": "upstream",
+          "id": "upstream:prometheus-store",
+          "material": true
+        },
+        {
+          "kind": "credential",
+          "id": "credential:prometheus-reader",
+          "material": true
+        },
+        {
+          "kind": "administrative",
+          "id": "admin:observability",
+          "material": true
+        }
+      ],
+      "assurance": "ASSERTED"
+    }
+  }
+}
+```
+
+These identifiers are examples, not defaults. Deployments must declare their
+actual material dependencies.
 
 ## Fail-closed semantics
 
-The primary producer remains responsible for the exact action/state/plan binding used by the execution adapter.
+The primary producer remains responsible for the exact action/state/plan binding
+used by the execution adapter.
 
 Contributors can strengthen or contradict that evidence.
 
@@ -50,131 +279,44 @@ If a configured contributor:
 
 - returns `BLOCK`, the composition returns `BLOCK`;
 - returns `ESCALATE`, the composition returns `ESCALATE`;
-- fails to produce evidence, the composition returns `ESCALATE / INSUFFICIENT_EVIDENCE`;
-- produces invalid ALLOW evidence, Aegis treats that as an invalid trusted-component output and refuses permit minting;
-- does not satisfy the minimum source/trust-domain policy, Aegis returns `ESCALATE / INSUFFICIENT_EVIDENCE`.
+- fails to produce evidence, the composition returns
+  `ESCALATE / INSUFFICIENT_EVIDENCE`;
+- produces invalid ALLOW evidence, Aegis refuses permit minting;
+- fails the named-source/label-diversity policy, Aegis escalates;
+- fails a required independence predicate, Aegis escalates.
 
-The original primary permit binding is removed from every failed composition result.
+Contradiction retains its meaning. It is not converted into a weak
+independence/insufficiency result.
 
-## Manifest binding
+## Bounded implementation
 
-Evidence Manifest `aegis.ege/evidence/v0alpha2` includes the composed source set.
+The current evaluator is deliberately small:
 
-Example:
+- no topology database;
+- no universal producer registry service;
+- no universal confidence score;
+- no claim to enumerate every physical dependency;
+- at most 16 composed sources per bounded assessment;
+- exact maximum pairwise-qualifying source-set count is used for the configured
+  independence threshold.
 
-```json
-{
-  "api_version": "aegis.ege/evidence/v0alpha2",
-  "intent_id": "intent-1",
-  "kind": "kubernetes.node_drain",
-  "target": {
-    "type": "kubernetes.node",
-    "name": "worker-7"
-  },
-  "resource_version": "123",
-  "evidence_digest": "sha256:primary",
-  "plan_digest": "sha256:plan",
-  "observed_at": "2026-09-26T20:00:00Z",
-  "evidence_classes": [
-    "kubernetes.authoritative-state",
-    "kubernetes.pdb-preflight",
-    "kubernetes.server-dry-run"
-  ],
-  "sources": [
-    {
-      "name": "statelatch.kubernetes.node_drain",
-      "trust_domain": "kubernetes-control-plane",
-      "digest": "sha256:primary",
-      "observed_at": "2026-09-26T20:00:00Z",
-      "classes": [
-        "kubernetes.authoritative-state",
-        "kubernetes.pdb-preflight",
-        "kubernetes.server-dry-run"
-      ]
-    }
-  ]
-}
-```
+Older sources remain usable under profiles that do not require independence.
 
-The source list and per-source class list are canonicalized before the manifest is hashed. Reordering sources or classes does not change the manifest digest.
+## Adversarial properties covered by C09
 
-The execution permit is already bound to `evidence_manifest_digest`, so every composed source is transitively bound into the signed permit without changing the execution adapter's internal authorization format.
+The test corpus verifies that:
 
-## Current production policy
+- different labels over one material upstream do not become independent;
+- different labels from the same producer do not become independent;
+- a missing declaration remains UNKNOWN;
+- ASSERTED cannot satisfy a CORROBORATED requirement;
+- shared dependencies explicitly outside the material claim do not
+  automatically defeat the narrower predicate;
+- contradictory evidence still BLOCKs;
+- multiple named sources can remain usable while the independence claim stays
+  UNKNOWN.
 
-Without an external contributor configured, the Kubernetes node-drain path keeps the original one-source policy:
+The governing rule is:
 
-```text
-name:         statelatch.kubernetes.node_drain
-trust_domain: kubernetes-control-plane
-
-min_sources:       1
-min_trust_domains: 1
-required_source:   statelatch.kubernetes.node_drain
-```
-
-A real Prometheus node-health contributor can now be enabled with:
-
-```text
---prometheus-node-health-url=https://prometheus.example
---prometheus-trust-domain=external-observability
-```
-
-When enabled, Aegis automatically strengthens the policy to:
-
-```text
-min_sources:       2
-min_trust_domains: 2
-required_sources:
-  - statelatch.kubernetes.node_drain
-  - prometheus.node_health
-```
-
-The Prometheus sample must be fresh and must agree with the primary StateLatch node-health observation. A stale sample blocks with `EVIDENCE_STALE`; a contradictory sample blocks with `EVIDENCE_CONTRADICTED`; an unavailable configured Prometheus source causes the composition to fail closed as `ESCALATE / INSUFFICIENT_EVIDENCE`.
-
-### Independence requirement
-
-The Prometheus trust-domain label is an operator assertion about operational independence. Aegis rejects the exact `kubernetes-control-plane` trust-domain name for this contributor, but it cannot prove from a URL alone that Prometheus is actually independent.
-
-To count this as genuinely independent evidence, the Prometheus deployment and the metric's data path should not merely mirror the same Kubernetes control-plane state through the same failure domain. The useful case is out-of-band observability that can detect a condition the control plane might miss or misreport.
-
-The KinD integration path now exercises the public Aegis prepare/execute flow with the Prometheus contributor enabled and requires two named sources in two declared trust domains before the permit is accepted.
-
-## Multi-source proof
-
-Unit tests exercise the composition engine with synthetic independent sources and require:
-
-```text
-primary control-plane evidence
-+ telemetry-plane evidence
-+ simulation-plane evidence
-→ three sources
-→ three trust domains
-→ ALLOW
-```
-
-They also prove:
-
-- two sources in the same trust domain do not satisfy a two-domain policy;
-- a contradictory contributor forces `BLOCK`;
-- a missing required source forces `ESCALATE`;
-- an unavailable configured contributor forces `ESCALATE`.
-
-## Next evidence gate
-
-Do not add a second real source solely to increase a counter.
-
-A second production source should be added only when it contributes genuinely independent information to a concrete high-consequence action.
-
-Candidate classes include:
-
-```text
-independent telemetry
-deterministic simulation
-external policy attestation
-formal verification result
-```
-
-The key test is not "can Aegis ingest it?" but:
-
-> Does this source reduce a real failure mode that the existing trust domain cannot independently detect?
+> Evidence count and label diversity do not establish independent failure
+> domains.
