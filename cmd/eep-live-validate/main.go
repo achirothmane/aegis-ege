@@ -260,8 +260,17 @@ func run(ctx context.Context) error {
 	if !verification.Valid {
 		return fmt.Errorf("verify live journal: %s", verification.Error)
 	}
-	if verification.EntryCount != 3 {
-		return fmt.Errorf("expected 3 journal entries, got %d", verification.EntryCount)
+	expectedJournalEntries := uint64(3)
+	if outcome.Result == eepcrm.PostconditionAlreadySatisfied {
+		expectedJournalEntries = 2
+	}
+	if verification.EntryCount != expectedJournalEntries {
+		return fmt.Errorf(
+			"expected %d journal entries for outcome %s, got %d",
+			expectedJournalEntries,
+			outcome.Result,
+			verification.EntryCount,
+		)
 	}
 	permitDigest, err := journal.DigestPayload(permit)
 	if err != nil {
