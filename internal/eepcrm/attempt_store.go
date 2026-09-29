@@ -33,24 +33,24 @@ const (
 )
 
 type AttemptRecord struct {
-	Version                 string
-	AttemptID               string
-	State                   AttemptState
-	IntentID                string
-	PermitDigest            string
-	PlanDigest              string
-	DestinationID           string
-	AccountID               string
-	Endpoint                string
-	AdapterProfile          string
-	CustomerID              string
-	Operation               string
-	ExpectedResourceVersion string
-	ObservationHandle       string
-	ClaimedAt               time.Time
-	UpdatedAt               time.Time
-	HTTPStatus              int
-	Detail                  string
+	Version                 string       `json:"version"`
+	AttemptID               string       `json:"attempt_id"`
+	State                   AttemptState `json:"state"`
+	IntentID                string       `json:"intent_id"`
+	PermitDigest            string       `json:"permit_digest"`
+	PlanDigest              string       `json:"plan_digest"`
+	DestinationID           string       `json:"destination_id"`
+	AccountID               string       `json:"account_id"`
+	Endpoint                string       `json:"endpoint"`
+	AdapterProfile          string       `json:"adapter_profile"`
+	CustomerID              string       `json:"customer_id"`
+	Operation               string       `json:"operation"`
+	ExpectedResourceVersion string       `json:"expected_resource_version"`
+	ObservationHandle       string       `json:"observation_handle"`
+	ClaimedAt               time.Time    `json:"claimed_at"`
+	UpdatedAt               time.Time    `json:"updated_at"`
+	HTTPStatus              int          `json:"http_status,omitempty"`
+	Detail                  string       `json:"detail,omitempty"`
 }
 
 type AttemptStore interface {
