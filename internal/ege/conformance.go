@@ -1,18 +1,26 @@
 package ege
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const EBAContractVersion = "eba.integration/v0.1"
 const EBAContextProfileVersion = "eba.context/v1"
+const EBACanonicalProfileVersion = "eba.canonical-json/v1"
+
+const maxCanonicalSafeInteger int64 = 9007199254740991
 
 type KubernetesDrainConformanceInput struct {
 	PrincipalID        string
@@ -146,8 +154,8 @@ func ValidateKubernetesDrainConformance(
 }
 
 func validateEBAAssumption(raw json.RawMessage, claims PermitClaims, now time.Time) error {
-	var artifact map[string]any
-	if err := json.Unmarshal(raw, &artifact); err != nil {
+	artifact, err := decodeCanonicalObject(raw)
+	if err != nil {
 		return fmt.Errorf("ASSUMPTION_INVALID_JSON: %w", err)
 	}
 	if artifact["contract_version"] != EBAContractVersion {
@@ -161,6 +169,9 @@ func validateEBAAssumption(raw json.RawMessage, claims PermitClaims, now time.Ti
 	}
 	if artifact["context_profile"] != EBAContextProfileVersion {
 		return errors.New("ASSUMPTION_CONTEXT_PROFILE_INVALID")
+	}
+	if artifact["canonical_profile"] != EBACanonicalProfileVersion {
+		return errors.New("ASSUMPTION_CANONICAL_PROFILE_INVALID")
 	}
 	if artifact["trace_id"] != claims.EBATraceID {
 		return errors.New("ASSUMPTION_TRACE_MISMATCH")
@@ -217,8 +228,8 @@ func validateEBAAuthority(
 	claims PermitClaims,
 	now time.Time,
 ) error {
-	var artifact map[string]any
-	if err := json.Unmarshal(raw, &artifact); err != nil {
+	artifact, err := decodeCanonicalObject(raw)
+	if err != nil {
 		return fmt.Errorf("AUTHORITY_INVALID_JSON: %w", err)
 	}
 	if artifact["contract_version"] != EBAContractVersion {
@@ -232,6 +243,9 @@ func validateEBAAuthority(
 	}
 	if artifact["context_profile"] != EBAContextProfileVersion {
 		return errors.New("AUTHORITY_CONTEXT_PROFILE_INVALID")
+	}
+	if artifact["canonical_profile"] != EBACanonicalProfileVersion {
+		return errors.New("AUTHORITY_CANONICAL_PROFILE_INVALID")
 	}
 	if artifact["trace_id"] != claims.EBATraceID {
 		return errors.New("AUTHORITY_TRACE_MISMATCH")
@@ -360,9 +374,13 @@ func EBAArtifactRef(raw json.RawMessage) (string, error) {
 }
 
 func canonicalMapDigest(value map[string]any) (string, error) {
-	body, err := json.Marshal(value)
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return "", fmt.Errorf("marshal canonical map: %w", err)
+	}
+	body, err := CanonicalJSON(raw)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize map: %w", err)
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:]), nil
@@ -392,14 +410,201 @@ func containsAllowedAction(values []any, tool, operation string, sideEffect bool
 	return false
 }
 
-// CanonicalJSON normalizes arbitrary EBA artifacts for cross-language fixture
-// checks. encoding/json orders string map keys deterministically.
+// CanonicalJSON implements eba.canonical-json/v1 for cross-language EBA
+// artifacts. The supported number domain is integer-only within IEEE-754's
+// exact safe range. Object keys are unique, strings are Unicode scalar values,
+// map keys are sorted by encoding/json, and Go's JSON string escaping is the
+// canonical escape form (including HTML characters and U+2028/U+2029).
 func CanonicalJSON(raw json.RawMessage) ([]byte, error) {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	value, err := decodeCanonicalJSON(raw)
+	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(value)
+}
+
+func decodeCanonicalObject(raw json.RawMessage) (map[string]any, error) {
+	value, err := decodeCanonicalJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("CANONICAL_ROOT_MUST_BE_OBJECT")
+	}
+	return object, nil
+}
+
+func decodeCanonicalJSON(raw json.RawMessage) (any, error) {
+	if !utf8.Valid(raw) {
+		return nil, errors.New("CANONICAL_UTF8_INVALID")
+	}
+	if err := validateJSONStringEscapes(raw); err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	value, err := readCanonicalValue(dec)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("CANONICAL_TRAILING_DATA")
+		}
+		return nil, fmt.Errorf("CANONICAL_JSON_INVALID: %w", err)
+	}
+	return value, nil
+}
+
+func readCanonicalValue(dec *json.Decoder) (any, error) {
+	token, err := dec.Token()
+	if err != nil {
+		return nil, fmt.Errorf("CANONICAL_JSON_INVALID: %w", err)
+	}
+	switch value := token.(type) {
+	case json.Delim:
+		switch value {
+		case '{':
+			object := make(map[string]any)
+			for dec.More() {
+				keyToken, err := dec.Token()
+				if err != nil {
+					return nil, fmt.Errorf("CANONICAL_JSON_INVALID: %w", err)
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return nil, errors.New("CANONICAL_OBJECT_KEY_INVALID")
+				}
+				if _, exists := object[key]; exists {
+					return nil, fmt.Errorf("CANONICAL_DUPLICATE_KEY:%s", key)
+				}
+				item, err := readCanonicalValue(dec)
+				if err != nil {
+					return nil, err
+				}
+				object[key] = item
+			}
+			if end, err := dec.Token(); err != nil || end != json.Delim('}') {
+				return nil, errors.New("CANONICAL_JSON_INVALID")
+			}
+			return object, nil
+		case '[':
+			items := make([]any, 0)
+			for dec.More() {
+				item, err := readCanonicalValue(dec)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, item)
+			}
+			if end, err := dec.Token(); err != nil || end != json.Delim(']') {
+				return nil, errors.New("CANONICAL_JSON_INVALID")
+			}
+			return items, nil
+		default:
+			return nil, errors.New("CANONICAL_JSON_INVALID")
+		}
+	case json.Number:
+		rawNumber := value.String()
+		if rawNumber == "-0" {
+			return nil, errors.New("CANONICAL_NEGATIVE_ZERO")
+		}
+		if strings.ContainsAny(rawNumber, ".eE") {
+			return nil, fmt.Errorf("CANONICAL_NON_INTEGER_NUMBER:%s", rawNumber)
+		}
+		parsed, err := strconv.ParseInt(rawNumber, 10, 64)
+		if err != nil || parsed < -maxCanonicalSafeInteger || parsed > maxCanonicalSafeInteger {
+			return nil, fmt.Errorf("CANONICAL_INTEGER_OUT_OF_RANGE:%s", rawNumber)
+		}
+		return json.Number(strconv.FormatInt(parsed, 10)), nil
+	case string, bool, nil:
+		return value, nil
+	default:
+		return nil, fmt.Errorf("CANONICAL_TYPE_UNSUPPORTED:%T", value)
+	}
+}
+
+func validateJSONStringEscapes(raw []byte) error {
+	for i := 0; i < len(raw); {
+		if raw[i] != '"' {
+			i++
+			continue
+		}
+		i++
+		closed := false
+		for i < len(raw) {
+			switch raw[i] {
+			case '"':
+				i++
+				closed = true
+			case '\\':
+				i++
+				if i >= len(raw) {
+					return errors.New("CANONICAL_JSON_INVALID")
+				}
+				if raw[i] != 'u' {
+					i++
+					continue
+				}
+				if i+4 >= len(raw) {
+					return errors.New("CANONICAL_JSON_INVALID")
+				}
+				code, ok := parseHex4(raw[i+1 : i+5])
+				if !ok {
+					return errors.New("CANONICAL_JSON_INVALID")
+				}
+				if code >= 0xD800 && code <= 0xDBFF {
+					if i+10 >= len(raw) || raw[i+5] != '\\' || raw[i+6] != 'u' {
+						return errors.New("CANONICAL_STRING_INVALID")
+					}
+					low, ok := parseHex4(raw[i+7 : i+11])
+					if !ok || low < 0xDC00 || low > 0xDFFF {
+						return errors.New("CANONICAL_STRING_INVALID")
+					}
+					i += 11
+					continue
+				}
+				if code >= 0xDC00 && code <= 0xDFFF {
+					return errors.New("CANONICAL_STRING_INVALID")
+				}
+				i += 5
+			default:
+				if raw[i] < 0x20 {
+					return errors.New("CANONICAL_STRING_INVALID")
+				}
+				i++
+			}
+			if closed {
+				break
+			}
+		}
+		if !closed {
+			return errors.New("CANONICAL_JSON_INVALID")
+		}
+	}
+	return nil
+}
+
+func parseHex4(raw []byte) (uint16, bool) {
+	if len(raw) != 4 {
+		return 0, false
+	}
+	var value uint16
+	for _, ch := range raw {
+		value <<= 4
+		switch {
+		case ch >= '0' && ch <= '9':
+			value |= uint16(ch - '0')
+		case ch >= 'a' && ch <= 'f':
+			value |= uint16(ch-'a') + 10
+		case ch >= 'A' && ch <= 'F':
+			value |= uint16(ch-'A') + 10
+		default:
+			return 0, false
+		}
+	}
+	return value, true
 }
 
 // SortedStrings is kept local to the conformance package to make ordering
