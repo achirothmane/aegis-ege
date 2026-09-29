@@ -282,7 +282,7 @@ func TestExecutorReplayAfterRestartDoesNotDispatchAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	executor2 := newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, server.Client(), &memoryJournal{}, store2)
-	if _, err := executor2.Execute(context.Background(), fx.packet, fx.permit, fx.plan); !errors.Is(err, ErrAttemptAlreadyClaimed) && !strings.Contains(fmt.Sprint(err), ErrAttemptAlreadyClaimed.Error()) {
+	if _, err := executor2.Execute(context.Background(), fx.packet, fx.permit, fx.plan); !errors.Is(err, ErrAttemptAlreadyClaimed) {
 		t.Fatalf("restart replay error = %v, want already claimed", err)
 	}
 	if got := patchCalls.Load(); got != 1 {
@@ -347,6 +347,47 @@ func TestExecutorStalePreconditionBlocksAtDestination(t *testing.T) {
 	}
 }
 
+func TestExecutorMissingDestinationPreconditionBlocksAutomaticPath(t *testing.T) {
+	var patchCalls atomic.Int32
+	server := conditionalCRMServer(t, &patchCalls, testETag, true)
+	defer server.Close()
+	fx := newExecutionFixture(t, server.URL, testDestinationID, testAccountID, testETag)
+	attempts, _ := NewFileAttemptStore(filepath.Join(t.TempDir(), "attempts"))
+	executor := newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, server.Client(), &memoryJournal{}, attempts)
+
+	_, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan)
+	if err == nil || !strings.Contains(err.Error(), "does not expose required conditional-write resource version") {
+		t.Fatalf("error = %v, want unsupported precondition", err)
+	}
+	if patchCalls.Load() != 0 {
+		t.Fatal("missing destination precondition reached PATCH")
+	}
+}
+
+func TestExecutorRejectsWrongConfiguredEndpointBeforeNetwork(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer other.Close()
+
+	fx := newExecutionFixture(t, server.URL, testDestinationID, testAccountID, testETag)
+	attempts, _ := NewFileAttemptStore(filepath.Join(t.TempDir(), "attempts"))
+	executor := newTestExecutor(t, fx, other.URL, testDestinationID, testAccountID, other.Client(), &memoryJournal{}, attempts)
+	if _, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan); err == nil || !strings.Contains(err.Error(), "endpoint binding mismatch") {
+		t.Fatalf("error = %v, want endpoint mismatch", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("wrong endpoint binding made %d network call(s)", calls.Load())
+	}
+}
+
 func TestExecutorAttemptStoreAndJournalOutagePreventDispatch(t *testing.T) {
 	var patchCalls atomic.Int32
 	server := conditionalCRMServer(t, &patchCalls, testETag, false)
@@ -361,13 +402,29 @@ func TestExecutorAttemptStoreAndJournalOutagePreventDispatch(t *testing.T) {
 		t.Fatal("attempt-store outage reached PATCH")
 	}
 
-	attempts, _ := NewFileAttemptStore(filepath.Join(t.TempDir(), "attempts"))
+	storeDir := filepath.Join(t.TempDir(), "attempts")
+	attempts, _ := NewFileAttemptStore(storeDir)
 	executor = newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, server.Client(), &memoryJournal{failAt: 1}, attempts)
 	if _, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan); err == nil {
 		t.Fatal("journal outage unexpectedly allowed execution")
 	}
 	if patchCalls.Load() != 0 {
 		t.Fatal("journal outage reached PATCH")
+	}
+	record, err := attempts.Load(context.Background(), attemptIDForFixture(t, fx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != AttemptClaimed {
+		t.Fatalf("pre-dispatch outage state = %s, want CLAIMED", record.State)
+	}
+	restarted, _ := NewFileAttemptStore(storeDir)
+	retry := newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, server.Client(), &memoryJournal{}, restarted)
+	if _, err := retry.Execute(context.Background(), fx.packet, fx.permit, fx.plan); !errors.Is(err, ErrAttemptAlreadyClaimed) {
+		t.Fatalf("pre-dispatch crash replay error = %v, want already claimed", err)
+	}
+	if patchCalls.Load() != 0 {
+		t.Fatal("pre-dispatch claimed attempt was retried")
 	}
 }
 
