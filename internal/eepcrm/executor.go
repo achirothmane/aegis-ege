@@ -795,8 +795,11 @@ func validateOutcomeSemantics(outcome OutcomeEvidence) error {
 			return errors.New("VERIFIED outcome lacks stable intended-postcondition evidence")
 		}
 	case PostconditionPartial:
-		if outcome.RequestAcceptance != RequestAccepted ||
-			outcome.ObservationStatus != ObservationStable ||
+		if outcome.RequestAcceptance != RequestAccepted &&
+			outcome.RequestAcceptance != RequestAcceptanceUnknown {
+			return errors.New("PARTIAL outcome has invalid request acceptance")
+		}
+		if outcome.ObservationStatus != ObservationStable ||
 			outcome.ObservationCount < 2 ||
 			outcome.AfterDigest == "" ||
 			outcome.Postcondition == nil ||
@@ -804,8 +807,11 @@ func validateOutcomeSemantics(outcome OutcomeEvidence) error {
 			return errors.New("PARTIAL outcome is inconsistent")
 		}
 	case PostconditionUnsatisfied:
-		if outcome.RequestAcceptance != RequestAccepted ||
-			outcome.ObservationStatus != ObservationStable ||
+		if outcome.RequestAcceptance != RequestAccepted &&
+			outcome.RequestAcceptance != RequestAcceptanceUnknown {
+			return errors.New("UNSATISFIED outcome has invalid request acceptance")
+		}
+		if outcome.ObservationStatus != ObservationStable ||
 			outcome.ObservationCount < 2 ||
 			outcome.AfterDigest == "" ||
 			outcome.Postcondition == nil ||
