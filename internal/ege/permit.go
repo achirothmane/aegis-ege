@@ -56,6 +56,12 @@ type PermitClaims struct {
 	EvidencePacketDigest   string                 `json:"evidence_packet_digest,omitempty"`
 	PlanDigest             string                 `json:"plan_digest"`
 	ApprovalRefs           []string               `json:"approval_refs,omitempty"`
+	EBAContextProfile      string                 `json:"eba_context_profile,omitempty"`
+	EBATraceID             string                 `json:"eba_trace_id,omitempty"`
+	EBAAudience            string                 `json:"eba_audience,omitempty"`
+	EBANamespace           string                 `json:"eba_namespace,omitempty"`
+	EBAAssumptionRefs      []string               `json:"eba_assumption_refs,omitempty"`
+	EBAAuthorityRef        string                 `json:"eba_authority_ref,omitempty"`
 	CapabilityFence        *CapabilityFenceClaims `json:"capability_fence,omitempty"`
 	ValidUntil             time.Time              `json:"valid_until"`
 }
@@ -192,6 +198,8 @@ func canonicalPermitPayload(claims PermitClaims) ([]byte, error) {
 	claims.ValidUntil = claims.ValidUntil.UTC()
 	claims.ApprovalRefs = append([]string(nil), claims.ApprovalRefs...)
 	sort.Strings(claims.ApprovalRefs)
+	claims.EBAAssumptionRefs = append([]string(nil), claims.EBAAssumptionRefs...)
+	sort.Strings(claims.EBAAssumptionRefs)
 	body, err := json.Marshal(claims)
 	if err != nil {
 		return nil, fmt.Errorf("marshal EGE permit claims: %w", err)
