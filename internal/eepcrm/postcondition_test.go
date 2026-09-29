@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/evidencepipeline"
 )
 
@@ -437,5 +436,3 @@ func replaceFixturePlan(
 	fx.permit = permit
 	return fx
 }
-
-var _ egeproto.Target
