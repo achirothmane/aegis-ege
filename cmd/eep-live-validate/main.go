@@ -87,6 +87,9 @@ func run(ctx context.Context) error {
 	n8nToken := mustEnv("EEP_N8N_AUTH_TOKEN")
 	sourcePrincipal := mustEnv("EEP_SOURCE_PRINCIPAL")
 	crmBaseURL := mustEnv("EEP_CRM_BASE_URL")
+	crmDestinationID := mustEnv("EEP_CRM_DESTINATION_ID")
+	crmAccountID := mustEnv("EEP_CRM_ACCOUNT_ID")
+	expectedResourceVersion := mustEnv("EEP_CRM_EXPECTED_RESOURCE_VERSION")
 	crmToken := strings.TrimSpace(os.Getenv("EEP_CRM_BEARER_TOKEN"))
 	patchJSON := mustEnv("EEP_PATCH_JSON")
 	triggerJSON := strings.TrimSpace(os.Getenv("EEP_N8N_TRIGGER_JSON"))
@@ -152,6 +155,13 @@ func run(ctx context.Context) error {
 			PolicyRef:           strings.TrimSpace(envelope.PolicyRef),
 			RedactionProfileRef: strings.TrimSpace(envelope.RedactionProfileRef),
 			ConsequenceClass:    strings.TrimSpace(envelope.ConsequenceClass),
+			ExecutionBinding: &evidencepipeline.ExecutionBinding{
+				DestinationID:           crmDestinationID,
+				AccountID:               crmAccountID,
+				Endpoint:                strings.TrimRight(strings.TrimSpace(crmBaseURL), "/"),
+				AdapterProfile:          eepcrm.CRMAdapterProfileVersion,
+				ExpectedResourceVersion: expectedResourceVersion,
+			},
 			ControlRefs:         append([]string(nil), envelope.ControlRefs...),
 			ApprovalRefs:        append([]string(nil), envelope.ApprovalRefs...),
 		},
@@ -181,10 +191,17 @@ func run(ctx context.Context) error {
 		Kind:            packet.Action.Kind,
 		Target:          egeproto.Target{Type: "customer", Name: customerID},
 		Action:          packet.Action.Operation,
-		ResourceVersion: "live-validation",
+		ResourceVersion: expectedResourceVersion,
 		EvidenceDigest:  packet.Provenance.InputDigest,
 		PlanDigest:      planDigest,
-		ValidUntil:      time.Now().UTC().Add(2 * time.Minute),
+		ExecutionBinding: &egeproto.ExecutionBindingClaims{
+			DestinationID:           crmDestinationID,
+			AccountID:               crmAccountID,
+			Endpoint:                strings.TrimRight(strings.TrimSpace(crmBaseURL), "/"),
+			AdapterProfile:          eepcrm.CRMAdapterProfileVersion,
+			ExpectedResourceVersion: expectedResourceVersion,
+		},
+		ValidUntil: time.Now().UTC().Add(2 * time.Minute),
 	})
 	if err != nil {
 		return fmt.Errorf("sign evidence-bound permit: %w", err)
@@ -207,12 +224,28 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	attemptStore, err := eepcrm.NewFileAttemptStore(filepath.Join(tempDir, "attempts"))
+	if err != nil {
+		return err
+	}
 
 	crmClient := &http.Client{
 		Timeout: 20 * time.Second,
 		Transport: bearerTransport{token: crmToken, base: http.DefaultTransport},
 	}
-	executor, err := eepcrm.NewExecutor(crmBaseURL, crmClient, permitAuthority, j, time.Now)
+	executor, err := eepcrm.NewExecutor(
+		eepcrm.DestinationConfig{
+			BaseURL:        crmBaseURL,
+			DestinationID:  crmDestinationID,
+			AccountID:      crmAccountID,
+			AdapterProfile: eepcrm.CRMAdapterProfileVersion,
+		},
+		crmClient,
+		permitAuthority,
+		j,
+		attemptStore,
+		time.Now,
+	)
 	if err != nil {
 		return err
 	}
@@ -227,8 +260,8 @@ func run(ctx context.Context) error {
 	if !verification.Valid {
 		return fmt.Errorf("verify live journal: %s", verification.Error)
 	}
-	if verification.EntryCount != 2 {
-		return fmt.Errorf("expected 2 journal entries, got %d", verification.EntryCount)
+	if verification.EntryCount != 3 {
+		return fmt.Errorf("expected 3 journal entries, got %d", verification.EntryCount)
 	}
 	permitDigest, err := journal.DigestPayload(permit)
 	if err != nil {
