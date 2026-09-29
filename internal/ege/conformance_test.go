@@ -19,6 +19,33 @@ func loadEBAFixture(t *testing.T, name string) json.RawMessage {
 	return body
 }
 
+func rewriteEBAFixture(
+	t *testing.T,
+	raw json.RawMessage,
+	mutate func(map[string]any),
+) json.RawMessage {
+	t.Helper()
+	var artifact map[string]any
+	if err := json.Unmarshal(raw, &artifact); err != nil {
+		t.Fatal(err)
+	}
+	mutate(artifact)
+	delete(artifact, "integrity")
+	digest, err := canonicalMapDigest(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact["integrity"] = map[string]any{
+		"algorithm": "sha256",
+		"digest":    digest,
+	}
+	body, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
 func validKubernetesDrainConformanceScenario(t *testing.T) (
 	KubernetesDrainConformanceInput,
 	PermitAuthority,
@@ -168,6 +195,88 @@ func TestEBAKubernetesDrainConformanceRejectsSyntheticTokenBudget(t *testing.T) 
 	)
 	if err == nil || !strings.Contains(err.Error(), "BUDGET_NOT_APPLICABLE") {
 		t.Fatalf("expected non-applicable budget block, got %v", err)
+	}
+}
+
+
+
+func TestEBAKubernetesDrainConformanceRejectsAuthorityAtExactExpiry(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AuthorityArtifact = rewriteEBAFixture(t, input.AuthorityArtifact, func(artifact map[string]any) {
+		artifact["expires_at"] = now.Format(time.RFC3339)
+	})
+
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "AUTHORITY_EXPIRED") {
+		t.Fatalf("expected exact-expiry authority block, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsMissingAuthorityExpiry(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AuthorityArtifact = rewriteEBAFixture(t, input.AuthorityArtifact, func(artifact map[string]any) {
+		delete(artifact, "expires_at")
+	})
+
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "AUTHORITY_EXPIRES_AT_INVALID") {
+		t.Fatalf("expected missing authority expiry block, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsAssumptionAtExactExpiry(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
+		artifact["valid_until"] = now.Format(time.RFC3339)
+	})
+
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "ASSUMPTION_STALE") {
+		t.Fatalf("expected exact-expiry assumption block, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsMalformedAssumptionExpiry(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
+		artifact["valid_until"] = 123
+	})
+
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "ASSUMPTION_VALID_UNTIL_INVALID") {
+		t.Fatalf("expected malformed assumption expiry block, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsFutureAssumptionCheck(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
+		artifact["checked_at"] = now.Add(time.Second).Format(time.RFC3339)
+	})
+
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "ASSUMPTION_CHECKED_AT_FUTURE") {
+		t.Fatalf("expected future assumption check block, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRequiresExplicitClock(t *testing.T) {
+	input, permitAuthority, approvalAuthority, _ := validKubernetesDrainConformanceScenario(t)
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, time.Time{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "EBA_EVALUATION_TIME_REQUIRED") {
+		t.Fatalf("expected explicit evaluation time requirement, got %v", err)
 	}
 }
 
