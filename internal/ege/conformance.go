@@ -30,6 +30,10 @@ func ValidateKubernetesDrainConformance(
 	input KubernetesDrainConformanceInput,
 	now time.Time,
 ) error {
+	if now.IsZero() {
+		return errors.New("EBA_EVALUATION_TIME_REQUIRED")
+	}
+	now = now.UTC()
 	if input.Permit.Claims.Kind != "kubernetes.node_drain" {
 		return fmt.Errorf("unsupported conformance kind %q", input.Permit.Claims.Kind)
 	}
@@ -111,14 +115,28 @@ func validateEBAAssumption(raw json.RawMessage, now time.Time) error {
 	if err := validateEBAIntegrity(artifact, "ASSUMPTION_INTEGRITY_INVALID"); err != nil {
 		return err
 	}
-	if value, ok := artifact["valid_until"].(string); ok && value != "" {
-		expires, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			return errors.New("ASSUMPTION_VALID_UNTIL_INVALID")
-		}
-		if !now.IsZero() && now.UTC().After(expires.UTC()) {
-			return errors.New("ASSUMPTION_STALE")
-		}
+	checkedAtValue, ok := artifact["checked_at"].(string)
+	if !ok || checkedAtValue == "" {
+		return errors.New("ASSUMPTION_CHECKED_AT_INVALID")
+	}
+	checkedAt, err := time.Parse(time.RFC3339, checkedAtValue)
+	if err != nil {
+		return errors.New("ASSUMPTION_CHECKED_AT_INVALID")
+	}
+	if checkedAt.UTC().After(now.UTC()) {
+		return errors.New("ASSUMPTION_CHECKED_AT_FUTURE")
+	}
+
+	value, ok := artifact["valid_until"].(string)
+	if !ok || value == "" {
+		return errors.New("ASSUMPTION_VALID_UNTIL_INVALID")
+	}
+	expires, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return errors.New("ASSUMPTION_VALID_UNTIL_INVALID")
+	}
+	if !now.UTC().Before(expires.UTC()) {
+		return errors.New("ASSUMPTION_STALE")
 	}
 	return nil
 }
@@ -189,23 +207,30 @@ func validateEBAAuthority(
 		return errors.New("AUTHORITY_SCOPE_MISMATCH")
 	}
 
-	if value, ok := artifact["not_before"].(string); ok && value != "" {
-		notBefore, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			return errors.New("AUTHORITY_NOT_BEFORE_INVALID")
-		}
-		if !now.IsZero() && now.UTC().Before(notBefore.UTC()) {
-			return errors.New("AUTHORITY_NOT_YET_VALID")
-		}
+	notBeforeValue, ok := artifact["not_before"].(string)
+	if !ok || notBeforeValue == "" {
+		return errors.New("AUTHORITY_NOT_BEFORE_INVALID")
 	}
-	if value, ok := artifact["expires_at"].(string); ok && value != "" {
-		expires, err := time.Parse(time.RFC3339, value)
-		if err != nil {
-			return errors.New("AUTHORITY_EXPIRES_AT_INVALID")
-		}
-		if !now.IsZero() && now.UTC().After(expires.UTC()) {
-			return errors.New("AUTHORITY_EXPIRED")
-		}
+	notBefore, err := time.Parse(time.RFC3339, notBeforeValue)
+	if err != nil {
+		return errors.New("AUTHORITY_NOT_BEFORE_INVALID")
+	}
+	expiresValue, ok := artifact["expires_at"].(string)
+	if !ok || expiresValue == "" {
+		return errors.New("AUTHORITY_EXPIRES_AT_INVALID")
+	}
+	expires, err := time.Parse(time.RFC3339, expiresValue)
+	if err != nil {
+		return errors.New("AUTHORITY_EXPIRES_AT_INVALID")
+	}
+	if !expires.UTC().After(notBefore.UTC()) {
+		return errors.New("AUTHORITY_WINDOW_INVALID")
+	}
+	if now.UTC().Before(notBefore.UTC()) {
+		return errors.New("AUTHORITY_NOT_YET_VALID")
+	}
+	if !now.UTC().Before(expires.UTC()) {
+		return errors.New("AUTHORITY_EXPIRED")
 	}
 	return nil
 }
