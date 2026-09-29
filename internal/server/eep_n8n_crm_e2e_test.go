@@ -221,8 +221,12 @@ func TestN8NEEPCRMEndToEndEvidenceBeforeAction(t *testing.T) {
 	if err := eepcrm.VerifyOutcome(outcome); err != nil {
 		t.Fatalf("outcome evidence failed verification: %v", err)
 	}
-	if outcome.Result != "APPLIED" {
-		t.Fatalf("outcome = %q, want APPLIED", outcome.Result)
+	if outcome.Result != eepcrm.PostconditionVerified {
+		t.Fatalf("outcome = %q, want VERIFIED", outcome.Result)
+	}
+	if outcome.RequestAcceptance != eepcrm.RequestAccepted ||
+		outcome.ObservationStatus != eepcrm.ObservationStable {
+		t.Fatalf("outcome evidence is not a stable accepted verification: %+v", outcome)
 	}
 
 	mu.Lock()
