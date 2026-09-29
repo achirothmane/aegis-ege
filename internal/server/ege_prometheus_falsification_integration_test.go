@@ -130,7 +130,7 @@ func TestKindPrometheusFalsificationBlocksWhatKubernetesAloneWouldAllow(t *testi
 
 	if composed.Decision != decision.Block {
 		t.Fatalf(
-			"expected independent Prometheus contradiction to BLOCK, got %s reasons=%v",
+			"expected Prometheus contradiction to BLOCK, got %s reasons=%v",
 			composed.Decision,
 			composed.ReasonCodes,
 		)
