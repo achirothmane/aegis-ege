@@ -630,3 +630,68 @@ func TestEGEEvidenceContradictionKeepsBlockMeaningWithIndependenceProfile(t *tes
 		t.Fatalf("contradiction meaning changed: %+v", result)
 	}
 }
+
+
+func TestEGEEvidenceIndependenceMissingRequiredDependencyCoverageIsUnknown(t *testing.T) {
+	policy := declaredCompositionPolicy(
+		egeproto.EvidenceIndependenceAsserted,
+		egeproto.EvidenceDeclarationAsserted,
+	)
+	telemetry := policy.SourceDeclarations["telemetry"]
+	telemetry.DependencyCoverage = []string{"credential", "upstream"}
+	policy.SourceDeclarations["telemetry"] = telemetry
+
+	result := composeTwoSourcePolicy(t, policy)
+	if result.Decision != decision.Escalate || result.PermitBinding != nil {
+		t.Fatalf("incomplete dependency coverage must fail closed: %+v", result)
+	}
+	if result.EvidenceComposition == nil ||
+		result.EvidenceComposition.OverallIndependence != egeproto.EvidenceIndependenceUnknown {
+		t.Fatalf("incomplete coverage must remain UNKNOWN: %+v", result.EvidenceComposition)
+	}
+	pair := result.EvidenceComposition.PairAssessments[0]
+	if pair.Status != egeproto.EvidenceIndependenceUnknown ||
+		len(pair.ReasonCodes) != 1 ||
+		pair.ReasonCodes[0] != "DEPENDENCY_COVERAGE_UNKNOWN" {
+		t.Fatalf("unexpected incomplete-coverage assessment: %+v", pair)
+	}
+}
+
+func TestEGEEvidenceIndependenceSharedObservationPathIsDependent(t *testing.T) {
+	policy := declaredCompositionPolicy(
+		egeproto.EvidenceIndependenceAsserted,
+		egeproto.EvidenceDeclarationAsserted,
+	)
+	telemetry := policy.SourceDeclarations["telemetry"]
+	telemetry.ObservationPath = policy.SourceDeclarations["primary"].ObservationPath
+	policy.SourceDeclarations["telemetry"] = telemetry
+
+	result := composeTwoSourcePolicy(t, policy)
+	if result.Decision != decision.Escalate {
+		t.Fatalf("shared observation path must not satisfy independence: %+v", result)
+	}
+	pair := result.EvidenceComposition.PairAssessments[0]
+	if pair.Status != egeproto.EvidenceIndependenceDependent ||
+		len(pair.ReasonCodes) != 1 ||
+		pair.ReasonCodes[0] != "SHARED_OBSERVATION_PATH" {
+		t.Fatalf("unexpected observation-path assessment: %+v", pair)
+	}
+}
+
+func TestEGEEvidenceContributorRegistryRejectsDuplicateSourceName(t *testing.T) {
+	first := &compositionContributor{
+		name:        "duplicate",
+		trustDomain: "label-a",
+		kind:        "test.mutate",
+		targetType:  "test.resource",
+	}
+	second := &compositionContributor{
+		name:        "duplicate",
+		trustDomain: "label-b",
+		kind:        "test.mutate",
+		targetType:  "test.resource",
+	}
+	if _, err := newEGEEvidenceContributorRegistry(first, second); err == nil {
+		t.Fatal("duplicate source name unexpectedly accepted")
+	}
+}
