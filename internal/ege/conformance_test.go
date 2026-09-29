@@ -81,6 +81,42 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 		t.Fatal(err)
 	}
 
+	traceID := "tr_k8s_drain_001"
+	audience := "aegis-ege"
+	namespace := "deployment:aegis-ege"
+
+	assumption := rewriteEBAFixture(t, loadEBAFixture(t, "assumption-state.json"), func(artifact map[string]any) {
+		artifact["context_profile"] = EBAContextProfileVersion
+		artifact["trace_id"] = traceID
+		artifact["subject_ref"] = manifest.IntentID
+		artifact["evidence_refs"] = []any{manifest.EvidenceDigest}
+		artifact["trust"] = map[string]any{
+			"mode":      "authenticated_parent_binding",
+			"issuer":    "assumption-gate/kubernetes-drain-profile",
+			"audience":  audience,
+			"namespace": namespace,
+		}
+	})
+	authority := rewriteEBAFixture(t, loadEBAFixture(t, "authority-grant.json"), func(artifact map[string]any) {
+		artifact["context_profile"] = EBAContextProfileVersion
+		artifact["trace_id"] = traceID
+		artifact["subject_ref"] = manifest.IntentID
+		artifact["trust"] = map[string]any{
+			"mode":      "authenticated_parent_binding",
+			"issuer":    "policy:kubernetes-drain-authority-v1",
+			"audience":  audience,
+			"namespace": namespace,
+		}
+	})
+	assumptionRef, err := EBAArtifactRef(assumption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorityRef, err := EBAArtifactRef(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	claims := PermitClaims{
 		IntentID:               "intent-1",
 		Kind:                   "kubernetes.node_drain",
@@ -90,6 +126,12 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 		EvidenceDigest:         "sha256:evidence",
 		EvidenceManifestDigest: manifestDigest,
 		PlanDigest:             "sha256:plan",
+		EBAContextProfile:      EBAContextProfileVersion,
+		EBATraceID:             traceID,
+		EBAAudience:            audience,
+		EBANamespace:           namespace,
+		EBAAssumptionRefs:      []string{assumptionRef},
+		EBAAuthorityRef:        authorityRef,
 		ValidUntil:             now.Add(2 * time.Minute),
 	}
 	approval, err := SignApproval(ctx, approvalAuthority, ApprovalClaims{
@@ -120,8 +162,8 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 
 	return KubernetesDrainConformanceInput{
 		PrincipalID:         "aegis-ege",
-		AssumptionArtifacts: []json.RawMessage{loadEBAFixture(t, "assumption-state.json")},
-		AuthorityArtifact:   loadEBAFixture(t, "authority-grant.json"),
+		AssumptionArtifacts: []json.RawMessage{assumption},
+		AuthorityArtifact:   authority,
 		Approvals:           []ApprovalAttestation{approval},
 		EvidenceManifest:    manifest,
 		Permit:              permit,
