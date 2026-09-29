@@ -122,7 +122,12 @@ A run is evidence of external end-to-end behavior only if the command returns:
 ```json
 {
   "status": "PASS",
+  "postcondition_profile": "aegis.eep/crm-postcondition/v1",
   "outcome": "VERIFIED",
+  "request_acceptance": "ACCEPTED",
+  "observation_status": "OBSERVED_STABLE",
+  "matched_fields": 1,
+  "total_fields": 1,
   "journal_entries": 3
 }
 ```
