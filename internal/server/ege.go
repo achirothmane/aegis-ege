@@ -151,6 +151,7 @@ func (s *Server) handleEGEPrepare(w http.ResponseWriter, r *http.Request) {
 			ObservedAt:      preparation.ObservedAt,
 			EvidenceClasses: append([]string(nil), preparation.EvidenceClasses...),
 			Sources:         append([]egeproto.EvidenceSource(nil), preparation.EvidenceSources...),
+			Composition:     preparation.EvidenceComposition,
 		}
 		manifestDigest, err := egeproto.DigestEvidenceManifest(manifest)
 		if err != nil {
