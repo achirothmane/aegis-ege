@@ -795,6 +795,22 @@ func validateOutcomeSemantics(outcome OutcomeEvidence) error {
 			return fmt.Errorf("postcondition evidence invalid: %w", err)
 		}
 	}
+	switch outcome.RequestAcceptance {
+	case RequestNotDispatched:
+		if outcome.HTTPStatus != 0 {
+			return errors.New("NOT_DISPATCHED outcome cannot carry an HTTP mutation status")
+		}
+	case RequestAccepted:
+		if outcome.HTTPStatus < 200 || outcome.HTTPStatus >= 300 {
+			return errors.New("ACCEPTED outcome requires a 2xx mutation response")
+		}
+	case RequestAcceptanceUnknown:
+		if outcome.HTTPStatus >= 200 && outcome.HTTPStatus < 300 {
+			return errors.New("UNKNOWN request acceptance cannot carry a successful mutation response")
+		}
+	default:
+		return fmt.Errorf("unsupported request acceptance %q", outcome.RequestAcceptance)
+	}
 	switch outcome.Result {
 	case PostconditionAlreadySatisfied:
 		if outcome.RequestAcceptance != RequestNotDispatched ||
@@ -813,7 +829,7 @@ func validateOutcomeSemantics(outcome OutcomeEvidence) error {
 			return errors.New("VERIFIED outcome has invalid request acceptance")
 		}
 		if outcome.ObservationStatus != ObservationStable ||
-			outcome.ObservationCount < 2 ||
+			outcome.ObservationCount != 3 ||
 			outcome.AfterDigest == "" ||
 			outcome.Postcondition == nil ||
 			outcome.Postcondition.Result != PostconditionVerified {
@@ -825,7 +841,7 @@ func validateOutcomeSemantics(outcome OutcomeEvidence) error {
 			return errors.New("PARTIAL outcome has invalid request acceptance")
 		}
 		if outcome.ObservationStatus != ObservationStable ||
-			outcome.ObservationCount < 2 ||
+			outcome.ObservationCount != 3 ||
 			outcome.AfterDigest == "" ||
 			outcome.Postcondition == nil ||
 			outcome.Postcondition.Result != PostconditionPartial {
@@ -837,7 +853,7 @@ func validateOutcomeSemantics(outcome OutcomeEvidence) error {
 			return errors.New("UNSATISFIED outcome has invalid request acceptance")
 		}
 		if outcome.ObservationStatus != ObservationStable ||
-			outcome.ObservationCount < 2 ||
+			outcome.ObservationCount != 3 ||
 			outcome.AfterDigest == "" ||
 			outcome.Postcondition == nil ||
 			outcome.Postcondition.Result != PostconditionUnsatisfied {
