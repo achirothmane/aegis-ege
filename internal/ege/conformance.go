@@ -16,6 +16,8 @@ const EBAContextProfileVersion = "eba.context/v1"
 
 type KubernetesDrainConformanceInput struct {
 	PrincipalID        string
+	Audience           string
+	Namespace          string
 	AssumptionArtifacts []json.RawMessage
 	AuthorityArtifact   json.RawMessage
 	BudgetArtifact      json.RawMessage
@@ -60,8 +62,17 @@ func ValidateKubernetesDrainConformance(
 	if claims.EBAContextProfile != EBAContextProfileVersion {
 		return errors.New("EBA_CONTEXT_PROFILE_INVALID")
 	}
+	if input.Audience == "" || input.Namespace == "" {
+		return errors.New("EBA_CONSUMER_CONTEXT_MISSING")
+	}
 	if claims.EBATraceID == "" || claims.EBAAudience == "" || claims.EBANamespace == "" {
 		return errors.New("EBA_CONTEXT_BINDING_MISSING")
+	}
+	if claims.EBAAudience != input.Audience {
+		return errors.New("EBA_AUDIENCE_MISMATCH")
+	}
+	if claims.EBANamespace != input.Namespace {
+		return errors.New("EBA_NAMESPACE_MISMATCH")
 	}
 	if claims.EBAAuthorityRef == "" || len(claims.EBAAssumptionRefs) == 0 {
 		return errors.New("EBA_ARTIFACT_BINDING_MISSING")
