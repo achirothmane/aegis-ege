@@ -514,25 +514,28 @@ func (e *Executor) observePostcondition(
 	for i := 0; i < observationReads; i++ {
 		snapshot, err := e.getCustomer(ctx, plan.CustomerID)
 		if err != nil {
-			return postconditionObservation{
-				Status: ObservationUnavailable,
-				Count:  len(evaluations),
-				Err:    fmt.Errorf("post-mutation read %d failed: %w", i+1, err),
-			}
+			return retainObservedPostcondition(
+				evaluations,
+				snapshots,
+				ObservationUnavailable,
+				fmt.Errorf("post-mutation read %d failed: %w", i+1, err),
+			)
 		}
 		if err := e.validateDestinationIdentity(snapshot); err != nil {
-			return postconditionObservation{
-				Status: ObservationUnavailable,
-				Count:  len(evaluations) + 1,
-				Err:    fmt.Errorf("post-mutation destination binding failed: %w", err),
-			}
+			return retainObservedPostcondition(
+				evaluations,
+				snapshots,
+				ObservationUnavailable,
+				fmt.Errorf("post-mutation destination binding failed: %w", err),
+			)
 		}
 		if err := validateObservedCustomerTarget(snapshot.State, plan.CustomerID); err != nil {
-			return postconditionObservation{
-				Status: ObservationWrongTarget,
-				Count:  len(evaluations) + 1,
-				Err:    err,
-			}
+			return retainObservedPostcondition(
+				evaluations,
+				snapshots,
+				ObservationWrongTarget,
+				err,
+			)
 		}
 		evaluation, err := EvaluateCustomerUpdatePostcondition(plan, snapshot.State)
 		if err != nil {
@@ -573,6 +576,28 @@ func (e *Executor) observePostcondition(
 		Status:      ObservationStable,
 		Count:       len(evaluations),
 	}
+}
+
+func retainObservedPostcondition(
+	evaluations []PostconditionEvaluation,
+	snapshots []customerSnapshot,
+	status ObservationStatus,
+	observationErr error,
+) postconditionObservation {
+	result := postconditionObservation{
+		Status: status,
+		Count:  len(evaluations),
+		Err:    observationErr,
+	}
+	if len(evaluations) == 0 || len(snapshots) == 0 {
+		return result
+	}
+	last := evaluations[len(evaluations)-1]
+	result.Evaluation = &last
+	if digest, err := journal.DigestPayload(snapshots[len(snapshots)-1].State); err == nil {
+		result.AfterDigest = digest
+	}
+	return result
 }
 
 func newOutcomeEvidence(
