@@ -811,6 +811,188 @@ func SignManifest(m genesis.Manifest, privateKey ed25519.PrivateKey) (genesis.Ma
 }
 
 
+func SignBuildProvenanceStatement(
+	statement BuildProvenanceStatement,
+	privateKey ed25519.PrivateKey,
+) (SignedBuildProvenanceStatement, error) {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return SignedBuildProvenanceStatement{}, errors.New("invalid Ed25519 build-provenance private key")
+	}
+	if err := validateBuildProvenanceStatement(statement, time.Time{}); err != nil {
+		return SignedBuildProvenanceStatement{}, err
+	}
+	payload, err := canonicalBuildProvenanceStatementPayload(statement)
+	if err != nil {
+		return SignedBuildProvenanceStatement{}, err
+	}
+	keyID, err := kernelfabric.BootstrapKeyID(privateKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		return SignedBuildProvenanceStatement{}, err
+	}
+	return SignedBuildProvenanceStatement{
+		Statement: statement,
+		KeyID:     keyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
+	}, nil
+}
+
+func VerifySignedBuildProvenanceStatement(
+	signed SignedBuildProvenanceStatement,
+	publicKey ed25519.PublicKey,
+	now time.Time,
+) error {
+	if err := validateBuildProvenanceStatement(signed.Statement, now); err != nil {
+		return err
+	}
+	keyID, err := kernelfabric.BootstrapKeyID(publicKey)
+	if err != nil {
+		return err
+	}
+	if signed.KeyID != keyID {
+		return errors.New("build provenance key id does not match trusted manifest authority")
+	}
+	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
+	if err != nil {
+		return fmt.Errorf("decode build provenance signature: %w", err)
+	}
+	payload, err := canonicalBuildProvenanceStatementPayload(signed.Statement)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return errors.New("build provenance signature is invalid")
+	}
+	return nil
+}
+
+func canonicalBuildProvenanceStatementPayload(statement BuildProvenanceStatement) ([]byte, error) {
+	raw, err := json.Marshal(statement)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	canonical, err := jcs.Format(value)
+	if err != nil {
+		return nil, err
+	}
+	return append(
+		[]byte("aegis-ege/build-provenance/v1\x00"),
+		[]byte(canonical)...,
+	), nil
+}
+
+func validateBuildProvenanceStatement(statement BuildProvenanceStatement, now time.Time) error {
+	if statement.Version != BuildProvenanceStatementVersion {
+		return fmt.Errorf("unsupported build provenance version %q", statement.Version)
+	}
+	required := map[string]string{
+		"builder_identity":               statement.BuilderIdentity,
+		"source_revision":                statement.SourceRevision,
+		"subject_implementation_digest":  statement.SubjectImplementationDigest,
+		"materials_hash":                 statement.MaterialsHash,
+		"sbom_hash":                      statement.SBOMHash,
+	}
+	for name, value := range required {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("build provenance %s is required", name)
+		}
+	}
+	for name, value := range map[string]string{
+		"subject_implementation_digest": statement.SubjectImplementationDigest,
+		"materials_hash":                statement.MaterialsHash,
+		"sbom_hash":                     statement.SBOMHash,
+	} {
+		if !isSHA256Digest(value) {
+			return fmt.Errorf("build provenance %s must be a sha256 digest", name)
+		}
+	}
+	if statement.BuiltAt.IsZero() ||
+		statement.IssuedAt.IsZero() ||
+		statement.ExpiresAt.IsZero() ||
+		!statement.ExpiresAt.After(statement.IssuedAt) {
+		return errors.New("build provenance timestamps are invalid")
+	}
+	if statement.IssuedAt.Before(statement.BuiltAt) {
+		return errors.New("build provenance issued_at precedes built_at")
+	}
+	if !now.IsZero() {
+		now = now.UTC()
+		if now.Before(statement.IssuedAt.UTC()) {
+			return errors.New("build provenance is not yet valid")
+		}
+		if !now.Before(statement.ExpiresAt.UTC()) {
+			return errors.New("build provenance is expired")
+		}
+	}
+	return nil
+}
+
+func validateProofVerificationRecord(
+	record ProofVerificationRecord,
+	m genesis.Manifest,
+	now time.Time,
+) error {
+	if record.Version != ProofVerificationRecordVersion {
+		return fmt.Errorf("unsupported proof verification record version %q", record.Version)
+	}
+	if record.Result != "PASS" {
+		return fmt.Errorf("proof verification result is %q", record.Result)
+	}
+	if record.VerificationMode != m.Verification.Mode {
+		return fmt.Errorf(
+			"proof verification mode %q does not match manifest %q",
+			record.VerificationMode,
+			m.Verification.Mode,
+		)
+	}
+	if record.SpecHash != m.Specification.SpecHash {
+		return errors.New("proof verification record spec hash does not match manifest")
+	}
+	if record.ProofScopeHash != m.Verification.ProofScopeHash {
+		return errors.New("proof verification record proof-scope hash does not match manifest")
+	}
+	if !equalStringSlices(record.Toolchain, m.Verification.Toolchain) {
+		return errors.New("proof verification record toolchain does not match manifest")
+	}
+	if !equalStringSlices(record.ModelBounds, m.Verification.ModelBounds) {
+		return errors.New("proof verification record model bounds do not match manifest")
+	}
+	if record.CheckedAt.IsZero() {
+		return errors.New("proof verification record checked_at is required")
+	}
+	if record.CheckedAt.After(now.Add(5 * time.Second)) {
+		return errors.New("proof verification record checked_at is unreasonably in the future")
+	}
+	return nil
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isSHA256Digest(value string) bool {
+	if !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	raw := strings.TrimPrefix(value, "sha256:")
+	if len(raw) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(raw)
+	return err == nil
+}
+
 func SignDoctrineAuthorityStatement(statement DoctrineAuthorityStatement, privateKey ed25519.PrivateKey) (SignedDoctrineAuthorityStatement, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
 		return SignedDoctrineAuthorityStatement{}, errors.New("invalid Ed25519 doctrine authority private key")
