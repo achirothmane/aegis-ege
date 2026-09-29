@@ -1,11 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -126,7 +126,7 @@ func TestN8NEEPCRMEndToEndEvidenceBeforeAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compileRequest := httptest.NewRequest(http.MethodPost, "/v1/eep/n8n/compile", bytesReader(compileBody))
+	compileRequest := httptest.NewRequest(http.MethodPost, "/v1/eep/n8n/compile", bytes.NewReader(compileBody))
 	compileRecorder := httptest.NewRecorder()
 	aegis.Handler().ServeHTTP(compileRecorder, compileRequest)
 	if compileRecorder.Code != http.StatusOK {
@@ -402,20 +402,3 @@ func e2eCRMPacket(
 	return packet
 }
 
-type byteReader struct {
-	body []byte
-	pos  int
-}
-
-func bytesReader(body []byte) *byteReader {
-	return &byteReader{body: body}
-}
-
-func (r *byteReader) Read(p []byte) (int, error) {
-	if r.pos >= len(r.body) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.body[r.pos:])
-	r.pos += n
-	return n, nil
-}
