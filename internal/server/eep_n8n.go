@@ -31,8 +31,9 @@ type n8nEEPCompileRequest struct {
     AuthorityRef         string          `json:"authority_ref"`
     PolicyRef            string          `json:"policy_ref"`
     RedactionProfileRef  string          `json:"redaction_profile_ref"`
-    ConsequenceClass     string          `json:"consequence_class"`
-    ControlRefs          []string        `json:"control_refs,omitempty"`
+    ConsequenceClass     string                             `json:"consequence_class"`
+    ExecutionBinding     *evidencepipeline.ExecutionBinding `json:"execution_binding,omitempty"`
+    ControlRefs          []string                           `json:"control_refs,omitempty"`
     ApprovalRefs         []string        `json:"approval_refs,omitempty"`
     SensitivePaths       []string        `json:"sensitive_paths"`
     SourceAttestationRef string          `json:"source_attestation_ref,omitempty"`
@@ -102,6 +103,7 @@ func (s *Server) handleN8NEEPCompile(w http.ResponseWriter, r *http.Request) {
             PolicyRef:           req.PolicyRef,
             RedactionProfileRef: req.RedactionProfileRef,
             ConsequenceClass:    req.ConsequenceClass,
+            ExecutionBinding:    req.ExecutionBinding,
             ControlRefs:         append([]string(nil), req.ControlRefs...),
             ApprovalRefs:        append([]string(nil), req.ApprovalRefs...),
         },
