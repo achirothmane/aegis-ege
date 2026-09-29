@@ -31,12 +31,19 @@ type egeEvidenceContributor interface {
 }
 
 type EvidenceSourceDeclarationConfig struct {
-	ProducerID         string
-	ObservationPath    string
-	DependencyCoverage []string
-	Dependencies       []egeproto.EvidenceDependency
-	Assurance          egeproto.EvidenceDeclarationAssurance
-	CorroborationRefs  []string
+	ProducerID         string                                 `json:"producer_id"`
+	ObservationPath    string                                 `json:"observation_path"`
+	DependencyCoverage []string                               `json:"dependency_coverage,omitempty"`
+	Dependencies       []egeproto.EvidenceDependency          `json:"dependencies,omitempty"`
+	Assurance          egeproto.EvidenceDeclarationAssurance  `json:"assurance"`
+	CorroborationRefs  []string                               `json:"corroboration_refs,omitempty"`
+}
+
+type EvidenceIndependenceProfileConfig struct {
+	RequiredIndependence    egeproto.EvidenceIndependenceStatus           `json:"required_independence"`
+	MinIndependentSources   int                                            `json:"min_independent_sources"`
+	RequiredDependencyKinds []string                                       `json:"required_dependency_kinds"`
+	SourceDeclarations      map[string]EvidenceSourceDeclarationConfig     `json:"source_declarations"`
 }
 
 type egeEvidenceContributorSet struct {
