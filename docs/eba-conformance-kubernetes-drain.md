@@ -55,6 +55,19 @@ intent/subject, action, resource, evidence reference and profile context. The
 signed parent binding and the artifact's local integrity serve different
 purposes.
 
+## Canonical representation
+
+External AssumptionState and AuthorityGrant JSON is consumed under
+`eba.canonical-json/v1` before artifact-reference or integrity checks.
+
+The Go consumer rejects duplicate object keys, fractional/exponent-form
+numbers, negative zero, integers outside the shared safe range, malformed JSON
+string forms and artifacts that do not declare the current canonical profile.
+
+Canonical hashes use deterministic key ordering and the same string escaping as
+the Python reference corpus. Genesis/bootstrap canonicalization is a separate
+assurance contract and is not changed here.
+
 ## What is proved
 
 The conformance validator fails closed when:
