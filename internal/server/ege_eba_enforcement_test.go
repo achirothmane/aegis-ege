@@ -338,7 +338,7 @@ func TestEGEExecuteEBAEnforcementRejectsTamperedAuthority(t *testing.T) {
 		t.Fatalf("expected 403, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if !strings.Contains(recorder.Body.String(), "EBA_CONFORMANCE_BLOCKED") ||
-		!strings.Contains(recorder.Body.String(), "AUTHORITY_INTEGRITY_INVALID") {
+		!strings.Contains(recorder.Body.String(), "AUTHORITY_REFERENCE_MISMATCH") {
 		t.Fatalf("unexpected body: %s", recorder.Body.String())
 	}
 	if controller.executeCalls != 0 {
