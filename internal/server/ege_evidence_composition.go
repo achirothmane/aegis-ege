@@ -12,6 +12,8 @@ import (
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
+const maxEvidenceCompositionSources = 16
+
 type egeEvidenceContribution struct {
 	Decision        decision.Decision
 	ReasonCodes     []decision.ReasonCode
@@ -26,6 +28,15 @@ type egeEvidenceContributor interface {
 	Kind() string
 	TargetType() string
 	Contribute(context.Context, string, egeTargetDTO, egeEvidenceProduction) (egeEvidenceContribution, error)
+}
+
+type EvidenceSourceDeclarationConfig struct {
+	ProducerID         string
+	ObservationPath    string
+	DependencyCoverage []string
+	Dependencies       []egeproto.EvidenceDependency
+	Assurance          egeproto.EvidenceDeclarationAssurance
+	CorroborationRefs  []string
 }
 
 type egeEvidenceContributorSet struct {
@@ -107,9 +118,13 @@ func (r *egeEvidenceContributorRegistry) Resolve(
 }
 
 type egeEvidenceCompositionPolicy struct {
-	MinSources      int
-	MinTrustDomains int
-	RequiredSources []string
+	MinSources              int
+	MinTrustDomains         int
+	RequiredSources         []string
+	MinIndependentSources   int
+	RequiredIndependence    egeproto.EvidenceIndependenceStatus
+	RequiredDependencyKinds []string
+	SourceDeclarations      map[string]EvidenceSourceDeclarationConfig
 }
 
 type egeEvidenceComposer struct {
@@ -136,24 +151,64 @@ func newEGEEvidenceComposer(
 		if kind == "" {
 			return nil, errors.New("EGE evidence composition policy kind is required")
 		}
-		if policy.MinSources < 0 || policy.MinTrustDomains < 0 {
+		if policy.MinSources < 0 || policy.MinTrustDomains < 0 || policy.MinIndependentSources < 0 {
 			return nil, fmt.Errorf("EGE evidence composition policy for %q has negative minimums", kind)
 		}
-		required := make([]string, 0, len(policy.RequiredSources))
-		seen := make(map[string]struct{}, len(policy.RequiredSources))
+		switch policy.RequiredIndependence {
+		case "":
+			if policy.MinIndependentSources > 0 {
+				return nil, fmt.Errorf(
+					"EGE evidence composition policy for %q requires an independence threshold",
+					kind,
+				)
+			}
+		case egeproto.EvidenceIndependenceAsserted, egeproto.EvidenceIndependenceCorroborated:
+			if policy.MinIndependentSources <= 0 {
+				return nil, fmt.Errorf(
+					"EGE evidence composition policy for %q has an independence class without a minimum source count",
+					kind,
+				)
+			}
+		default:
+			return nil, fmt.Errorf(
+				"EGE evidence composition policy for %q has unsupported required independence %q",
+				kind,
+				policy.RequiredIndependence,
+			)
+		}
+
+		policy.RequiredSources = normalizedUniqueStrings(policy.RequiredSources)
 		for _, source := range policy.RequiredSources {
-			source = strings.TrimSpace(source)
 			if source == "" {
 				return nil, fmt.Errorf("EGE evidence composition policy for %q has empty required source", kind)
 			}
-			if _, exists := seen[source]; exists {
-				continue
-			}
-			seen[source] = struct{}{}
-			required = append(required, source)
 		}
-		sort.Strings(required)
-		policy.RequiredSources = required
+		policy.RequiredDependencyKinds = normalizedUniqueStrings(policy.RequiredDependencyKinds)
+		if policy.MinIndependentSources > 0 && len(policy.RequiredDependencyKinds) == 0 {
+			return nil, fmt.Errorf(
+				"EGE evidence composition policy for %q requires independence without dependency coverage classes",
+				kind,
+			)
+		}
+
+		clonedDeclarations := make(map[string]EvidenceSourceDeclarationConfig, len(policy.SourceDeclarations))
+		for sourceName, declaration := range policy.SourceDeclarations {
+			sourceName = strings.TrimSpace(sourceName)
+			if sourceName == "" {
+				return nil, fmt.Errorf("EGE evidence composition policy for %q has an empty declaration source name", kind)
+			}
+			normalized, err := normalizeEvidenceSourceDeclaration(declaration)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"EGE evidence composition policy for %q source %q: %w",
+					kind,
+					sourceName,
+					err,
+				)
+			}
+			clonedDeclarations[sourceName] = normalized
+		}
+		policy.SourceDeclarations = clonedDeclarations
 		clonedPolicies[kind] = policy
 	}
 
@@ -186,14 +241,19 @@ func (c *egeEvidenceComposer) Compose(
 		return production, nil
 	}
 
+	policy := c.policies[kind]
 	binding := production.PermitBinding
-	sources := []egeproto.EvidenceSource{{
-		Name:        producer.Name(),
-		TrustDomain: producer.TrustDomain(),
-		Digest:      binding.EvidenceDigest,
-		ObservedAt:  production.ObservedAt.UTC(),
-		Classes:     append([]string(nil), production.EvidenceClasses...),
-	}}
+	sources := []egeproto.EvidenceSource{
+		buildEvidenceSource(
+			producer.Name(),
+			producer.TrustDomain(),
+			binding.EvidenceDigest,
+			production.ObservedAt.UTC(),
+			production.EvidenceClasses,
+			target,
+			policy.SourceDeclarations[producer.Name()],
+		),
+	}
 
 	contributors, err := c.contributors.Resolve(kind, target.Type)
 	if err != nil {
@@ -219,38 +279,80 @@ func (c *egeEvidenceComposer) Compose(
 			return failEvidenceComposition(production, contribution.Decision, reasons...), nil
 		}
 
-		sources = append(sources, egeproto.EvidenceSource{
-			Name:        contributor.Name(),
-			TrustDomain: contributor.TrustDomain(),
-			Digest:      contribution.EvidenceDigest,
-			ObservedAt:  contribution.ObservedAt.UTC(),
-			Classes:     append([]string(nil), contribution.EvidenceClasses...),
-		})
+		sources = append(sources, buildEvidenceSource(
+			contributor.Name(),
+			contributor.TrustDomain(),
+			contribution.EvidenceDigest,
+			contribution.ObservedAt.UTC(),
+			contribution.EvidenceClasses,
+			target,
+			policy.SourceDeclarations[contributor.Name()],
+		))
 	}
 
 	if err := validateDistinctEvidenceSources(sources); err != nil {
 		return egeEvidenceProduction{}, err
 	}
+	if len(sources) > maxEvidenceCompositionSources {
+		return egeEvidenceProduction{}, fmt.Errorf(
+			"composed evidence source count %d exceeds bounded profile limit %d",
+			len(sources),
+			maxEvidenceCompositionSources,
+		)
+	}
 
-	policy := c.policies[kind]
 	if policy.MinSources == 0 {
 		policy.MinSources = 1
 	}
 	if policy.MinTrustDomains == 0 {
 		policy.MinTrustDomains = 1
 	}
-	if !evidenceCompositionSatisfiesPolicy(sources, policy) {
+
+	assessment := assessEvidenceIndependence(sources, policy)
+	if !evidenceCompositionSatisfiesPolicy(sources, policy, assessment) {
 		result := failEvidenceComposition(production, decision.Escalate, decision.InsufficientEvidence)
 		result.EvidenceSources = append([]egeproto.EvidenceSource(nil), sources...)
 		result.EvidenceClasses = unionEvidenceClasses(sources)
 		result.ObservedAt = oldestEvidenceObservation(sources)
+		result.EvidenceComposition = &assessment
 		return result, nil
 	}
 
 	production.EvidenceSources = append([]egeproto.EvidenceSource(nil), sources...)
 	production.EvidenceClasses = unionEvidenceClasses(sources)
 	production.ObservedAt = oldestEvidenceObservation(sources)
+	production.EvidenceComposition = &assessment
 	return production, nil
+}
+
+func buildEvidenceSource(
+	name string,
+	trustDomain string,
+	digest string,
+	observedAt time.Time,
+	classes []string,
+	target egeTargetDTO,
+	declaration EvidenceSourceDeclarationConfig,
+) egeproto.EvidenceSource {
+	source := egeproto.EvidenceSource{
+		Name:        name,
+		TrustDomain: trustDomain,
+		Digest:      digest,
+		ObservedAt:  observedAt.UTC(),
+		Classes:     append([]string(nil), classes...),
+	}
+	if hasEvidenceSourceDeclaration(declaration) {
+		source.Declaration = &egeproto.EvidenceSourceDeclaration{
+			ProducerID:         declaration.ProducerID,
+			Subject:            target.Type + "/" + target.Name,
+			ObservationPath:    declaration.ObservationPath,
+			DependencyCoverage: append([]string(nil), declaration.DependencyCoverage...),
+			Dependencies:       append([]egeproto.EvidenceDependency(nil), declaration.Dependencies...),
+			Assurance:          declaration.Assurance,
+			CorroborationRefs:  append([]string(nil), declaration.CorroborationRefs...),
+		}
+	}
+	return source
 }
 
 func validateEGEEvidenceContribution(contribution egeEvidenceContribution) error {
@@ -297,6 +399,7 @@ func validateDistinctEvidenceSources(sources []egeproto.EvidenceSource) error {
 func evidenceCompositionSatisfiesPolicy(
 	sources []egeproto.EvidenceSource,
 	policy egeEvidenceCompositionPolicy,
+	assessment egeproto.EvidenceCompositionAssessment,
 ) bool {
 	if len(sources) < policy.MinSources {
 		return false
@@ -316,7 +419,359 @@ func evidenceCompositionSatisfiesPolicy(
 			return false
 		}
 	}
+	if policy.MinIndependentSources > 0 &&
+		assessment.IndependentSourceCount < policy.MinIndependentSources {
+		return false
+	}
 	return true
+}
+
+func assessEvidenceIndependence(
+	sources []egeproto.EvidenceSource,
+	policy egeEvidenceCompositionPolicy,
+) egeproto.EvidenceCompositionAssessment {
+	required := policy.RequiredIndependence
+	if required == "" {
+		required = egeproto.EvidenceIndependenceUnknown
+	}
+	assessment := egeproto.EvidenceCompositionAssessment{
+		ProfileVersion:       egeproto.EvidenceCompositionProfileVersion,
+		RequiredIndependence: required,
+		OverallIndependence:  overallEvidenceIndependence(sources, policy),
+	}
+
+	for i := 0; i < len(sources); i++ {
+		for j := i + 1; j < len(sources); j++ {
+			assessment.PairAssessments = append(
+				assessment.PairAssessments,
+				assessEvidencePair(sources[i], sources[j], policy.RequiredDependencyKinds),
+			)
+		}
+	}
+
+	if policy.MinIndependentSources > 0 {
+		assessment.IndependentSourceCount = maxQualifyingIndependentSourceCount(
+			sources,
+			assessment.PairAssessments,
+			policy.RequiredIndependence,
+		)
+	}
+	return assessment
+}
+
+func assessEvidencePair(
+	left egeproto.EvidenceSource,
+	right egeproto.EvidenceSource,
+	requiredDependencyKinds []string,
+) egeproto.EvidencePairAssessment {
+	assessment := egeproto.EvidencePairAssessment{
+		LeftSource:  left.Name,
+		RightSource: right.Name,
+	}
+	if left.Declaration == nil || right.Declaration == nil {
+		assessment.Status = egeproto.EvidenceIndependenceUnknown
+		assessment.ReasonCodes = []string{"MISSING_DECLARATION"}
+		return assessment
+	}
+	if left.Declaration.Subject != right.Declaration.Subject {
+		assessment.Status = egeproto.EvidenceIndependenceUnknown
+		assessment.ReasonCodes = []string{"SUBJECT_MISMATCH"}
+		return assessment
+	}
+	if !declarationCovers(left.Declaration, requiredDependencyKinds) ||
+		!declarationCovers(right.Declaration, requiredDependencyKinds) {
+		assessment.Status = egeproto.EvidenceIndependenceUnknown
+		assessment.ReasonCodes = []string{"DEPENDENCY_COVERAGE_UNKNOWN"}
+		return assessment
+	}
+	if left.Declaration.ProducerID == right.Declaration.ProducerID {
+		assessment.Status = egeproto.EvidenceIndependenceDependent
+		assessment.ReasonCodes = []string{"SHARED_PRODUCER"}
+		return assessment
+	}
+	if left.Declaration.ObservationPath == right.Declaration.ObservationPath {
+		assessment.Status = egeproto.EvidenceIndependenceDependent
+		assessment.ReasonCodes = []string{"SHARED_OBSERVATION_PATH"}
+		return assessment
+	}
+
+	shared := sharedMaterialDependencies(left.Declaration.Dependencies, right.Declaration.Dependencies)
+	if len(shared) > 0 {
+		assessment.Status = egeproto.EvidenceIndependenceDependent
+		assessment.SharedDependencies = shared
+		assessment.ReasonCodes = []string{"SHARED_MATERIAL_DEPENDENCY"}
+		return assessment
+	}
+
+	if left.Declaration.Assurance == egeproto.EvidenceDeclarationUnknown ||
+		right.Declaration.Assurance == egeproto.EvidenceDeclarationUnknown {
+		assessment.Status = egeproto.EvidenceIndependenceUnknown
+		assessment.ReasonCodes = []string{"DECLARATION_ASSURANCE_UNKNOWN"}
+		return assessment
+	}
+	if left.Declaration.Assurance == egeproto.EvidenceDeclarationCorroborated &&
+		right.Declaration.Assurance == egeproto.EvidenceDeclarationCorroborated {
+		assessment.Status = egeproto.EvidenceIndependenceCorroborated
+		return assessment
+	}
+	assessment.Status = egeproto.EvidenceIndependenceAsserted
+	return assessment
+}
+
+func overallEvidenceIndependence(
+	sources []egeproto.EvidenceSource,
+	policy egeEvidenceCompositionPolicy,
+) egeproto.EvidenceIndependenceStatus {
+	if len(sources) < 2 {
+		return egeproto.EvidenceIndependenceUnknown
+	}
+	status := egeproto.EvidenceIndependenceCorroborated
+	for i := 0; i < len(sources); i++ {
+		for j := i + 1; j < len(sources); j++ {
+			pair := assessEvidencePair(sources[i], sources[j], policy.RequiredDependencyKinds)
+			switch pair.Status {
+			case egeproto.EvidenceIndependenceDependent:
+				return egeproto.EvidenceIndependenceDependent
+			case egeproto.EvidenceIndependenceUnknown:
+				status = egeproto.EvidenceIndependenceUnknown
+			case egeproto.EvidenceIndependenceAsserted:
+				if status == egeproto.EvidenceIndependenceCorroborated {
+					status = egeproto.EvidenceIndependenceAsserted
+				}
+			}
+		}
+	}
+	return status
+}
+
+func maxQualifyingIndependentSourceCount(
+	sources []egeproto.EvidenceSource,
+	pairs []egeproto.EvidencePairAssessment,
+	required egeproto.EvidenceIndependenceStatus,
+) int {
+	if len(sources) == 0 {
+		return 0
+	}
+	if len(sources) == 1 {
+		return 1
+	}
+
+	pairStatus := make(map[string]egeproto.EvidenceIndependenceStatus, len(pairs))
+	for _, pair := range pairs {
+		pairStatus[pairKey(pair.LeftSource, pair.RightSource)] = pair.Status
+	}
+
+	best := 0
+	var search func(int, []int)
+	search = func(next int, selected []int) {
+		if len(selected)+(len(sources)-next) <= best {
+			return
+		}
+		if next == len(sources) {
+			if len(selected) > best {
+				best = len(selected)
+			}
+			return
+		}
+
+		qualifies := true
+		for _, existing := range selected {
+			status := pairStatus[pairKey(sources[existing].Name, sources[next].Name)]
+			if !independenceMeets(status, required) {
+				qualifies = false
+				break
+			}
+		}
+		if qualifies {
+			search(next+1, append(selected, next))
+		}
+		search(next+1, selected)
+	}
+	search(0, nil)
+	return best
+}
+
+func independenceMeets(
+	actual egeproto.EvidenceIndependenceStatus,
+	required egeproto.EvidenceIndependenceStatus,
+) bool {
+	switch required {
+	case egeproto.EvidenceIndependenceAsserted:
+		return actual == egeproto.EvidenceIndependenceAsserted ||
+			actual == egeproto.EvidenceIndependenceCorroborated
+	case egeproto.EvidenceIndependenceCorroborated:
+		return actual == egeproto.EvidenceIndependenceCorroborated
+	default:
+		return false
+	}
+}
+
+func pairKey(left, right string) string {
+	if left > right {
+		left, right = right, left
+	}
+	return left + "\x00" + right
+}
+
+func declarationCovers(
+	declaration *egeproto.EvidenceSourceDeclaration,
+	requiredDependencyKinds []string,
+) bool {
+	if declaration == nil ||
+		strings.TrimSpace(declaration.ProducerID) == "" ||
+		strings.TrimSpace(declaration.Subject) == "" ||
+		strings.TrimSpace(declaration.ObservationPath) == "" {
+		return false
+	}
+	coverage := make(map[string]struct{}, len(declaration.DependencyCoverage))
+	for _, kind := range declaration.DependencyCoverage {
+		coverage[kind] = struct{}{}
+	}
+	for _, required := range requiredDependencyKinds {
+		if _, ok := coverage[required]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func sharedMaterialDependencies(
+	left []egeproto.EvidenceDependency,
+	right []egeproto.EvidenceDependency,
+) []egeproto.EvidenceDependency {
+	rightSet := make(map[string]egeproto.EvidenceDependency)
+	for _, dependency := range right {
+		if !dependency.Material {
+			continue
+		}
+		rightSet[dependency.Kind+"\x00"+dependency.ID] = dependency
+	}
+	shared := make([]egeproto.EvidenceDependency, 0)
+	seen := make(map[string]struct{})
+	for _, dependency := range left {
+		if !dependency.Material {
+			continue
+		}
+		key := dependency.Kind + "\x00" + dependency.ID
+		if _, ok := rightSet[key]; !ok {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		shared = append(shared, dependency)
+	}
+	sort.Slice(shared, func(i, j int) bool {
+		if shared[i].Kind != shared[j].Kind {
+			return shared[i].Kind < shared[j].Kind
+		}
+		return shared[i].ID < shared[j].ID
+	})
+	return shared
+}
+
+func normalizeEvidenceSourceDeclaration(
+	declaration EvidenceSourceDeclarationConfig,
+) (EvidenceSourceDeclarationConfig, error) {
+	declaration.ProducerID = strings.TrimSpace(declaration.ProducerID)
+	declaration.ObservationPath = strings.TrimSpace(declaration.ObservationPath)
+	declaration.DependencyCoverage = normalizedUniqueStrings(declaration.DependencyCoverage)
+	declaration.CorroborationRefs = normalizedUniqueStrings(declaration.CorroborationRefs)
+
+	switch declaration.Assurance {
+	case "":
+		declaration.Assurance = egeproto.EvidenceDeclarationUnknown
+	case egeproto.EvidenceDeclarationUnknown:
+	case egeproto.EvidenceDeclarationAsserted:
+		if declaration.ProducerID == "" || declaration.ObservationPath == "" {
+			return EvidenceSourceDeclarationConfig{}, errors.New(
+				"ASSERTED declaration requires producer_id and observation_path",
+			)
+		}
+	case egeproto.EvidenceDeclarationCorroborated:
+		if declaration.ProducerID == "" || declaration.ObservationPath == "" {
+			return EvidenceSourceDeclarationConfig{}, errors.New(
+				"CORROBORATED declaration requires producer_id and observation_path",
+			)
+		}
+		if len(declaration.CorroborationRefs) == 0 {
+			return EvidenceSourceDeclarationConfig{}, errors.New(
+				"CORROBORATED declaration requires at least one corroboration reference",
+			)
+		}
+	default:
+		return EvidenceSourceDeclarationConfig{}, fmt.Errorf(
+			"unsupported declaration assurance %q",
+			declaration.Assurance,
+		)
+	}
+
+	seenDependencies := make(map[string]struct{}, len(declaration.Dependencies))
+	normalizedDependencies := make([]egeproto.EvidenceDependency, 0, len(declaration.Dependencies))
+	coverage := make(map[string]struct{}, len(declaration.DependencyCoverage))
+	for _, kind := range declaration.DependencyCoverage {
+		coverage[kind] = struct{}{}
+	}
+	for _, dependency := range declaration.Dependencies {
+		dependency.Kind = strings.TrimSpace(dependency.Kind)
+		dependency.ID = strings.TrimSpace(dependency.ID)
+		if dependency.Kind == "" || dependency.ID == "" {
+			return EvidenceSourceDeclarationConfig{}, errors.New(
+				"dependency kind and id are required",
+			)
+		}
+		if _, ok := coverage[dependency.Kind]; !ok {
+			return EvidenceSourceDeclarationConfig{}, fmt.Errorf(
+				"dependency kind %q is not present in dependency coverage",
+				dependency.Kind,
+			)
+		}
+		key := dependency.Kind + "\x00" + dependency.ID
+		if _, exists := seenDependencies[key]; exists {
+			continue
+		}
+		seenDependencies[key] = struct{}{}
+		normalizedDependencies = append(normalizedDependencies, dependency)
+	}
+	sort.Slice(normalizedDependencies, func(i, j int) bool {
+		if normalizedDependencies[i].Kind != normalizedDependencies[j].Kind {
+			return normalizedDependencies[i].Kind < normalizedDependencies[j].Kind
+		}
+		if normalizedDependencies[i].ID != normalizedDependencies[j].ID {
+			return normalizedDependencies[i].ID < normalizedDependencies[j].ID
+		}
+		return !normalizedDependencies[i].Material && normalizedDependencies[j].Material
+	})
+	declaration.Dependencies = normalizedDependencies
+	return declaration, nil
+}
+
+func hasEvidenceSourceDeclaration(declaration EvidenceSourceDeclarationConfig) bool {
+	return declaration.ProducerID != "" ||
+		declaration.ObservationPath != "" ||
+		len(declaration.DependencyCoverage) > 0 ||
+		len(declaration.Dependencies) > 0 ||
+		declaration.Assurance != "" ||
+		len(declaration.CorroborationRefs) > 0
+}
+
+func normalizedUniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func failEvidenceComposition(
