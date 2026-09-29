@@ -162,6 +162,8 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 
 	return KubernetesDrainConformanceInput{
 		PrincipalID:         "aegis-ege",
+		Audience:            audience,
+		Namespace:           namespace,
 		AssumptionArtifacts: []json.RawMessage{assumption},
 		AuthorityArtifact:   authority,
 		Approvals:           []ApprovalAttestation{approval},
