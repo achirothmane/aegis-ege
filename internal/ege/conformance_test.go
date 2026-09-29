@@ -197,6 +197,44 @@ func resignConformancePermit(
 	input.Permit = permit
 }
 
+func rebindAuthorityRef(
+	t *testing.T,
+	permitAuthority PermitAuthority,
+	approvalAuthority SignatureVerifier,
+	input *KubernetesDrainConformanceInput,
+	now time.Time,
+) {
+	t.Helper()
+	ref, err := EBAArtifactRef(input.AuthorityArtifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resignConformancePermit(t, permitAuthority, approvalAuthority, input, now, func(claims *PermitClaims) {
+		claims.EBAAuthorityRef = ref
+	})
+}
+
+func rebindAssumptionRefs(
+	t *testing.T,
+	permitAuthority PermitAuthority,
+	approvalAuthority SignatureVerifier,
+	input *KubernetesDrainConformanceInput,
+	now time.Time,
+) {
+	t.Helper()
+	refs := make([]string, 0, len(input.AssumptionArtifacts))
+	for _, raw := range input.AssumptionArtifacts {
+		ref, err := EBAArtifactRef(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, ref)
+	}
+	resignConformancePermit(t, permitAuthority, approvalAuthority, input, now, func(claims *PermitClaims) {
+		claims.EBAAssumptionRefs = refs
+	})
+}
+
 func TestEBAKubernetesDrainConformanceScenario(t *testing.T) {
 	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
 	if err := ValidateKubernetesDrainConformance(
@@ -234,6 +272,7 @@ func TestEBAKubernetesDrainConformanceRejectsTamperedAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.AuthorityArtifact = body
+	rebindAuthorityRef(t, permitAuthority, approvalAuthority, &input, now)
 
 	err = ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
@@ -346,6 +385,7 @@ func TestEBAKubernetesDrainConformanceRejectsAuthorityAtExactExpiry(t *testing.T
 	input.AuthorityArtifact = rewriteEBAFixture(t, input.AuthorityArtifact, func(artifact map[string]any) {
 		artifact["expires_at"] = now.Format(time.RFC3339)
 	})
+	rebindAuthorityRef(t, permitAuthority, approvalAuthority, &input, now)
 
 	err := ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
@@ -360,6 +400,7 @@ func TestEBAKubernetesDrainConformanceRejectsMissingAuthorityExpiry(t *testing.T
 	input.AuthorityArtifact = rewriteEBAFixture(t, input.AuthorityArtifact, func(artifact map[string]any) {
 		delete(artifact, "expires_at")
 	})
+	rebindAuthorityRef(t, permitAuthority, approvalAuthority, &input, now)
 
 	err := ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
@@ -374,6 +415,7 @@ func TestEBAKubernetesDrainConformanceRejectsAssumptionAtExactExpiry(t *testing.
 	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
 		artifact["valid_until"] = now.Format(time.RFC3339)
 	})
+	rebindAssumptionRefs(t, permitAuthority, approvalAuthority, &input, now)
 
 	err := ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
@@ -388,6 +430,7 @@ func TestEBAKubernetesDrainConformanceRejectsMalformedAssumptionExpiry(t *testin
 	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
 		artifact["valid_until"] = 123
 	})
+	rebindAssumptionRefs(t, permitAuthority, approvalAuthority, &input, now)
 
 	err := ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
@@ -402,6 +445,7 @@ func TestEBAKubernetesDrainConformanceRejectsFutureAssumptionCheck(t *testing.T)
 	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
 		artifact["checked_at"] = now.Add(time.Second).Format(time.RFC3339)
 	})
+	rebindAssumptionRefs(t, permitAuthority, approvalAuthority, &input, now)
 
 	err := ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
