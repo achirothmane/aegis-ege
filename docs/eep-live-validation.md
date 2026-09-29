@@ -26,8 +26,9 @@ The harness:
 - requires destination identity/account headers and ETag-style conditional mutation;
 - disables redirect following for the mutating request;
 - rereads the external CRM state after the mutation;
-- creates verifiable outcome evidence from before/after state digests;
-- requires a valid two-entry authorization + outcome journal before reporting `PASS`.
+- creates typed CRM outcome evidence by evaluating the requested fields on the exact bound customer;
+- never treats a changed whole-state digest or 2xx response as sufficient for `VERIFIED`;
+- requires a valid authorization + dispatch-intent + outcome journal for a dispatched verified mutation before reporting `PASS`.
 
 The live harness uses an ephemeral permit key and ephemeral journal key for each validation run. That is appropriate for validation only, not durable production key custody.
 
@@ -121,7 +122,7 @@ A run is evidence of external end-to-end behavior only if the command returns:
 ```json
 {
   "status": "PASS",
-  "outcome": "APPLIED",
+  "outcome": "VERIFIED",
   "journal_entries": 3
 }
 ```
@@ -132,3 +133,10 @@ are authorization, dispatch intent, and outcome.
 A locally green CI run is not the same thing as external validation.
 
 The first external run has now passed. See [EEP external validation v1](eep-external-validation-v1.md) for the recorded run, digests, result, and limitations.
+
+The current live harness reports `PASS` only when `Execute` returns without
+error and the resulting `aegis.eep/crm-outcome/v0alpha2` artifact verifies.
+For a dispatched request this means the intended postcondition is `VERIFIED`;
+`PARTIAL`, `UNSATISFIED`, and `UNKNOWN` are not converted into success.
+An `ALREADY_SATISFIED` result is valid evidence of state but uses a
+non-dispatch path and therefore has a different journal cardinality.
