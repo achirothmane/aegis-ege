@@ -426,6 +426,32 @@ func TestExecutorAttemptStoreAndJournalOutagePreventDispatch(t *testing.T) {
 	if patchCalls.Load() != 0 {
 		t.Fatal("pre-dispatch claimed attempt was retried")
 	}
+
+	dispatchStore, _ := NewFileAttemptStore(filepath.Join(t.TempDir(), "attempts"))
+	dispatchJournal := &memoryJournal{failAt: 2}
+	dispatchExecutor := newTestExecutor(
+		t,
+		fx,
+		server.URL,
+		testDestinationID,
+		testAccountID,
+		server.Client(),
+		dispatchJournal,
+		dispatchStore,
+	)
+	if _, err := dispatchExecutor.Execute(context.Background(), fx.packet, fx.permit, fx.plan); err == nil {
+		t.Fatal("dispatch-intent journal outage unexpectedly allowed execution")
+	}
+	if patchCalls.Load() != 0 {
+		t.Fatal("dispatch-intent journal outage reached PATCH")
+	}
+	dispatchRecord, err := dispatchStore.Load(context.Background(), attemptIDForFixture(t, fx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatchRecord.State != AttemptClaimed {
+		t.Fatalf("dispatch-intent outage state = %s, want CLAIMED", dispatchRecord.State)
+	}
 }
 
 func TestExecutorLostResponseAfterCommitRemainsPossibleEffectAndNoRetry(t *testing.T) {
