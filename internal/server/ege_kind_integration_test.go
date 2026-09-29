@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 )
 
@@ -163,6 +164,17 @@ func TestKindAegisEGEAuthenticatedIntentMutationAndReplayRejection(t *testing.T)
 			!sourceNames[egePrometheusNodeHealthEvidenceSource] ||
 			len(trustDomains) != 2 {
 			t.Fatalf("expected two distinct evidence sources/domains, got %+v", preparation.EvidenceManifest.Sources)
+		}
+		if preparation.EvidenceManifest.Composition == nil {
+			t.Fatal("expected signed evidence-composition assessment")
+		}
+		if preparation.EvidenceManifest.Composition.RequiredIndependence != egeproto.EvidenceIndependenceUnknown ||
+			preparation.EvidenceManifest.Composition.OverallIndependence != egeproto.EvidenceIndependenceUnknown ||
+			preparation.EvidenceManifest.Composition.IndependentSourceCount != 0 {
+			t.Fatalf(
+				"label-only Prometheus composition must keep independence UNKNOWN: %+v",
+				preparation.EvidenceManifest.Composition,
+			)
 		}
 
 		executePayload, err = json.Marshal(egeExecuteRequest{
