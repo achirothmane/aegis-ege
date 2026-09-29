@@ -280,7 +280,7 @@ func (e *Executor) Execute(
 		)
 		return OutcomeEvidence{}, fmt.Errorf("read customer before mutation: %w", err)
 	}
-	if err := e.validateSnapshotBinding(before, binding); err != nil {
+	if err := e.validateSnapshotBinding(before, binding, plan.CustomerID); err != nil {
 		_, _ = e.attempts.Transition(
 			context.Background(), attemptID, AttemptClaimed, AttemptBlocked,
 			0, err.Error(), e.clock().UTC(),
@@ -684,8 +684,12 @@ func (e *Executor) validateExecutionBinding(
 func (e *Executor) validateSnapshotBinding(
 	snapshot customerSnapshot,
 	binding *egeproto.ExecutionBindingClaims,
+	customerID string,
 ) error {
 	if err := e.validateDestinationIdentity(snapshot); err != nil {
+		return err
+	}
+	if err := validateObservedCustomerTarget(snapshot.State, customerID); err != nil {
 		return err
 	}
 	if strings.TrimSpace(snapshot.ResourceVersion) == "" {
@@ -693,6 +697,25 @@ func (e *Executor) validateSnapshotBinding(
 	}
 	if snapshot.ResourceVersion != binding.ExpectedResourceVersion {
 		return errors.New("CRM precondition is stale")
+	}
+	return nil
+}
+
+func validateObservedCustomerTarget(state map[string]any, expectedCustomerID string) error {
+	rawID, ok := state["id"]
+	if !ok {
+		return errors.New("CRM customer observation is missing id")
+	}
+	customerID, ok := rawID.(string)
+	if !ok || strings.TrimSpace(customerID) == "" {
+		return errors.New("CRM customer observation id is invalid")
+	}
+	if customerID != expectedCustomerID {
+		return fmt.Errorf(
+			"CRM customer observation target mismatch: got %q want %q",
+			customerID,
+			expectedCustomerID,
+		)
 	}
 	return nil
 }
