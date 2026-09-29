@@ -8,8 +8,8 @@ It intentionally uses a real Aegis-EGE execution shape that already exists:
 kubernetes.node_drain
 ```
 
-The scenario does not add a new runtime primitive and does not change the public
-Aegis API yet.
+The scenario does not add a new runtime primitive. It began as a harness-first
+profile and is now enforced opt-in at the governed `/v1/ege/execute` boundary.
 
 ## Required artifacts
 
@@ -52,19 +52,22 @@ The conformance validator fails closed when:
 The positive test demonstrates the full profile can compose without requiring
 the repositories to call each other over the network.
 
-## Why this is a harness first
+## Harness-first history and current execution boundary
 
-This PR deliberately does **not** make the external `/execute` API require
-new artifacts yet.
-
-The sequence is:
+This profile was intentionally proven in a cross-project harness before it was
+enforced at a mutation boundary. The current opt-in sequence is:
 
 ```text
 contract
 → cross-project conformance
-→ prove fail-closed semantics
-→ then decide whether to enforce the bundle at the public execution boundary
+→ fail-closed validation
+→ governed /v1/ege/execute enforcement
 ```
 
-That keeps architecture behind evidence and avoids a breaking API change before
-the contract itself has survived an integration test.
+When EBA conformance or capability fencing is configured, the legacy
+`/v1/node-drains/execute` request shape cannot satisfy the stronger governed
+obligations and is rejected with `409 EGE_EXECUTION_REQUIRED` before replay
+claiming or controller mutation. Callers must use the EGE execution boundary.
+
+When those EGE-only obligations are not configured, the legacy authenticated
+and replay-guarded path remains available for backward compatibility.

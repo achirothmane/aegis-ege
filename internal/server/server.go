@@ -389,6 +389,27 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The legacy request shape cannot carry the EBA bundle, consequence
+	// admission inputs, or capability-fence claims required by the governed
+	// EGE boundary. Route choice must not weaken configured governance.
+	if s.config.RequireEBAConformance || s.config.RequireCapabilityFencing {
+		s.auditDecision(
+			r,
+			PermissionExecute,
+			string(decision.Block),
+			"",
+			"",
+			[]decision.ReasonCode{"EGE_EXECUTION_REQUIRED"},
+		)
+		writeError(
+			w,
+			http.StatusConflict,
+			"EGE_EXECUTION_REQUIRED",
+			errors.New("legacy node-drain execution cannot satisfy configured EGE governance obligations; use POST /v1/ege/execute"),
+		)
+		return
+	}
+
 	var req executeRequest
 	if err := s.decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err)
