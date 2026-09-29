@@ -1,9 +1,8 @@
 package genesisbootstrap
 
 import (
-	"errors"
-	"os"
-	"strings"
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 	"time"
 
@@ -391,8 +390,3 @@ func TestSignedProvenanceRequiresTrustedIssuer(t *testing.T) {
 	assertFailureCode(t, result, genesis.FailureBuildProvenance)
 }
 
-var (
-	_ = errors.Is
-	_ = os.ErrNotExist
-	_ = strings.Contains
-)
