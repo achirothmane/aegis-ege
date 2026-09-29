@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/evidencepipeline"
 )
 
@@ -409,6 +410,48 @@ func TestExecutorContradictoryObservationsRemainUnknown(t *testing.T) {
 		outcome.ObservationStatus != ObservationContradictory {
 		t.Fatalf("contradictory outcome = %+v", outcome)
 	}
+}
+
+func TestVerifyOutcomeRejectsImpossibleCombinationEvenWithRecomputedDigest(t *testing.T) {
+	evaluation, err := EvaluateCustomerUpdatePostcondition(
+		CustomerUpdatePlan{CustomerID: "c-17", Patch: map[string]any{"tier": "gold"}},
+		map[string]any{"id": "c-17", "tier": "gold"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := newOutcomeEvidence(
+		"intent-1",
+		egeproto.Target{Type: "customer", Name: "c-17"},
+		"sha256:evidence",
+		"sha256:permit",
+		"sha256:plan",
+		"sha256:before",
+		"sha256:after",
+		PostconditionVerified,
+		RequestAccepted,
+		ObservationStable,
+		3,
+		&evaluation,
+		http.StatusNoContent,
+		testNow(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome.ObservationStatus = ObservationUnavailable
+	outcome.IntegrityDigest, err = digestOutcome(outcome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyOutcome(outcome); err == nil ||
+		!strings.Contains(err.Error(), "VERIFIED outcome lacks stable intended-postcondition evidence") {
+		t.Fatalf("VerifyOutcome() error = %v", err)
+	}
+}
+
+func testNow() time.Time {
+	return time.Date(2026, 9, 29, 12, 0, 5, 0, time.UTC)
 }
 
 func replaceFixturePlan(
