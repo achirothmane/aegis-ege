@@ -274,7 +274,7 @@ func run(ctx context.Context) error {
 		PacketDigest:   packet.Integrity.Digest,
 		PermitDigest:   permitDigest,
 		OutcomeDigest:  outcome.IntegrityDigest,
-		Outcome:        outcome.Result,
+		Outcome:        string(outcome.Result),
 		JournalEntries: verification.EntryCount,
 		N8NWorkflowID:  envelope.WorkflowID,
 		N8NExecutionID: envelope.ExecutionID,
