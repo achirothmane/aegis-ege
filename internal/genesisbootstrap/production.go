@@ -390,6 +390,17 @@ func (v *ProductionVerifier) VerifyDoctrineBinding(_ context.Context, m genesis.
 }
 
 func (v *ProductionVerifier) VerifyAuthenticity(_ context.Context, m genesis.Manifest) error {
+	payloadHash, err := ManifestPayloadHash(m)
+	if err != nil {
+		return err
+	}
+	if payloadHash != v.bundle.RelyingContext.ExpectedManifestPayloadHash {
+		return fmt.Errorf(
+			"Genesis manifest payload hash %s does not match relying-context pin %s",
+			payloadHash,
+			v.bundle.RelyingContext.ExpectedManifestPayloadHash,
+		)
+	}
 	if m.Authenticity.SignatureAlgorithm != "ed25519" {
 		return fmt.Errorf("unsupported Genesis signature algorithm %q", m.Authenticity.SignatureAlgorithm)
 	}
@@ -438,6 +449,20 @@ func (v *ProductionVerifier) VerifyAttestation(_ context.Context, _ genesis.Mani
 		return fmt.Errorf("verify signed remote attestation decision: %w", err)
 	}
 	decision := v.remoteDecision.Decision
+	if decision.DeviceID != v.bundle.RelyingContext.ExpectedDeviceID {
+		return fmt.Errorf(
+			"remote attestation device %q does not match relying-context device %q",
+			decision.DeviceID,
+			v.bundle.RelyingContext.ExpectedDeviceID,
+		)
+	}
+	if decision.ChallengeID != v.bundle.RelyingContext.ExpectedChallengeID {
+		return fmt.Errorf(
+			"remote attestation challenge %q does not match relying-context challenge %q",
+			decision.ChallengeID,
+			v.bundle.RelyingContext.ExpectedChallengeID,
+		)
+	}
 	if decision.Decision != "ALLOW" {
 		return fmt.Errorf("remote attestation decision is %q", decision.Decision)
 	}
@@ -453,6 +478,24 @@ func (v *ProductionVerifier) VerifyAttestation(_ context.Context, _ genesis.Mani
 	}
 	if err := kernelfabric.VerifySignedBootstrapReceipt(v.bootstrapReceipt, v.bootstrapAttestor); err != nil {
 		return fmt.Errorf("verify signed bootstrap receipt: %w", err)
+	}
+	receipt := v.bootstrapReceipt.Receipt
+	if receipt.Host.BootIDHash != v.currentSubject.BootIDHash {
+		return fmt.Errorf(
+			"bootstrap receipt boot %s does not match current boot %s",
+			receipt.Host.BootIDHash,
+			v.currentSubject.BootIDHash,
+		)
+	}
+	if receipt.CompletedAt.IsZero() {
+		return errors.New("bootstrap receipt completed_at is missing")
+	}
+	if receipt.CompletedAt.After(decision.VerifiedAt) {
+		return errors.New("bootstrap receipt is newer than the remote attestation decision")
+	}
+	maxAge = time.Duration(v.bundle.MaxAttestationAgeSeconds) * time.Second
+	if !v.now.Before(receipt.CompletedAt.UTC().Add(maxAge)) {
+		return fmt.Errorf("bootstrap receipt is older than %s", maxAge)
 	}
 	receiptDigest, err := kernelfabric.SignedBootstrapReceiptDigest(v.bootstrapReceipt)
 	if err != nil {
@@ -516,10 +559,45 @@ func (v *ProductionVerifier) VerifyBuildProvenance(_ context.Context, m genesis.
 	if digest != m.SupplyChain.BuildProvenanceRef {
 		return fmt.Errorf("build provenance digest %s does not match manifest %s", digest, m.SupplyChain.BuildProvenanceRef)
 	}
+	if err := VerifySignedBuildProvenanceStatement(
+		v.buildProvenance,
+		v.manifestSigner,
+		v.now,
+	); err != nil {
+		return fmt.Errorf("verify signed build provenance: %w", err)
+	}
+	statement := v.buildProvenance.Statement
+	switch {
+	case statement.BuilderIdentity != m.SupplyChain.BuilderIdentity:
+		return fmt.Errorf(
+			"provenance builder %q does not match manifest builder %q",
+			statement.BuilderIdentity,
+			m.SupplyChain.BuilderIdentity,
+		)
+	case statement.SourceRevision != m.SupplyChain.SourceRevision:
+		return fmt.Errorf(
+			"provenance source revision %q does not match manifest source revision %q",
+			statement.SourceRevision,
+			m.SupplyChain.SourceRevision,
+		)
+	case statement.SubjectImplementationDigest != m.Implementation.ImplementationDigest:
+		return errors.New("provenance subject binary digest does not match Genesis implementation digest")
+	case statement.SubjectImplementationDigest != v.executableDigest:
+		return errors.New("provenance subject binary digest does not match running executable")
+	case statement.MaterialsHash != m.SupplyChain.MaterialsHash:
+		return errors.New("provenance materials hash does not match manifest")
+	case statement.SBOMHash != m.SupplyChain.SBOMHash:
+		return errors.New("provenance SBOM hash does not match manifest")
+	case !statement.BuiltAt.Equal(m.Validity.BuiltAt):
+		return errors.New("provenance built_at does not match manifest validity.built_at")
+	}
 	return nil
 }
 
 func (v *ProductionVerifier) VerifySpecBuildBinding(_ context.Context, m genesis.Manifest) error {
+	if m.Implementation.ConformanceLevel == genesis.ConformanceC4 {
+		return errors.New("production Genesis assurance v2 does not implement C4 formal refinement or verified-compilation verification")
+	}
 	if v.executableDigest != m.Implementation.ImplementationDigest {
 		return fmt.Errorf("running executable digest %s does not match manifest %s", v.executableDigest, m.Implementation.ImplementationDigest)
 	}
@@ -598,6 +676,12 @@ func (v *ProductionVerifier) VerifyProofRequirements(_ context.Context, m genesi
 		}
 		if err := verifyFileDigest(fmt.Sprintf("proof_artifacts[%d]", i), path, want); err != nil {
 			return err
+		}
+		if i >= len(v.proofRecords) {
+			return fmt.Errorf("proof verification record %d is unavailable", i)
+		}
+		if err := validateProofVerificationRecord(v.proofRecords[i], m, v.now); err != nil {
+			return fmt.Errorf("proof verification record %d: %w", i, err)
 		}
 	}
 	return nil
