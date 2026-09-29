@@ -6,7 +6,8 @@ import "context"
 // request is blocked by contradictory evidence. Historical conflicting
 // observations remain available in Initial, but they are never "outvoted".
 // Authorization is possible only if a bounded set of fresh READ_ONLY probes
-// independently reacquire enough non-contradictory evidence.
+// reacquire enough non-contradictory distinct-source evidence. This legacy
+// source-count path does not establish independent failure domains.
 func ReconcileContradiction(
 	ctx context.Context,
 	req Request,
