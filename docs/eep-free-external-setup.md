@@ -23,7 +23,11 @@ GET   /customers/:customer_id
 PATCH /customers/:customer_id
 ```
 
-The GET route must return a JSON object representing current state. The PATCH route must persist the supplied JSON patch so that a subsequent GET returns changed state.
+The GET route must return a JSON object representing current state and must also expose `ETag`, `X-Aegis-Destination-ID`, and `X-Aegis-Account-ID`.
+
+The PATCH route must enforce `If-Match` against that ETag and reject stale writes with HTTP 412. It must also remain on the same destination; redirects are not part of the current automatic profile. The PATCH route must persist the supplied JSON patch so that a subsequent GET returns changed state.
+
+A mock service that cannot enforce this conditional-write contract is useful for historical/read-only experimentation only; it does not satisfy the current C06 automatic mutation profile.
 
 Initialize `customer/c-17` to a synthetic baseline such as:
 
@@ -41,7 +45,7 @@ The manual EEP Live Validation workflow is successful only when it reports:
 {
   "status": "PASS",
   "outcome": "APPLIED",
-  "journal_entries": 2
+  "journal_entries": 3
 }
 ```
 
