@@ -638,7 +638,7 @@ func TestEGEEvidenceIndependenceMissingRequiredDependencyCoverageIsUnknown(t *te
 		egeproto.EvidenceDeclarationAsserted,
 	)
 	telemetry := policy.SourceDeclarations["telemetry"]
-	telemetry.DependencyCoverage = []string{"credential", "upstream"}
+	telemetry.DependencyCoverage = []string{"credential", "platform", "upstream"}
 	filtered := telemetry.Dependencies[:0]
 	for _, dependency := range telemetry.Dependencies {
 		if dependency.Kind != "administrative" {
