@@ -266,7 +266,9 @@ closed when that predicate is not established.
 ```
 
 These identifiers are examples, not defaults. Deployments must declare their
-actual material dependencies.
+actual material dependencies. A copy-ready template is available at
+`docs/examples/prometheus-evidence-independence.asserted.json`; its placeholder
+dependency identifiers must be replaced before use.
 
 ## Fail-closed semantics
 
