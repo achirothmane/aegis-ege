@@ -209,6 +209,49 @@ func TestBootstrapProductionV2RejectsSubstitutedSignedManifestWithoutRelyingPin(
 	assertFailureCode(t, result, genesis.FailureAuthenticity)
 }
 
+func TestBootstrapProductionV2RejectsStaleBootstrapReceiptEvenWithFreshDecision(t *testing.T) {
+	fixture := buildProductionFixture(t)
+
+	var receipt kernelfabric.SignedBootstrapReceipt
+	if err := readStrictJSON(fixture.bootstrapReceiptPath, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	receipt.Receipt.CompletedAt = fixture.now.Add(-3 * time.Minute)
+	resignedReceipt, err := kernelfabric.SignBootstrapReceipt(receipt.Receipt, fixture.bootstrapSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJSONFile(t, fixture.bootstrapReceiptPath, resignedReceipt)
+	bootstrapDigest, err := kernelfabric.SignedBootstrapReceiptDigest(resignedReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decision kernelfabric.SignedRemoteAttestationDecision
+	if err := readStrictJSON(fixture.remoteDecisionPath, &decision); err != nil {
+		t.Fatal(err)
+	}
+	decision.Decision.BootstrapDigest = bootstrapDigest
+	decision.Decision.VerifiedAt = fixture.now.Add(-30 * time.Second)
+	resignedDecision := signRemoteDecisionForTest(t, decision.Decision, fixture.remoteSigner)
+	writeJSONFile(t, fixture.remoteDecisionPath, resignedDecision)
+
+	runtime, result, err := BootstrapProductionWithSubject(
+		t.Context(),
+		fixture.manifestPath,
+		fixture.bundlePath,
+		7,
+		3,
+		genesis.ConformanceC3,
+		fixture.currentSubject,
+		fixture.now,
+	)
+	if err == nil || runtime != nil {
+		t.Fatalf("stale bootstrap receipt unexpectedly accepted: runtime=%v result=%+v", runtime, result)
+	}
+	assertFailureCode(t, result, genesis.FailureAttestation)
+}
+
 func TestBootstrapProductionV2RejectsStaleAttestationAndRevocation(t *testing.T) {
 	t.Run("remote decision stale", func(t *testing.T) {
 		fixture := buildProductionFixture(t)
