@@ -220,14 +220,21 @@ func TestManifestRevocationHashIgnoresRevocationRef(t *testing.T) {
 }
 
 type productionFixture struct {
-	now                   time.Time
-	manifestPath          string
-	bundlePath            string
-	doctrineManifestPath  string
-	doctrineStatementPath string
-	revocationPath        string
-	manifestSigner        ed25519.PrivateKey
-	revocationSigner      ed25519.PrivateKey
+	now                    time.Time
+	manifestPath           string
+	bundlePath             string
+	doctrineManifestPath   string
+	doctrineStatementPath  string
+	revocationPath         string
+	buildProvenancePath    string
+	proofRecordPath        string
+	bootstrapReceiptPath   string
+	remoteDecisionPath     string
+	manifestSigner         ed25519.PrivateKey
+	bootstrapSigner        ed25519.PrivateKey
+	remoteSigner           ed25519.PrivateKey
+	revocationSigner       ed25519.PrivateKey
+	currentSubject         CurrentSubject
 }
 
 func buildProductionFixture(t *testing.T) productionFixture {
@@ -303,6 +310,49 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	currentSubject, err := CurrentProductionSubject("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buildProvenance := BuildProvenanceStatement{
+		Version:                     BuildProvenanceStatementVersion,
+		BuilderIdentity:             "builder://test",
+		SourceRevision:              "git:test",
+		SubjectImplementationDigest: executableDigest,
+		MaterialsHash:               artifactDigest,
+		SBOMHash:                    artifactDigest,
+		BuiltAt:                     now.Add(-2 * time.Hour),
+		IssuedAt:                    now.Add(-90 * time.Minute),
+		ExpiresAt:                   now.Add(time.Hour),
+	}
+	signedBuildProvenance, err := SignBuildProvenanceStatement(buildProvenance, manifestPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildProvenancePath := filepath.Join(dir, "build-provenance.json")
+	writeJSONFile(t, buildProvenancePath, signedBuildProvenance)
+	buildProvenanceDigest, err := fileDigest(buildProvenancePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proofRecord := ProofVerificationRecord{
+		Version:          ProofVerificationRecordVersion,
+		Result:           "PASS",
+		VerificationMode: "mixed",
+		SpecHash:         artifactDigest,
+		ProofScopeHash:   artifactDigest,
+		Toolchain:        []string{"TLC", "TLAPS"},
+		ModelBounds:      []string{"production-profile-test"},
+		CheckedAt:        now.Add(-80 * time.Minute),
+	}
+	proofRecordPath := filepath.Join(dir, "proof-verification-record.json")
+	writeJSONFile(t, proofRecordPath, proofRecord)
+	proofRecordDigest, err := fileDigest(proofRecordPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	bootstrapReceipt := kernelfabric.BootstrapReceipt{
 		Version:             kernelfabric.BootstrapReceiptVersion,
@@ -311,7 +361,7 @@ func buildProductionFixture(t *testing.T) productionFixture {
 		ArtifactSHA256:      digestBytes([]byte("bpf-object")),
 		ArtifactSize:        123,
 		Host: kernelfabric.BootstrapHostSnapshot{
-			BootIDHash:    digestBytes([]byte("boot")),
+			BootIDHash:    currentSubject.BootIDHash,
 			KernelRelease: "test-kernel",
 			LockdownMode:  "integrity",
 			BPFFSRoot:     "/sys/fs/bpf",
@@ -401,7 +451,7 @@ func buildProductionFixture(t *testing.T) productionFixture {
 		Verification: genesis.Verification{
 			Mode:           "mixed",
 			ProofStatus:    "PASS",
-			ProofArtifacts: []string{artifactDigest},
+			ProofArtifacts: []string{proofRecordDigest},
 			Toolchain:      []string{"TLC", "TLAPS"},
 			ModelBounds:    []string{"production-profile-test"},
 			ProofScopeHash: artifactDigest,
@@ -430,7 +480,7 @@ func buildProductionFixture(t *testing.T) productionFixture {
 		SupplyChain: genesis.SupplyChain{
 			SourceRevision:     "git:test",
 			BuilderIdentity:    "builder://test",
-			BuildProvenanceRef: artifactDigest,
+			BuildProvenanceRef: buildProvenanceDigest,
 			MaterialsHash:      artifactDigest,
 			SBOMHash:           artifactDigest,
 		},
@@ -451,9 +501,19 @@ func buildProductionFixture(t *testing.T) productionFixture {
 	}
 	manifestPath := filepath.Join(dir, "genesis.json")
 	writeJSONFile(t, manifestPath, manifest)
+	manifestPayloadHash, err := ManifestPayloadHash(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	bundle := VerificationBundle{
 		Version:                            BundleVersion,
+		AssuranceProfile:                   AssuranceProfileVersion,
+		RelyingContext: RelyingContext{
+			ExpectedManifestPayloadHash: manifestPayloadHash,
+			ExpectedDeviceID:            remoteDecision.DeviceID,
+			ExpectedChallengeID:         remoteDecision.ChallengeID,
+		},
 		DoctrineManifest:                   doctrineManifestPath,
 		SignedDoctrineAuthorityStatement:   doctrineStatementPath,
 		DoctrineAuthorityPublicKey:         doctrinePubPath,
@@ -479,25 +539,32 @@ func buildProductionFixture(t *testing.T) productionFixture {
 			EnforcementPolicy:  artifactPath,
 			RefinementMapping:  artifactPath,
 			ExecutableContract: artifactPath,
-			BuildProvenance:    artifactPath,
+			BuildProvenance:    buildProvenancePath,
 			Materials:          artifactPath,
 			SBOM:               artifactPath,
 			ApprovalPolicy:     artifactPath,
 		},
-		ProofArtifactPaths: []string{artifactPath},
+		ProofArtifactPaths: []string{proofRecordPath},
 	}
 	bundlePath := filepath.Join(dir, "bundle.json")
 	writeJSONFile(t, bundlePath, bundle)
 
 	return productionFixture{
-		now:                   now,
-		manifestPath:          manifestPath,
-		bundlePath:            bundlePath,
-		doctrineManifestPath:  doctrineManifestPath,
-		doctrineStatementPath: doctrineStatementPath,
-		revocationPath:        revocationPath,
-		manifestSigner:        manifestPriv,
-		revocationSigner:      revocationPriv,
+		now:                    now,
+		manifestPath:           manifestPath,
+		bundlePath:             bundlePath,
+		doctrineManifestPath:   doctrineManifestPath,
+		doctrineStatementPath:  doctrineStatementPath,
+		revocationPath:         revocationPath,
+		buildProvenancePath:    buildProvenancePath,
+		proofRecordPath:        proofRecordPath,
+		bootstrapReceiptPath:   bootstrapReceiptPath,
+		remoteDecisionPath:     remoteDecisionPath,
+		manifestSigner:         manifestPriv,
+		bootstrapSigner:        bootstrapPriv,
+		remoteSigner:           remotePriv,
+		revocationSigner:       revocationPriv,
+		currentSubject:         currentSubject,
 	}
 }
 

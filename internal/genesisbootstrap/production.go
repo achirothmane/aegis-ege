@@ -25,7 +25,10 @@ import (
 )
 
 const (
-	BundleVersion                     = "aegis.ege/genesis-verification-bundle/v1"
+	BundleVersion                     = "aegis.ege/genesis-verification-bundle/v2"
+	AssuranceProfileVersion           = "aegis.ege/genesis-assurance/v2"
+	BuildProvenanceStatementVersion   = "aegis.ege/build-provenance/v1"
+	ProofVerificationRecordVersion    = "aegis.ege/proof-verification-record/v1"
 	RevocationListVersion             = "aegis.ege/genesis-revocations/v1"
 	DoctrineAuthorityStatementVersion = "aegis.ege/doctrine-authority-statement/v1"
 	maxExactJSONInteger               = uint64(1<<53 - 1)
@@ -51,8 +54,20 @@ type ArtifactPaths struct {
 	ApprovalPolicy     string `json:"approval_policy"`
 }
 
+type RelyingContext struct {
+	ExpectedManifestPayloadHash string `json:"expected_manifest_payload_hash"`
+	ExpectedDeviceID            string `json:"expected_device_id"`
+	ExpectedChallengeID         string `json:"expected_challenge_id"`
+}
+
+type CurrentSubject struct {
+	BootIDHash string
+}
+
 type VerificationBundle struct {
 	Version                            string        `json:"version"`
+	AssuranceProfile                   string        `json:"assurance_profile"`
+	RelyingContext                     RelyingContext `json:"relying_context"`
 	DoctrineManifest                   string        `json:"doctrine_manifest"`
 	SignedDoctrineAuthorityStatement   string        `json:"signed_doctrine_authority_statement"`
 	DoctrineAuthorityPublicKey         string        `json:"doctrine_authority_public_key"`
@@ -103,9 +118,39 @@ type SignedRevocationList struct {
 	Signature string         `json:"signature"`
 }
 
+type BuildProvenanceStatement struct {
+	Version                     string    `json:"version"`
+	BuilderIdentity             string    `json:"builder_identity"`
+	SourceRevision              string    `json:"source_revision"`
+	SubjectImplementationDigest string    `json:"subject_implementation_digest"`
+	MaterialsHash               string    `json:"materials_hash"`
+	SBOMHash                    string    `json:"sbom_hash"`
+	BuiltAt                     time.Time `json:"built_at"`
+	IssuedAt                    time.Time `json:"issued_at"`
+	ExpiresAt                   time.Time `json:"expires_at"`
+}
+
+type SignedBuildProvenanceStatement struct {
+	Statement BuildProvenanceStatement `json:"statement"`
+	KeyID     string                   `json:"key_id"`
+	Signature string                   `json:"signature"`
+}
+
+type ProofVerificationRecord struct {
+	Version          string    `json:"version"`
+	Result           string    `json:"result"`
+	VerificationMode string    `json:"verification_mode"`
+	SpecHash         string    `json:"spec_hash"`
+	ProofScopeHash   string    `json:"proof_scope_hash"`
+	Toolchain        []string  `json:"toolchain"`
+	ModelBounds      []string  `json:"model_bounds"`
+	CheckedAt        time.Time `json:"checked_at"`
+}
+
 type ProductionVerifier struct {
 	now                 time.Time
 	bundle              VerificationBundle
+	currentSubject      CurrentSubject
 	doctrineAuthority   ed25519.PublicKey
 	doctrineStatement   SignedDoctrineAuthorityStatement
 	doctrineDigest      string
@@ -116,6 +161,8 @@ type ProductionVerifier struct {
 	remoteDecision      kernelfabric.SignedRemoteAttestationDecision
 	bootstrapReceipt    kernelfabric.SignedBootstrapReceipt
 	revocations         SignedRevocationList
+	buildProvenance     SignedBuildProvenanceStatement
+	proofRecords        []ProofVerificationRecord
 	executableDigest    string
 }
 
@@ -126,6 +173,32 @@ func BootstrapProduction(
 	minimumAcceptedEpoch uint64,
 	minimumAcceptedDoctrineEpoch uint64,
 	requiredConformance genesis.ConformanceLevel,
+	now time.Time,
+) (*easl.Runtime, genesis.Result, error) {
+	subject, err := CurrentProductionSubject("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("capture current Genesis subject: %w", err)
+	}
+	return BootstrapProductionWithSubject(
+		ctx,
+		manifestPath,
+		bundlePath,
+		minimumAcceptedEpoch,
+		minimumAcceptedDoctrineEpoch,
+		requiredConformance,
+		subject,
+		now,
+	)
+}
+
+func BootstrapProductionWithSubject(
+	ctx context.Context,
+	manifestPath string,
+	bundlePath string,
+	minimumAcceptedEpoch uint64,
+	minimumAcceptedDoctrineEpoch uint64,
+	requiredConformance genesis.ConformanceLevel,
+	subject CurrentSubject,
 	now time.Time,
 ) (*easl.Runtime, genesis.Result, error) {
 	if now.IsZero() {
@@ -142,7 +215,7 @@ func BootstrapProduction(
 	if err != nil {
 		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("load Genesis verification bundle: %w", err)
 	}
-	verifier, err := NewProductionVerifier(bundle, now)
+	verifier, err := NewProductionVerifier(bundle, subject, now)
 	if err != nil {
 		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("construct production Genesis verifier: %w", err)
 	}
@@ -165,9 +238,24 @@ func BootstrapProduction(
 	return runtime, result, nil
 }
 
-func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*ProductionVerifier, error) {
+func NewProductionVerifier(bundle VerificationBundle, subject CurrentSubject, now time.Time) (*ProductionVerifier, error) {
 	if bundle.Version != BundleVersion {
 		return nil, fmt.Errorf("unsupported verification bundle version %q", bundle.Version)
+	}
+	if bundle.AssuranceProfile != AssuranceProfileVersion {
+		return nil, fmt.Errorf("unsupported Genesis assurance profile %q", bundle.AssuranceProfile)
+	}
+	if !strings.HasPrefix(bundle.RelyingContext.ExpectedManifestPayloadHash, "sha256:") {
+		return nil, errors.New("expected_manifest_payload_hash must be a sha256 digest")
+	}
+	if strings.TrimSpace(bundle.RelyingContext.ExpectedDeviceID) == "" {
+		return nil, errors.New("expected_device_id is required")
+	}
+	if strings.TrimSpace(bundle.RelyingContext.ExpectedChallengeID) == "" {
+		return nil, errors.New("expected_challenge_id is required")
+	}
+	if !strings.HasPrefix(subject.BootIDHash, "sha256:") {
+		return nil, errors.New("current subject boot id hash is required")
 	}
 	if bundle.MaxAttestationAgeSeconds <= 0 {
 		return nil, errors.New("max_attestation_age_seconds must be positive")
@@ -232,6 +320,18 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 	if err := readStrictJSON(bundle.SignedRevocationList, &revocations); err != nil {
 		return nil, fmt.Errorf("read revocation list: %w", err)
 	}
+	var buildProvenance SignedBuildProvenanceStatement
+	if err := readStrictJSON(bundle.Artifacts.BuildProvenance, &buildProvenance); err != nil {
+		return nil, fmt.Errorf("read signed build provenance: %w", err)
+	}
+	proofRecords := make([]ProofVerificationRecord, 0, len(bundle.ProofArtifactPaths))
+	for i, path := range bundle.ProofArtifactPaths {
+		var record ProofVerificationRecord
+		if err := readStrictJSON(path, &record); err != nil {
+			return nil, fmt.Errorf("read proof verification record %d: %w", i, err)
+		}
+		proofRecords = append(proofRecords, record)
+	}
 
 	executableDigest, err := currentExecutableDigest()
 	if err != nil {
@@ -241,6 +341,7 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 	return &ProductionVerifier{
 		now:                 now.UTC(),
 		bundle:              bundle,
+		currentSubject:      subject,
 		doctrineAuthority:   doctrineAuthority,
 		doctrineStatement:   doctrineStatement,
 		doctrineDigest:      doctrineDigest,
@@ -251,10 +352,22 @@ func NewProductionVerifier(bundle VerificationBundle, now time.Time) (*Productio
 		remoteDecision:      remoteDecision,
 		bootstrapReceipt:    bootstrapReceipt,
 		revocations:         revocations,
+		buildProvenance:     buildProvenance,
+		proofRecords:        proofRecords,
 		executableDigest:    executableDigest,
 	}, nil
 }
 
+
+func CurrentProductionSubject(bootIDPath string) (CurrentSubject, error) {
+	bootHash, err := kernelfabric.ReadBootIDHash(bootIDPath)
+	if err != nil {
+		return CurrentSubject{}, err
+	}
+	return CurrentSubject{
+		BootIDHash: "sha256:" + hex.EncodeToString(bootHash[:]),
+	}, nil
+}
 
 func (v *ProductionVerifier) VerifyDoctrineBinding(_ context.Context, m genesis.Manifest) error {
 	if err := VerifySignedDoctrineAuthorityStatement(v.doctrineStatement, v.doctrineAuthority, v.now); err != nil {
@@ -277,6 +390,17 @@ func (v *ProductionVerifier) VerifyDoctrineBinding(_ context.Context, m genesis.
 }
 
 func (v *ProductionVerifier) VerifyAuthenticity(_ context.Context, m genesis.Manifest) error {
+	payloadHash, err := ManifestPayloadHash(m)
+	if err != nil {
+		return err
+	}
+	if payloadHash != v.bundle.RelyingContext.ExpectedManifestPayloadHash {
+		return fmt.Errorf(
+			"Genesis manifest payload hash %s does not match relying-context pin %s",
+			payloadHash,
+			v.bundle.RelyingContext.ExpectedManifestPayloadHash,
+		)
+	}
 	if m.Authenticity.SignatureAlgorithm != "ed25519" {
 		return fmt.Errorf("unsupported Genesis signature algorithm %q", m.Authenticity.SignatureAlgorithm)
 	}
@@ -320,11 +444,36 @@ func (v *ProductionVerifier) VerifyTrustRoot(_ context.Context, m genesis.Manife
 	return nil
 }
 
-func (v *ProductionVerifier) VerifyAttestation(_ context.Context, _ genesis.Manifest) error {
+func (v *ProductionVerifier) VerifyAttestation(_ context.Context, m genesis.Manifest) error {
+	manifestHash, err := ManifestPayloadHash(m)
+	if err != nil {
+		return err
+	}
+	if manifestHash != v.bundle.RelyingContext.ExpectedManifestPayloadHash {
+		return fmt.Errorf(
+			"attested relying context is pinned to manifest %s, got %s",
+			v.bundle.RelyingContext.ExpectedManifestPayloadHash,
+			manifestHash,
+		)
+	}
 	if err := kernelfabric.VerifySignedRemoteAttestationDecision(v.remoteDecision, v.remoteVerifier); err != nil {
 		return fmt.Errorf("verify signed remote attestation decision: %w", err)
 	}
 	decision := v.remoteDecision.Decision
+	if decision.DeviceID != v.bundle.RelyingContext.ExpectedDeviceID {
+		return fmt.Errorf(
+			"remote attestation device %q does not match relying-context device %q",
+			decision.DeviceID,
+			v.bundle.RelyingContext.ExpectedDeviceID,
+		)
+	}
+	if decision.ChallengeID != v.bundle.RelyingContext.ExpectedChallengeID {
+		return fmt.Errorf(
+			"remote attestation challenge %q does not match relying-context challenge %q",
+			decision.ChallengeID,
+			v.bundle.RelyingContext.ExpectedChallengeID,
+		)
+	}
 	if decision.Decision != "ALLOW" {
 		return fmt.Errorf("remote attestation decision is %q", decision.Decision)
 	}
@@ -340,6 +489,24 @@ func (v *ProductionVerifier) VerifyAttestation(_ context.Context, _ genesis.Mani
 	}
 	if err := kernelfabric.VerifySignedBootstrapReceipt(v.bootstrapReceipt, v.bootstrapAttestor); err != nil {
 		return fmt.Errorf("verify signed bootstrap receipt: %w", err)
+	}
+	receipt := v.bootstrapReceipt.Receipt
+	if receipt.Host.BootIDHash != v.currentSubject.BootIDHash {
+		return fmt.Errorf(
+			"bootstrap receipt boot %s does not match current boot %s",
+			receipt.Host.BootIDHash,
+			v.currentSubject.BootIDHash,
+		)
+	}
+	if receipt.CompletedAt.IsZero() {
+		return errors.New("bootstrap receipt completed_at is missing")
+	}
+	if receipt.CompletedAt.After(decision.VerifiedAt) {
+		return errors.New("bootstrap receipt is newer than the remote attestation decision")
+	}
+	maxAge = time.Duration(v.bundle.MaxAttestationAgeSeconds) * time.Second
+	if !v.now.Before(receipt.CompletedAt.UTC().Add(maxAge)) {
+		return fmt.Errorf("bootstrap receipt is older than %s", maxAge)
 	}
 	receiptDigest, err := kernelfabric.SignedBootstrapReceiptDigest(v.bootstrapReceipt)
 	if err != nil {
@@ -403,10 +570,45 @@ func (v *ProductionVerifier) VerifyBuildProvenance(_ context.Context, m genesis.
 	if digest != m.SupplyChain.BuildProvenanceRef {
 		return fmt.Errorf("build provenance digest %s does not match manifest %s", digest, m.SupplyChain.BuildProvenanceRef)
 	}
+	if err := VerifySignedBuildProvenanceStatement(
+		v.buildProvenance,
+		v.manifestSigner,
+		v.now,
+	); err != nil {
+		return fmt.Errorf("verify signed build provenance: %w", err)
+	}
+	statement := v.buildProvenance.Statement
+	switch {
+	case statement.BuilderIdentity != m.SupplyChain.BuilderIdentity:
+		return fmt.Errorf(
+			"provenance builder %q does not match manifest builder %q",
+			statement.BuilderIdentity,
+			m.SupplyChain.BuilderIdentity,
+		)
+	case statement.SourceRevision != m.SupplyChain.SourceRevision:
+		return fmt.Errorf(
+			"provenance source revision %q does not match manifest source revision %q",
+			statement.SourceRevision,
+			m.SupplyChain.SourceRevision,
+		)
+	case statement.SubjectImplementationDigest != m.Implementation.ImplementationDigest:
+		return errors.New("provenance subject binary digest does not match Genesis implementation digest")
+	case statement.SubjectImplementationDigest != v.executableDigest:
+		return errors.New("provenance subject binary digest does not match running executable")
+	case statement.MaterialsHash != m.SupplyChain.MaterialsHash:
+		return errors.New("provenance materials hash does not match manifest")
+	case statement.SBOMHash != m.SupplyChain.SBOMHash:
+		return errors.New("provenance SBOM hash does not match manifest")
+	case !statement.BuiltAt.Equal(m.Validity.BuiltAt):
+		return errors.New("provenance built_at does not match manifest validity.built_at")
+	}
 	return nil
 }
 
 func (v *ProductionVerifier) VerifySpecBuildBinding(_ context.Context, m genesis.Manifest) error {
+	if m.Implementation.ConformanceLevel == genesis.ConformanceC4 {
+		return errors.New("production Genesis assurance v2 does not implement C4 formal refinement or verified-compilation verification")
+	}
 	if v.executableDigest != m.Implementation.ImplementationDigest {
 		return fmt.Errorf("running executable digest %s does not match manifest %s", v.executableDigest, m.Implementation.ImplementationDigest)
 	}
@@ -485,6 +687,12 @@ func (v *ProductionVerifier) VerifyProofRequirements(_ context.Context, m genesi
 		}
 		if err := verifyFileDigest(fmt.Sprintf("proof_artifacts[%d]", i), path, want); err != nil {
 			return err
+		}
+		if i >= len(v.proofRecords) {
+			return fmt.Errorf("proof verification record %d is unavailable", i)
+		}
+		if err := validateProofVerificationRecord(v.proofRecords[i], m, v.now); err != nil {
+			return fmt.Errorf("proof verification record %d: %w", i, err)
 		}
 	}
 	return nil
@@ -613,6 +821,188 @@ func SignManifest(m genesis.Manifest, privateKey ed25519.PrivateKey) (genesis.Ma
 	return m, nil
 }
 
+
+func SignBuildProvenanceStatement(
+	statement BuildProvenanceStatement,
+	privateKey ed25519.PrivateKey,
+) (SignedBuildProvenanceStatement, error) {
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return SignedBuildProvenanceStatement{}, errors.New("invalid Ed25519 build-provenance private key")
+	}
+	if err := validateBuildProvenanceStatement(statement, time.Time{}); err != nil {
+		return SignedBuildProvenanceStatement{}, err
+	}
+	payload, err := canonicalBuildProvenanceStatementPayload(statement)
+	if err != nil {
+		return SignedBuildProvenanceStatement{}, err
+	}
+	keyID, err := kernelfabric.BootstrapKeyID(privateKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		return SignedBuildProvenanceStatement{}, err
+	}
+	return SignedBuildProvenanceStatement{
+		Statement: statement,
+		KeyID:     keyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
+	}, nil
+}
+
+func VerifySignedBuildProvenanceStatement(
+	signed SignedBuildProvenanceStatement,
+	publicKey ed25519.PublicKey,
+	now time.Time,
+) error {
+	if err := validateBuildProvenanceStatement(signed.Statement, now); err != nil {
+		return err
+	}
+	keyID, err := kernelfabric.BootstrapKeyID(publicKey)
+	if err != nil {
+		return err
+	}
+	if signed.KeyID != keyID {
+		return errors.New("build provenance key id does not match trusted manifest authority")
+	}
+	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
+	if err != nil {
+		return fmt.Errorf("decode build provenance signature: %w", err)
+	}
+	payload, err := canonicalBuildProvenanceStatementPayload(signed.Statement)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return errors.New("build provenance signature is invalid")
+	}
+	return nil
+}
+
+func canonicalBuildProvenanceStatementPayload(statement BuildProvenanceStatement) ([]byte, error) {
+	raw, err := json.Marshal(statement)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	canonical, err := jcs.Format(value)
+	if err != nil {
+		return nil, err
+	}
+	return append(
+		[]byte("aegis-ege/build-provenance/v1\x00"),
+		[]byte(canonical)...,
+	), nil
+}
+
+func validateBuildProvenanceStatement(statement BuildProvenanceStatement, now time.Time) error {
+	if statement.Version != BuildProvenanceStatementVersion {
+		return fmt.Errorf("unsupported build provenance version %q", statement.Version)
+	}
+	required := map[string]string{
+		"builder_identity":               statement.BuilderIdentity,
+		"source_revision":                statement.SourceRevision,
+		"subject_implementation_digest":  statement.SubjectImplementationDigest,
+		"materials_hash":                 statement.MaterialsHash,
+		"sbom_hash":                      statement.SBOMHash,
+	}
+	for name, value := range required {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("build provenance %s is required", name)
+		}
+	}
+	for name, value := range map[string]string{
+		"subject_implementation_digest": statement.SubjectImplementationDigest,
+		"materials_hash":                statement.MaterialsHash,
+		"sbom_hash":                     statement.SBOMHash,
+	} {
+		if !isSHA256Digest(value) {
+			return fmt.Errorf("build provenance %s must be a sha256 digest", name)
+		}
+	}
+	if statement.BuiltAt.IsZero() ||
+		statement.IssuedAt.IsZero() ||
+		statement.ExpiresAt.IsZero() ||
+		!statement.ExpiresAt.After(statement.IssuedAt) {
+		return errors.New("build provenance timestamps are invalid")
+	}
+	if statement.IssuedAt.Before(statement.BuiltAt) {
+		return errors.New("build provenance issued_at precedes built_at")
+	}
+	if !now.IsZero() {
+		now = now.UTC()
+		if now.Before(statement.IssuedAt.UTC()) {
+			return errors.New("build provenance is not yet valid")
+		}
+		if !now.Before(statement.ExpiresAt.UTC()) {
+			return errors.New("build provenance is expired")
+		}
+	}
+	return nil
+}
+
+func validateProofVerificationRecord(
+	record ProofVerificationRecord,
+	m genesis.Manifest,
+	now time.Time,
+) error {
+	if record.Version != ProofVerificationRecordVersion {
+		return fmt.Errorf("unsupported proof verification record version %q", record.Version)
+	}
+	if record.Result != "PASS" {
+		return fmt.Errorf("proof verification result is %q", record.Result)
+	}
+	if record.VerificationMode != m.Verification.Mode {
+		return fmt.Errorf(
+			"proof verification mode %q does not match manifest %q",
+			record.VerificationMode,
+			m.Verification.Mode,
+		)
+	}
+	if record.SpecHash != m.Specification.SpecHash {
+		return errors.New("proof verification record spec hash does not match manifest")
+	}
+	if record.ProofScopeHash != m.Verification.ProofScopeHash {
+		return errors.New("proof verification record proof-scope hash does not match manifest")
+	}
+	if !equalStringSlices(record.Toolchain, m.Verification.Toolchain) {
+		return errors.New("proof verification record toolchain does not match manifest")
+	}
+	if !equalStringSlices(record.ModelBounds, m.Verification.ModelBounds) {
+		return errors.New("proof verification record model bounds do not match manifest")
+	}
+	if record.CheckedAt.IsZero() {
+		return errors.New("proof verification record checked_at is required")
+	}
+	if record.CheckedAt.After(now.Add(5 * time.Second)) {
+		return errors.New("proof verification record checked_at is unreasonably in the future")
+	}
+	return nil
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isSHA256Digest(value string) bool {
+	if !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	raw := strings.TrimPrefix(value, "sha256:")
+	if len(raw) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(raw)
+	return err == nil
+}
 
 func SignDoctrineAuthorityStatement(statement DoctrineAuthorityStatement, privateKey ed25519.PrivateKey) (SignedDoctrineAuthorityStatement, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {

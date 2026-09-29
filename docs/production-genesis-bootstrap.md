@@ -1,4 +1,4 @@
-# Production Genesis Bootstrap v1
+# Production Genesis Bootstrap v2
 
 Mutation-capable Aegis-EGE startup is fail-closed behind the Level -1 Genesis gate.
 
@@ -16,10 +16,13 @@ GenesisManifest
   +-- exact doctrine ID / epoch / manifest-hash binding
   +-- RFC8785/JCS + Ed25519 authenticity
   +-- running executable SHA-256
+  +-- relying-context manifest/device/challenge pin
   +-- signed TPM/IMA remote ALLOW
-  +-- signed BPF bootstrap receipt
+  +-- current-boot-bound signed BPF bootstrap receipt
   +-- signed revocation list / epoch floors
-  +-- spec, proof, threat, policy, provenance, materials and SBOM digests
+  +-- signed semantic build provenance
+  +-- typed proof verification records
+  +-- spec, threat, policy, materials and SBOM digests
   |
   v
 easl.Bootstrap
@@ -47,13 +50,26 @@ The implementation digest is not supplied by a flag. Aegis hashes the running
 executable returned by `os.Executable()` and requires that digest to equal
 `implementation.implementation_digest` in the manifest.
 
+The Linux production path also reads the current boot identity from
+`/proc/sys/kernel/random/boot_id` and requires the remotely bound bootstrap
+receipt to refer to that exact boot.
+
+Bundle v2 additionally carries a relying-context pin for the exact Genesis
+manifest payload, enrolled device identity, and current attestation challenge.
+
 ## Verification bundle
 
 Relative paths are resolved relative to the bundle JSON.
 
 ```json
 {
-  "version": "aegis.ege/genesis-verification-bundle/v1",
+  "version": "aegis.ege/genesis-verification-bundle/v2",
+  "assurance_profile": "aegis.ege/genesis-assurance/v2",
+  "relying_context": {
+    "expected_manifest_payload_hash": "sha256:<manifest-payload>",
+    "expected_device_id": "node-01",
+    "expected_challenge_id": "<current-challenge-id>"
+  },
   "doctrine_manifest": "doctrine/assumption-decay-doctrine.md",
   "signed_doctrine_authority_statement": "doctrine/authority-statement.json",
   "doctrine_authority_public_key": "keys/doctrine-authority.pub",
@@ -79,19 +95,30 @@ Relative paths are resolved relative to the bundle JSON.
     "enforcement_policy": "genesis/enforcement-policy.json",
     "refinement_mapping": "genesis/refinement-mapping.json",
     "executable_contract": "genesis/executable-contract.json",
-    "build_provenance": "supply-chain/provenance.json",
+    "build_provenance": "supply-chain/signed-provenance.json",
     "materials": "supply-chain/materials.json",
     "sbom": "supply-chain/sbom.json",
     "approval_policy": "genesis/approval-policy.json"
   },
   "proof_artifact_paths": [
-    "proofs/genesis-tlc.txt"
+    "proofs/genesis-proof-verification-record.json"
   ]
 }
 ```
 
 The production profile requires `supply_chain.build_provenance_ref` and every
 entry in `verification.proof_artifacts` to be `sha256:<hex>` digests.
+
+Those digests are no longer credited as semantic assurance by themselves.
+Build provenance must be a signed `aegis.ege/build-provenance/v1` statement
+whose builder, source revision, subject binary, materials, SBOM and build time
+match the manifest and current executable. Each proof artifact must be a typed
+`aegis.ege/proof-verification-record/v1` record whose PASS result, spec,
+proof scope, verification mode, toolchain and model bounds match the manifest.
+
+The proof record is a bound tool-result record. It does not independently
+re-run TLC/TLAPS or establish formal implementation refinement. C4 is therefore
+unsupported by this production profile and is rejected fail-closed.
 
 
 ## Level -2 doctrine authority
@@ -157,8 +184,11 @@ verifier public key.
 A production ALLOW must:
 
 - have a valid remote-verifier Ed25519 signature;
+- name the exact relying-context device and challenge;
 - be fresh within `max_attestation_age_seconds`;
 - bind the supplied signed BPF bootstrap receipt;
+- bind a bootstrap receipt from the current live Linux boot;
+- use a bootstrap receipt that is itself fresh within the configured age bound;
 - carry the signed assurance results:
   - `TPM_QUOTE_VERIFIED`
   - `PLATFORM_EVENT_LOG_VERIFIED`
@@ -209,6 +239,27 @@ This is bootstrap-time evidence of the enforcement substrate. It is not a claim
 that TPM/IMA proves arbitrary future runtime memory integrity. Runtime Trust
 Lease / continuous revalidation remains responsible for detecting and fencing
 post-bootstrap trust loss.
+
+## Assurance claim boundary
+
+The complete current obligation matrix is
+[Genesis Assurance Profile v2](genesis-assurance-v2.md).
+
+Important boundaries:
+
+- a matching file digest establishes artifact identity, not semantic proof;
+- the signed provenance statement validates declared builder/source/binary
+  relations but does not reproduce the build;
+- proof verification records validate the recorded tool-result relation but do
+  not prove implementation refinement;
+- the current-boot check prevents a prior-boot bootstrap receipt from satisfying
+  the current process, but it is not persistent rollback protection;
+- open Genesis lineage/TPM-NV work (#64/#65) is not merged or credited here;
+- ordinary unit/CI fixtures do not imply that a physical TPM deployment was
+  exercised.
+
+Bundle v1 is not accepted for mutation-capable v2 bootstrap. Operators must
+provision a v2 bundle with the exact current relying context.
 
 ## Fail-closed rule
 
