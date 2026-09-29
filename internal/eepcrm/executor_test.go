@@ -538,6 +538,96 @@ func TestExecutorDoesNotFollowRedirectToDifferentDestination(t *testing.T) {
 	}
 }
 
+func TestExecutorRejectsLegacyPermitWithoutExecutionBinding(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	packet, err := evidencepipeline.Compile(evidencepipeline.CompileRequest{
+		Event: evidencepipeline.RuntimeEvent{
+			IntentID: "intent-legacy-c06",
+			EventID:  "event-legacy-c06",
+			Actor: evidencepipeline.Actor{PrincipalID: "spiffe://test/c06"},
+			Action: evidencepipeline.Action{
+				Kind:       "crm.customer_update",
+				Tool:       "crm.http-json",
+				Operation:  "update_customer",
+				Target:     "customer/c-17",
+				SideEffect: true,
+			},
+			ObservedAt: now.Add(-time.Second),
+			Data:       map[string]any{"ticket": "legacy"},
+		},
+		Source: evidencepipeline.Source{Name: "legacy", TrustDomain: "test"},
+		Context: evidencepipeline.BootstrapContext{
+			AuthorityRef:        "authority://crm/legacy",
+			PolicyRef:           "policy://crm/legacy",
+			RedactionProfileRef: "redaction://none",
+			ConsequenceClass:    "customer-record-write",
+		},
+		SensitivePaths: []string{},
+		CapturedAt:     now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := CustomerUpdatePlan{CustomerID: "c-17", Patch: map[string]any{"tier": "gold"}}
+	planDigest, err := DigestCustomerUpdatePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := egeproto.NewEphemeralEd25519Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit, err := evidencepipeline.SignEvidenceBoundPermit(
+		context.Background(),
+		authority,
+		packet,
+		egeproto.PermitClaims{
+			IntentID:        packet.IntentID,
+			Kind:            packet.Action.Kind,
+			Target:          egeproto.Target{Type: "customer", Name: "c-17"},
+			Action:          packet.Action.Operation,
+			ResourceVersion: testETag,
+			EvidenceDigest:  packet.Provenance.InputDigest,
+			PlanDigest:      planDigest,
+			ValidUntil:      now.Add(time.Minute),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts, _ := NewFileAttemptStore(filepath.Join(t.TempDir(), "attempts"))
+	executor, err := NewExecutor(
+		DestinationConfig{
+			BaseURL:        server.URL,
+			DestinationID:  testDestinationID,
+			AccountID:      testAccountID,
+			AdapterProfile: CRMAdapterProfileVersion,
+		},
+		server.Client(),
+		authority,
+		&memoryJournal{},
+		attempts,
+		func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executor.Execute(context.Background(), packet, permit, plan); err == nil ||
+		!strings.Contains(err.Error(), "missing destination binding") {
+		t.Fatalf("legacy permit error = %v, want missing destination binding", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("legacy unbound permit made %d network call(s)", calls.Load())
+	}
+}
+
 func TestExecutorRejectsWrongConfiguredAccountBeforeNetwork(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
