@@ -87,6 +87,7 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 
 	assumption := rewriteEBAFixture(t, loadEBAFixture(t, "assumption-state.json"), func(artifact map[string]any) {
 		artifact["context_profile"] = EBAContextProfileVersion
+		artifact["canonical_profile"] = EBACanonicalProfileVersion
 		artifact["trace_id"] = traceID
 		artifact["subject_ref"] = manifest.IntentID
 		artifact["evidence_refs"] = []any{manifest.EvidenceDigest}
@@ -99,6 +100,7 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 	})
 	authority := rewriteEBAFixture(t, loadEBAFixture(t, "authority-grant.json"), func(artifact map[string]any) {
 		artifact["context_profile"] = EBAContextProfileVersion
+		artifact["canonical_profile"] = EBACanonicalProfileVersion
 		artifact["trace_id"] = traceID
 		artifact["subject_ref"] = manifest.IntentID
 		artifact["trust"] = map[string]any{
