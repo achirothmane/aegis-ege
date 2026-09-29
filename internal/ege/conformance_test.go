@@ -303,8 +303,8 @@ func TestEBAKubernetesDrainConformanceRejectsRehashedAssumptionEvidenceSubstitut
 	err := ValidateKubernetesDrainConformance(
 		context.Background(), permitAuthority, approvalAuthority, input, now,
 	)
-	if err == nil || !strings.Contains(err.Error(), "ASSUMPTION_REFERENCE_SET_MISMATCH") {
-		t.Fatalf("expected authenticated parent binding to reject rehashed assumption, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "ASSUMPTION_EVIDENCE_BINDING_MISMATCH") {
+		t.Fatalf("expected contextual evidence binding to reject rehashed assumption, got %v", err)
 	}
 }
 
