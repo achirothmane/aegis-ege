@@ -38,6 +38,7 @@ const (
 	ObservationStable        ObservationStatus = "OBSERVED_STABLE"
 	ObservationUnavailable   ObservationStatus = "UNAVAILABLE"
 	ObservationContradictory ObservationStatus = "CONTRADICTORY"
+	ObservationWrongTarget   ObservationStatus = "WRONG_TARGET"
 )
 
 type FieldPostcondition struct {
