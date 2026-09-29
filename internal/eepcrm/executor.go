@@ -288,6 +288,51 @@ func (e *Executor) Execute(
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
+	precondition, err := EvaluateCustomerUpdatePostcondition(plan, before.State)
+	if err != nil {
+		return OutcomeEvidence{}, fmt.Errorf("evaluate pre-mutation postcondition: %w", err)
+	}
+	if precondition.Result == PostconditionVerified {
+		preconditionCopy := precondition
+		outcome, err := newOutcomeEvidence(
+			permit.Claims.IntentID,
+			permit.Claims.Target,
+			packet.Integrity.Digest,
+			permitDigest,
+			planDigest,
+			beforeDigest,
+			beforeDigest,
+			PostconditionAlreadySatisfied,
+			RequestNotDispatched,
+			ObservationPreMutation,
+			1,
+			&preconditionCopy,
+			0,
+			e.clock().UTC(),
+		)
+		if err != nil {
+			return OutcomeEvidence{}, err
+		}
+		if err := e.appendOutcomeEvent(
+			ctx,
+			packet,
+			permit,
+			attemptID,
+			binding,
+			observationHandle,
+			AttemptCompleted,
+			outcome,
+		); err != nil {
+			return outcome, fmt.Errorf("already-satisfied outcome journal append failed: %w", err)
+		}
+		if _, err := e.attempts.Transition(
+			context.Background(), attemptID, AttemptClaimed, AttemptCompleted,
+			0, string(outcome.Result), e.clock().UTC(),
+		); err != nil {
+			return outcome, fmt.Errorf("already-satisfied attempt finalization failed: %w", err)
+		}
+		return outcome, nil
+	}
 
 	executionEvent := journal.Event{
 		Type:                 journal.EventExecution,
@@ -313,87 +358,292 @@ func (e *Executor) Execute(
 		return OutcomeEvidence{}, fmt.Errorf("persist possible CRM effect before dispatch: %w", err)
 	}
 
-	status, err := e.patchCustomer(ctx, plan.CustomerID, plan.Patch, binding.ExpectedResourceVersion)
-	if err != nil {
-		if status == http.StatusPreconditionFailed {
-			_, transitionErr := e.attempts.Transition(
-				context.Background(), attemptID, AttemptPossibleEffect, AttemptBlocked,
-				status, "destination rejected stale precondition", e.clock().UTC(),
-			)
-			if transitionErr != nil {
-				return OutcomeEvidence{}, fmt.Errorf("CRM precondition failed and attempt finalization failed: %w", transitionErr)
-			}
-			return OutcomeEvidence{}, errors.New("CRM destination rejected stale precondition")
+	status, dispatchErr := e.patchCustomer(
+		ctx,
+		plan.CustomerID,
+		plan.Patch,
+		binding.ExpectedResourceVersion,
+	)
+	if dispatchErr != nil && status == http.StatusPreconditionFailed {
+		_, transitionErr := e.attempts.Transition(
+			context.Background(), attemptID, AttemptPossibleEffect, AttemptBlocked,
+			status, "destination rejected stale precondition", e.clock().UTC(),
+		)
+		if transitionErr != nil {
+			return OutcomeEvidence{}, fmt.Errorf("CRM precondition failed and attempt finalization failed: %w", transitionErr)
 		}
-		return OutcomeEvidence{}, fmt.Errorf("%w: %v", ErrMutationOutcomeUnknown, err)
-	}
-	if _, err := e.attempts.Transition(
-		ctx, attemptID, AttemptPossibleEffect, AttemptAccepted,
-		status, "destination returned successful mutation response", e.clock().UTC(),
-	); err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("persist accepted CRM effect: %w", err)
+		return OutcomeEvidence{}, errors.New("CRM destination rejected stale precondition")
 	}
 
-	after, err := e.getCustomer(ctx, plan.CustomerID)
-	if err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("%w: accepted mutation could not be observed: %v", ErrMutationOutcomeUnknown, err)
+	acceptance := RequestAcceptanceUnknown
+	attemptState := AttemptPossibleEffect
+	if dispatchErr == nil {
+		acceptance = RequestAccepted
+		if _, err := e.attempts.Transition(
+			ctx, attemptID, AttemptPossibleEffect, AttemptAccepted,
+			status, "destination returned successful mutation response", e.clock().UTC(),
+		); err != nil {
+			return OutcomeEvidence{}, fmt.Errorf("persist accepted CRM effect: %w", err)
+		}
+		attemptState = AttemptAccepted
 	}
-	if err := e.validateDestinationIdentity(after); err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("%w: post-mutation observation binding failed: %v", ErrMutationOutcomeUnknown, err)
+
+	observation := e.observePostcondition(ctx, plan)
+	if observation.Err != nil {
+		outcome, err := newOutcomeEvidence(
+			permit.Claims.IntentID,
+			permit.Claims.Target,
+			packet.Integrity.Digest,
+			permitDigest,
+			planDigest,
+			beforeDigest,
+			observation.AfterDigest,
+			PostconditionUnknown,
+			acceptance,
+			observation.Status,
+			observation.Count,
+			observation.Evaluation,
+			status,
+			e.clock().UTC(),
+		)
+		if err != nil {
+			return OutcomeEvidence{}, err
+		}
+		if err := e.appendOutcomeEvent(
+			context.Background(),
+			packet,
+			permit,
+			attemptID,
+			binding,
+			observationHandle,
+			attemptState,
+			outcome,
+		); err != nil {
+			return outcome, fmt.Errorf("%w: observation failed and outcome journal append failed: %v", ErrMutationOutcomeUnknown, err)
+		}
+		if dispatchErr != nil {
+			return outcome, fmt.Errorf("%w: dispatch=%v; observation=%v", ErrMutationOutcomeUnknown, dispatchErr, observation.Err)
+		}
+		return outcome, fmt.Errorf("%w: accepted request observation=%v", ErrMutationOutcomeUnknown, observation.Err)
 	}
-	afterDigest, err := journal.DigestPayload(after.State)
+
+	result := observation.Evaluation.Result
+	outcome, err := newOutcomeEvidence(
+		permit.Claims.IntentID,
+		permit.Claims.Target,
+		packet.Integrity.Digest,
+		permitDigest,
+		planDigest,
+		beforeDigest,
+		observation.AfterDigest,
+		result,
+		acceptance,
+		observation.Status,
+		observation.Count,
+		observation.Evaluation,
+		status,
+		e.clock().UTC(),
+	)
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
 
-	result := "APPLIED"
-	if beforeDigest == afterDigest {
-		result = "NO_STATE_CHANGE"
+	if acceptance == RequestAcceptanceUnknown && result != PostconditionVerified {
+		if err := e.appendOutcomeEvent(
+			context.Background(),
+			packet,
+			permit,
+			attemptID,
+			binding,
+			observationHandle,
+			AttemptPossibleEffect,
+			outcome,
+		); err != nil {
+			return outcome, fmt.Errorf("%w: unresolved dispatch and outcome journal append failed: %v", ErrMutationOutcomeUnknown, err)
+		}
+		return outcome, fmt.Errorf(
+			"%w: dispatch=%v; observed postcondition=%s",
+			ErrMutationOutcomeUnknown,
+			dispatchErr,
+			result,
+		)
 	}
+
+	if err := e.appendOutcomeEvent(
+		ctx,
+		packet,
+		permit,
+		attemptID,
+		binding,
+		observationHandle,
+		AttemptCompleted,
+		outcome,
+	); err != nil {
+		return outcome, fmt.Errorf("postcondition outcome journal append failed: %w", err)
+	}
+	if _, err := e.attempts.Transition(
+		context.Background(), attemptID, attemptState, AttemptCompleted,
+		status, string(outcome.Result), e.clock().UTC(),
+	); err != nil {
+		return outcome, fmt.Errorf("postcondition attempt finalization failed: %w", err)
+	}
+	if result != PostconditionVerified {
+		return outcome, fmt.Errorf("%w: %s", ErrPostconditionNotVerified, result)
+	}
+	return outcome, nil
+}
+
+type postconditionObservation struct {
+	Evaluation *PostconditionEvaluation
+	AfterDigest string
+	Status      ObservationStatus
+	Count       int
+	Err         error
+}
+
+func (e *Executor) observePostcondition(
+	ctx context.Context,
+	plan CustomerUpdatePlan,
+) postconditionObservation {
+	const observationReads = 3
+	evaluations := make([]PostconditionEvaluation, 0, observationReads)
+	snapshots := make([]customerSnapshot, 0, observationReads)
+	for i := 0; i < observationReads; i++ {
+		snapshot, err := e.getCustomer(ctx, plan.CustomerID)
+		if err != nil {
+			return postconditionObservation{
+				Status: ObservationUnavailable,
+				Count:  len(evaluations),
+				Err:    fmt.Errorf("post-mutation read %d failed: %w", i+1, err),
+			}
+		}
+		if err := e.validateDestinationIdentity(snapshot); err != nil {
+			return postconditionObservation{
+				Status: ObservationUnavailable,
+				Count:  len(evaluations) + 1,
+				Err:    fmt.Errorf("post-mutation destination binding failed: %w", err),
+			}
+		}
+		if err := validateObservedCustomerTarget(snapshot.State, plan.CustomerID); err != nil {
+			return postconditionObservation{
+				Status: ObservationWrongTarget,
+				Count:  len(evaluations) + 1,
+				Err:    err,
+			}
+		}
+		evaluation, err := EvaluateCustomerUpdatePostcondition(plan, snapshot.State)
+		if err != nil {
+			return postconditionObservation{
+				Status: ObservationUnavailable,
+				Count:  len(evaluations) + 1,
+				Err:    err,
+			}
+		}
+		evaluations = append(evaluations, evaluation)
+		snapshots = append(snapshots, snapshot)
+	}
+	last := evaluations[len(evaluations)-1]
+	previous := evaluations[len(evaluations)-2]
+	lastSnapshot := snapshots[len(snapshots)-1]
+	afterDigest, err := journal.DigestPayload(lastSnapshot.State)
+	if err != nil {
+		return postconditionObservation{
+			Status: ObservationUnavailable,
+			Count:  len(evaluations),
+			Err:    err,
+		}
+	}
+	if !EquivalentPostconditionObservation(previous, last) {
+		lastCopy := last
+		return postconditionObservation{
+			Evaluation:  &lastCopy,
+			AfterDigest: afterDigest,
+			Status:      ObservationContradictory,
+			Count:       len(evaluations),
+			Err:         errors.New("postcondition observations did not stabilize"),
+		}
+	}
+	lastCopy := last
+	return postconditionObservation{
+		Evaluation:  &lastCopy,
+		AfterDigest: afterDigest,
+		Status:      ObservationStable,
+		Count:       len(evaluations),
+	}
+}
+
+func newOutcomeEvidence(
+	intentID string,
+	target egeproto.Target,
+	evidencePacketDigest string,
+	permitDigest string,
+	planDigest string,
+	beforeDigest string,
+	afterDigest string,
+	result PostconditionResult,
+	acceptance RequestAcceptance,
+	observation ObservationStatus,
+	observationCount int,
+	evaluation *PostconditionEvaluation,
+	httpStatus int,
+	observedAt time.Time,
+) (OutcomeEvidence, error) {
 	outcome := OutcomeEvidence{
 		APIVersion:           OutcomeVersion,
-		IntentID:             permit.Claims.IntentID,
-		Target:               permit.Claims.Target.Type + "/" + permit.Claims.Target.Name,
-		EvidencePacketDigest: packet.Integrity.Digest,
+		PostconditionProfile: PostconditionProfileVersion,
+		IntentID:             intentID,
+		Target:               target.Type + "/" + target.Name,
+		EvidencePacketDigest: evidencePacketDigest,
 		PermitDigest:         permitDigest,
 		PlanDigest:           planDigest,
 		BeforeDigest:         beforeDigest,
 		AfterDigest:          afterDigest,
 		Result:               result,
-		HTTPStatus:           status,
-		ObservedAt:           e.clock().UTC(),
+		RequestAcceptance:    acceptance,
+		ObservationStatus:    observation,
+		ObservationCount:     observationCount,
+		Postcondition:        evaluation,
+		HTTPStatus:           httpStatus,
+		ObservedAt:           observedAt.UTC(),
 	}
-	outcomeDigest, err := digestOutcome(outcome)
+	if err := validateOutcomeSemantics(outcome); err != nil {
+		return OutcomeEvidence{}, err
+	}
+	digest, err := digestOutcome(outcome)
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
-	outcome.IntegrityDigest = outcomeDigest
+	outcome.IntegrityDigest = digest
+	return outcome, nil
+}
 
-	if _, err := e.journal.Append(ctx, journal.Event{
+func (e *Executor) appendOutcomeEvent(
+	ctx context.Context,
+	packet evidencepipeline.Packet,
+	permit egeproto.Permit,
+	attemptID string,
+	binding *egeproto.ExecutionBindingClaims,
+	observationHandle string,
+	attemptState AttemptState,
+	outcome OutcomeEvidence,
+) error {
+	_, err := e.journal.Append(ctx, journal.Event{
 		Type:                 journal.EventOutcome,
 		ActionID:             permit.Claims.IntentID,
 		Target:               outcome.Target,
 		EvidenceDigest:       permit.Claims.EvidenceDigest,
 		EvidencePacketDigest: packet.Integrity.Digest,
-		PlanDigest:           planDigest,
+		PlanDigest:           outcome.PlanDigest,
 		AttemptID:            attemptID,
 		DestinationID:        binding.DestinationID,
 		AccountID:            binding.AccountID,
 		ObservationHandle:    observationHandle,
-		AttemptState:         string(AttemptCompleted),
-		OutcomeVerdict:       outcome.Result,
+		AttemptState:         string(attemptState),
+		OutcomeVerdict:       string(outcome.Result),
 		PayloadDigest:        outcome.IntegrityDigest,
 		OccurredAt:           outcome.ObservedAt,
-	}); err != nil {
-		return outcome, fmt.Errorf("mutation completed but outcome journal append failed: %w", err)
-	}
-	if _, err := e.attempts.Transition(
-		context.Background(), attemptID, AttemptAccepted, AttemptCompleted,
-		status, outcome.Result, e.clock().UTC(),
-	); err != nil {
-		return outcome, fmt.Errorf("mutation completed but attempt finalization failed: %w", err)
-	}
-	return outcome, nil
+	})
+	return err
 }
 
 func (e *Executor) validateExecutionBinding(
