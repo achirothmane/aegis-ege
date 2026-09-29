@@ -27,7 +27,7 @@ GET   /customers/{customer_id}
 PATCH /customers/{customer_id}
 ```
 
-A stateful mock is enough. Use synthetic data only.
+A stateful mock is enough only if it can expose destination/account identity headers and enforce ETag/If-Match conditional mutation. Use synthetic data only.
 
 ## 1. Import the n8n workflow
 
@@ -73,6 +73,9 @@ EEP_N8N_WEBHOOK_URL
 EEP_N8N_AUTH_TOKEN
 EEP_SOURCE_PRINCIPAL
 EEP_CRM_BASE_URL
+EEP_CRM_DESTINATION_ID
+EEP_CRM_ACCOUNT_ID
+EEP_CRM_EXPECTED_RESOURCE_VERSION
 EEP_PATCH_JSON
 EEP_N8N_TRIGGER_JSON
 ```
@@ -88,9 +91,12 @@ Do not commit secret values.
 Recommended non-secret values:
 
 ```text
-EEP_SOURCE_PRINCIPAL = spiffe://aegis-ege.live/n8n
-EEP_PATCH_JSON       = {"tier":"gold"}
-EEP_N8N_TRIGGER_JSON = {"requested_tier":"gold","ticket":"T-42"}
+EEP_SOURCE_PRINCIPAL             = spiffe://aegis-ege.live/n8n
+EEP_CRM_DESTINATION_ID            = synthetic-crm-1
+EEP_CRM_ACCOUNT_ID                = synthetic-account-1
+EEP_CRM_EXPECTED_RESOURCE_VERSION = <current ETag>
+EEP_PATCH_JSON                    = {"tier":"gold"}
+EEP_N8N_TRIGGER_JSON              = {"requested_tier":"gold","ticket":"T-42"}
 ```
 
 For `EEP_N8N_AUTH_TOKEN`, store only the raw token. The validation harness adds `Bearer ` itself.
@@ -112,11 +118,11 @@ A successful independent run should end with:
 {
   "status": "PASS",
   "outcome": "APPLIED",
-  "journal_entries": 2
+  "journal_entries": 3
 }
 ```
 
-and non-empty packet, permit, and outcome digests.
+and non-empty packet, permit, and outcome digests. The current profile also requires that the mutation was conditionally guarded at the destination and that the durable attempt record prevented duplicate dispatch.
 
 ## 5. Report the result
 
