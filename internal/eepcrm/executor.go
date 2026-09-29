@@ -27,7 +27,10 @@ const (
 	headerAccountID     = "X-Aegis-Account-ID"
 )
 
-var ErrMutationOutcomeUnknown = errors.New("CRM mutation outcome is unknown")
+var (
+	ErrMutationOutcomeUnknown   = errors.New("CRM mutation outcome is unknown")
+	ErrPostconditionNotVerified = errors.New("CRM intended postcondition not verified")
+)
 
 type JournalAppender interface {
 	Append(context.Context, journal.Event) (journal.Entry, error)
