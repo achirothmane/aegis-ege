@@ -131,15 +131,20 @@ The external validation recorded in
 `docs/eep-external-validation-v1.md` predates this profile and therefore does
 not prove C06 destination/precondition or durable-attempt guarantees.
 
-## What C06 does not prove
+## Outcome verification after C07
 
-This profile does not prove:
+Mutation admission and attempt custody remain owned by this C06 execution
+profile. The domain outcome oracle is now separately defined by
+[`aegis.eep/crm-postcondition/v1`](eep-crm-postcondition-profile-v1.md).
+
+A 2xx response or changed whole-state digest is not a verified intended effect.
+The postcondition profile must establish the requested fields on the exact bound
+customer, or retain PARTIAL / UNSATISFIED / UNKNOWN.
+
+This execution profile still does not prove:
 
 - provider-independent exactly-once mutation;
 - remote fencing for a provider that ignores If-Match;
 - safe automatic failover to another CRM endpoint;
 - universal replay recovery;
-- verified intended postcondition.
-
-The last item is owned by C07. C06 establishes bounded mutation admission and
-attempt custody, not the final outcome oracle.
+- causal attribution merely from an observed desired state.
