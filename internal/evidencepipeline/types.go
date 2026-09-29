@@ -34,13 +34,22 @@ type RuntimeEvent struct {
 	Data       map[string]any `json:"data"`
 }
 
+type ExecutionBinding struct {
+	DestinationID           string `json:"destination_id"`
+	AccountID               string `json:"account_id"`
+	Endpoint                string `json:"endpoint"`
+	AdapterProfile          string `json:"adapter_profile"`
+	ExpectedResourceVersion string `json:"expected_resource_version"`
+}
+
 type BootstrapContext struct {
-	AuthorityRef        string   `json:"authority_ref"`
-	PolicyRef           string   `json:"policy_ref"`
-	RedactionProfileRef string   `json:"redaction_profile_ref"`
-	ConsequenceClass    string   `json:"consequence_class"`
-	ControlRefs         []string `json:"control_refs,omitempty"`
-	ApprovalRefs        []string `json:"approval_refs,omitempty"`
+	AuthorityRef        string            `json:"authority_ref"`
+	PolicyRef           string            `json:"policy_ref"`
+	RedactionProfileRef string            `json:"redaction_profile_ref"`
+	ConsequenceClass    string            `json:"consequence_class"`
+	ExecutionBinding    *ExecutionBinding `json:"execution_binding,omitempty"`
+	ControlRefs         []string          `json:"control_refs,omitempty"`
+	ApprovalRefs        []string          `json:"approval_refs,omitempty"`
 }
 
 type CompileRequest struct {
