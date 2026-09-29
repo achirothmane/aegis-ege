@@ -268,6 +268,8 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 			s.approvalAuthority,
 			egeproto.KubernetesDrainConformanceInput{
 				PrincipalID:         s.config.EBAExecutionPrincipal,
+				Audience:            s.config.EBAAudience,
+				Namespace:           s.config.EBANamespace,
 				AssumptionArtifacts: req.EBA.AssumptionArtifacts,
 				AuthorityArtifact:   req.EBA.AuthorityArtifact,
 				BudgetArtifact:      req.EBA.BudgetArtifact,
