@@ -639,6 +639,13 @@ func TestEGEEvidenceIndependenceMissingRequiredDependencyCoverageIsUnknown(t *te
 	)
 	telemetry := policy.SourceDeclarations["telemetry"]
 	telemetry.DependencyCoverage = []string{"credential", "upstream"}
+	filtered := telemetry.Dependencies[:0]
+	for _, dependency := range telemetry.Dependencies {
+		if dependency.Kind != "administrative" {
+			filtered = append(filtered, dependency)
+		}
+	}
+	telemetry.Dependencies = filtered
 	policy.SourceDeclarations["telemetry"] = telemetry
 
 	result := composeTwoSourcePolicy(t, policy)
