@@ -64,6 +64,16 @@ It proves one complete externally executed chain where:
 - Outcome Evidence verified;
 - the tamper-evident journal contained exactly two entries: authorization + outcome.
 
+## C06 migration note
+
+This run predates `aegis.eep/crm-http-json/v1` and remains valid historical
+evidence for the older external chain only. It does **not** establish the C06
+guarantees for destination/account binding, ETag conditional mutation, durable
+attempt claiming, redirect rejection, or ambiguous-response replay blocking.
+
+A new external validation under the C06 profile requires a target that exposes
+the required destination/account identity headers and enforces If-Match.
+
 ## What this does not prove
 
 This is **technical validation, not business evidence**.
