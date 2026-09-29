@@ -79,9 +79,15 @@ Therefore a buggy future producer cannot accidentally return `BLOCK` or `ESCALAT
 
 The primary producer is no longer assumed to be the entire evidence universe.
 
-Aegis can compose its output with additional named contributors, each carrying an explicit trust domain, digest, observation time, and evidence classes.
+Aegis can compose its output with additional named contributors, each carrying
+a trust-domain label, digest, observation time, and evidence classes.
 
-The composition engine can require a minimum source count, a minimum number of distinct trust domains, and specific required source names before a permit is minted.
+Source count and trust-domain labels are not treated as proof of independence.
+When a policy requires independent failure domains, the
+`aegis.ege/evidence-composition/v1` profile additionally binds producer id,
+subject, observation path, material dependency coverage and declaration
+assurance. The independence predicate—not label count—then determines whether
+the stronger policy is satisfied.
 
 The current Kubernetes production policy intentionally remains one-source:
 
@@ -90,7 +96,11 @@ statelatch.kubernetes.node_drain
 → trust domain: kubernetes-control-plane
 ```
 
-Multi-source behavior is proven with synthetic independent contributors in tests, but no second real production source has been added yet.
+Multi-source behavior is exercised with synthetic contributors in tests.
+C09 distinguishes ordinary multi-source corroboration from ASSERTED or
+CORROBORATED independence. A real Prometheus contributor may be configured,
+but its independence remains UNKNOWN unless the operator supplies the bounded
+dependency declaration profile required for that stronger claim.
 
 See [evidence-composition.md](evidence-composition.md) for the composition contract and fail-closed semantics.
 
