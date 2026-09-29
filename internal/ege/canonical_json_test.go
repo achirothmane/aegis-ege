@@ -22,9 +22,10 @@ func TestCanonicalJSONExactCrossLanguageVectors(t *testing.T) {
 			digest:   "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777",
 		},
 		{
-			name:     "unicode html",
-			raw:      json.RawMessage(`{"unicode":"café 😀","html":"<&>"}`),
-			expected: `{"html":"\u003c\u0026\u003e","unicode":"café 😀"}`,
+			name:     "unicode html and separators",
+			raw:      json.RawMessage(`{"unicode":"café 😀","html":"<&>","separator":"x\u2028y\u2029z"}`),
+			expected: `{"html":"\u003c\u0026\u003e","separator":"x\u2028y\u2029z","unicode":"café 😀"}`,
+			digest:   "7f2e599c014e92f6a70aad42b64deb3077b5489db77352a0d9898a283862761f",
 		},
 		{
 			name:     "safe integers",
