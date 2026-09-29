@@ -734,6 +734,9 @@ func VerifyOutcome(outcome OutcomeEvidence) error {
 	if outcome.APIVersion != OutcomeVersion {
 		return fmt.Errorf("unsupported outcome version %q", outcome.APIVersion)
 	}
+	if err := validateOutcomeSemantics(outcome); err != nil {
+		return err
+	}
 	if outcome.IntegrityDigest == "" {
 		return errors.New("outcome integrity digest is required")
 	}
@@ -743,6 +746,84 @@ func VerifyOutcome(outcome OutcomeEvidence) error {
 	}
 	if actual != outcome.IntegrityDigest {
 		return errors.New("outcome integrity mismatch")
+	}
+	return nil
+}
+
+func validateOutcomeSemantics(outcome OutcomeEvidence) error {
+	if outcome.PostconditionProfile != PostconditionProfileVersion {
+		return fmt.Errorf("unsupported postcondition profile %q", outcome.PostconditionProfile)
+	}
+	if strings.TrimSpace(outcome.IntentID) == "" ||
+		strings.TrimSpace(outcome.Target) == "" ||
+		strings.TrimSpace(outcome.EvidencePacketDigest) == "" ||
+		strings.TrimSpace(outcome.PermitDigest) == "" ||
+		strings.TrimSpace(outcome.PlanDigest) == "" ||
+		strings.TrimSpace(outcome.BeforeDigest) == "" {
+		return errors.New("outcome identity/evidence binding is incomplete")
+	}
+	if outcome.ObservationCount < 0 {
+		return errors.New("outcome observation count is invalid")
+	}
+	if outcome.Postcondition != nil {
+		if err := ValidatePostconditionEvaluation(*outcome.Postcondition); err != nil {
+			return fmt.Errorf("postcondition evidence invalid: %w", err)
+		}
+	}
+	switch outcome.Result {
+	case PostconditionAlreadySatisfied:
+		if outcome.RequestAcceptance != RequestNotDispatched ||
+			outcome.ObservationStatus != ObservationPreMutation ||
+			outcome.ObservationCount != 1 ||
+			outcome.HTTPStatus != 0 ||
+			outcome.AfterDigest == "" ||
+			outcome.AfterDigest != outcome.BeforeDigest ||
+			outcome.Postcondition == nil ||
+			outcome.Postcondition.Result != PostconditionVerified {
+			return errors.New("ALREADY_SATISFIED outcome is inconsistent")
+		}
+	case PostconditionVerified:
+		if outcome.RequestAcceptance != RequestAccepted &&
+			outcome.RequestAcceptance != RequestAcceptanceUnknown {
+			return errors.New("VERIFIED outcome has invalid request acceptance")
+		}
+		if outcome.ObservationStatus != ObservationStable ||
+			outcome.ObservationCount < 2 ||
+			outcome.AfterDigest == "" ||
+			outcome.Postcondition == nil ||
+			outcome.Postcondition.Result != PostconditionVerified {
+			return errors.New("VERIFIED outcome lacks stable intended-postcondition evidence")
+		}
+	case PostconditionPartial:
+		if outcome.RequestAcceptance != RequestAccepted ||
+			outcome.ObservationStatus != ObservationStable ||
+			outcome.ObservationCount < 2 ||
+			outcome.AfterDigest == "" ||
+			outcome.Postcondition == nil ||
+			outcome.Postcondition.Result != PostconditionPartial {
+			return errors.New("PARTIAL outcome is inconsistent")
+		}
+	case PostconditionUnsatisfied:
+		if outcome.RequestAcceptance != RequestAccepted ||
+			outcome.ObservationStatus != ObservationStable ||
+			outcome.ObservationCount < 2 ||
+			outcome.AfterDigest == "" ||
+			outcome.Postcondition == nil ||
+			outcome.Postcondition.Result != PostconditionUnsatisfied {
+			return errors.New("UNSATISFIED outcome is inconsistent")
+		}
+	case PostconditionUnknown:
+		if outcome.RequestAcceptance != RequestAccepted &&
+			outcome.RequestAcceptance != RequestAcceptanceUnknown {
+			return errors.New("UNKNOWN outcome has invalid request acceptance")
+		}
+		switch outcome.ObservationStatus {
+		case ObservationUnavailable, ObservationContradictory, ObservationWrongTarget:
+		default:
+			return errors.New("UNKNOWN outcome requires unavailable, contradictory, or wrong-target observation")
+		}
+	default:
+		return fmt.Errorf("unsupported outcome result %q", outcome.Result)
 	}
 	return nil
 }
