@@ -12,9 +12,12 @@ import (
 )
 
 const EBAContractVersion = "eba.integration/v0.1"
+const EBAContextProfileVersion = "eba.context/v1"
 
 type KubernetesDrainConformanceInput struct {
 	PrincipalID        string
+	Audience           string
+	Namespace          string
 	AssumptionArtifacts []json.RawMessage
 	AuthorityArtifact   json.RawMessage
 	BudgetArtifact      json.RawMessage
@@ -55,6 +58,25 @@ func ValidateKubernetesDrainConformance(
 	if len(input.BudgetArtifact) != 0 {
 		return errors.New("BUDGET_NOT_APPLICABLE")
 	}
+	claims := input.Permit.Claims
+	if claims.EBAContextProfile != EBAContextProfileVersion {
+		return errors.New("EBA_CONTEXT_PROFILE_INVALID")
+	}
+	if input.Audience == "" || input.Namespace == "" {
+		return errors.New("EBA_CONSUMER_CONTEXT_MISSING")
+	}
+	if claims.EBATraceID == "" || claims.EBAAudience == "" || claims.EBANamespace == "" {
+		return errors.New("EBA_CONTEXT_BINDING_MISSING")
+	}
+	if claims.EBAAudience != input.Audience {
+		return errors.New("EBA_AUDIENCE_MISMATCH")
+	}
+	if claims.EBANamespace != input.Namespace {
+		return errors.New("EBA_NAMESPACE_MISMATCH")
+	}
+	if claims.EBAAuthorityRef == "" || len(claims.EBAAssumptionRefs) == 0 {
+		return errors.New("EBA_ARTIFACT_BINDING_MISSING")
+	}
 
 	manifestDigest, err := DigestEvidenceManifest(input.EvidenceManifest)
 	if err != nil {
@@ -72,10 +94,35 @@ func ValidateKubernetesDrainConformance(
 		return errors.New("EVIDENCE_BINDING_MISMATCH")
 	}
 
+	actualAssumptionRefs := make([]string, 0, len(input.AssumptionArtifacts))
 	for _, raw := range input.AssumptionArtifacts {
-		if err := validateEBAAssumption(raw, now); err != nil {
+		ref, err := EBAArtifactRef(raw)
+		if err != nil {
+			return fmt.Errorf("ASSUMPTION_REFERENCE_INVALID: %w", err)
+		}
+		actualAssumptionRefs = append(actualAssumptionRefs, ref)
+		if err := validateEBAAssumption(raw, input.Permit.Claims, now); err != nil {
 			return err
 		}
+	}
+	sort.Strings(actualAssumptionRefs)
+	expectedAssumptionRefs := append([]string(nil), input.Permit.Claims.EBAAssumptionRefs...)
+	sort.Strings(expectedAssumptionRefs)
+	if len(actualAssumptionRefs) != len(expectedAssumptionRefs) {
+		return errors.New("ASSUMPTION_REFERENCE_SET_MISMATCH")
+	}
+	for i := range actualAssumptionRefs {
+		if actualAssumptionRefs[i] != expectedAssumptionRefs[i] {
+			return errors.New("ASSUMPTION_REFERENCE_SET_MISMATCH")
+		}
+	}
+
+	authorityRef, err := EBAArtifactRef(input.AuthorityArtifact)
+	if err != nil {
+		return fmt.Errorf("AUTHORITY_REFERENCE_INVALID: %w", err)
+	}
+	if authorityRef != input.Permit.Claims.EBAAuthorityRef {
+		return errors.New("AUTHORITY_REFERENCE_MISMATCH")
 	}
 	if err := validateEBAAuthority(
 		input.AuthorityArtifact,
@@ -98,7 +145,7 @@ func ValidateKubernetesDrainConformance(
 	return nil
 }
 
-func validateEBAAssumption(raw json.RawMessage, now time.Time) error {
+func validateEBAAssumption(raw json.RawMessage, claims PermitClaims, now time.Time) error {
 	var artifact map[string]any
 	if err := json.Unmarshal(raw, &artifact); err != nil {
 		return fmt.Errorf("ASSUMPTION_INVALID_JSON: %w", err)
@@ -111,6 +158,29 @@ func validateEBAAssumption(raw json.RawMessage, now time.Time) error {
 	}
 	if artifact["status"] != "VALID" {
 		return fmt.Errorf("ASSUMPTION_NOT_VALID:%v", artifact["status"])
+	}
+	if artifact["context_profile"] != EBAContextProfileVersion {
+		return errors.New("ASSUMPTION_CONTEXT_PROFILE_INVALID")
+	}
+	if artifact["trace_id"] != claims.EBATraceID {
+		return errors.New("ASSUMPTION_TRACE_MISMATCH")
+	}
+	if artifact["subject_ref"] != claims.IntentID {
+		return errors.New("ASSUMPTION_SUBJECT_MISMATCH")
+	}
+	trust, ok := artifact["trust"].(map[string]any)
+	if !ok || trust["mode"] != "authenticated_parent_binding" {
+		return errors.New("ASSUMPTION_TRUST_ENVELOPE_INVALID")
+	}
+	if trust["audience"] != claims.EBAAudience {
+		return errors.New("ASSUMPTION_AUDIENCE_MISMATCH")
+	}
+	if trust["namespace"] != claims.EBANamespace {
+		return errors.New("ASSUMPTION_NAMESPACE_MISMATCH")
+	}
+	evidenceRefs, ok := artifact["evidence_refs"].([]any)
+	if !ok || len(evidenceRefs) != 1 || evidenceRefs[0] != claims.EvidenceDigest {
+		return errors.New("ASSUMPTION_EVIDENCE_BINDING_MISMATCH")
 	}
 	if err := validateEBAIntegrity(artifact, "ASSUMPTION_INTEGRITY_INVALID"); err != nil {
 		return err
@@ -159,6 +229,25 @@ func validateEBAAuthority(
 	}
 	if revoked, ok := artifact["revoked"].(bool); !ok || revoked {
 		return errors.New("AUTHORITY_REVOKED")
+	}
+	if artifact["context_profile"] != EBAContextProfileVersion {
+		return errors.New("AUTHORITY_CONTEXT_PROFILE_INVALID")
+	}
+	if artifact["trace_id"] != claims.EBATraceID {
+		return errors.New("AUTHORITY_TRACE_MISMATCH")
+	}
+	if artifact["subject_ref"] != claims.IntentID {
+		return errors.New("AUTHORITY_SUBJECT_MISMATCH")
+	}
+	trust, ok := artifact["trust"].(map[string]any)
+	if !ok || trust["mode"] != "authenticated_parent_binding" {
+		return errors.New("AUTHORITY_TRUST_ENVELOPE_INVALID")
+	}
+	if trust["audience"] != claims.EBAAudience {
+		return errors.New("AUTHORITY_AUDIENCE_MISMATCH")
+	}
+	if trust["namespace"] != claims.EBANamespace {
+		return errors.New("AUTHORITY_NAMESPACE_MISMATCH")
 	}
 	if err := validateEBAIntegrity(artifact, "AUTHORITY_INTEGRITY_INVALID"); err != nil {
 		return err
@@ -259,6 +348,15 @@ func validateEBAIntegrity(artifact map[string]any, code string) error {
 		return errors.New(code)
 	}
 	return nil
+}
+
+func EBAArtifactRef(raw json.RawMessage) (string, error) {
+	body, err := CanonicalJSON(raw)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func canonicalMapDigest(value map[string]any) (string, error) {

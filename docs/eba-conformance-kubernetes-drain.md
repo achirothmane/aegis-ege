@@ -38,6 +38,23 @@ The fixture shapes are compatible with:
 - Aegis-EGE -> signed `ApprovalAttestation` and execution `Permit`;
 - Token Governance Protocol is intentionally absent for this execution profile.
 
+## Context and issuer trust
+
+The Kubernetes drain profile uses `eba.context/v1` with a server-owned
+audience and singleton deployment namespace. The client does not authenticate
+itself by choosing those strings.
+
+AssumptionState and AuthorityGrant remain self-hashed for integrity, but that
+hash is not accepted as issuer authentication. Their canonical artifact
+digests, trace id, audience and namespace are bound into the signed execution
+Permit. A rehashed substitute therefore fails unless the trusted permit issuer
+has explicitly bound that exact artifact.
+
+The server then still validates the artifact's semantic bindings: principal,
+intent/subject, action, resource, evidence reference and profile context. The
+signed parent binding and the artifact's local integrity serve different
+purposes.
+
 ## What is proved
 
 The conformance validator fails closed when:

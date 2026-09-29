@@ -91,6 +91,89 @@ func newEBAExecuteFixture(t *testing.T) (
 		PlanDigest:             manifest.PlanDigest,
 		ValidUntil:             now.Add(2 * time.Minute),
 	}
+	traceID := "tr_eba_1"
+	audience := "aegis-ege"
+	namespace := "deployment:aegis-ege"
+
+	assumption := signedEBAArtifact(t, map[string]any{
+		"contract_version":     egeproto.EBAContractVersion,
+		"kind":                 "AssumptionState",
+		"context_profile":      egeproto.EBAContextProfileVersion,
+		"id":                   "as_eba_1",
+		"trace_id":             traceID,
+		"subject_ref":          claims.IntentID,
+		"producer":             "assumption-gate/kubernetes-drain-profile",
+		"trust": map[string]any{
+			"mode":      "authenticated_parent_binding",
+			"issuer":    "assumption-gate/kubernetes-drain-profile",
+			"audience":  audience,
+			"namespace": namespace,
+		},
+		"created_at":           now.Format(time.RFC3339),
+		"assumption_id":        "kubernetes.node-drain-preconditions-hold",
+		"proposition":          "The observed node and workload state still satisfies the drain preconditions.",
+		"status":               "VALID",
+		"evidence_refs":        []any{manifest.EvidenceDigest},
+		"dependencies":         []any{"node-resource-version", "pod-set", "pdb-state"},
+		"checked_at":           now.Format(time.RFC3339),
+		"valid_until":          now.Add(time.Minute).Format(time.RFC3339),
+		"invalidation_reasons": []any{},
+	})
+
+	scope := map[string]any{
+		"actor":       "aegis-ege",
+		"tool":        "kubernetes",
+		"operation":   "drain",
+		"resource":    "kubernetes://node/node-7",
+		"side_effect": true,
+	}
+	authority := signedEBAArtifact(t, map[string]any{
+		"contract_version": egeproto.EBAContractVersion,
+		"kind":             "AuthorityGrant",
+		"context_profile":  egeproto.EBAContextProfileVersion,
+		"id":               "auth_eba_1",
+		"trace_id":         traceID,
+		"subject_ref":      claims.IntentID,
+		"producer":         "agent-action-guard/kubernetes-drain-profile",
+		"trust": map[string]any{
+			"mode":      "authenticated_parent_binding",
+			"issuer":    "policy:kubernetes-drain-authority-v1",
+			"audience":  audience,
+			"namespace": namespace,
+		},
+		"created_at": now.Format(time.RFC3339),
+		"principal":  map[string]any{"type": "agent", "id": "aegis-ege"},
+		"allowed_actions": []any{
+			map[string]any{"tool": "kubernetes", "operation": "drain", "side_effect": true},
+		},
+		"resource_scope":      []any{"kubernetes://node/node-7"},
+		"context_constraints": map[string]any{"kind": []any{egeNodeDrainKind}},
+		"issued_by":           "policy:kubernetes-drain-authority-v1",
+		"not_before":          now.Add(-time.Minute).Format(time.RFC3339),
+		"expires_at":          now.Add(time.Minute).Format(time.RFC3339),
+		"revoked":             false,
+		"policy_ref":          "kubernetes-drain-authority-v1",
+		"matched_allow_rule_ids": []any{
+			"allow-aegis-node-drain",
+		},
+		"action_id":           claims.IntentID,
+		"action_scope_digest": canonicalTestDigest(t, scope),
+	})
+
+	assumptionRef, err := egeproto.EBAArtifactRef(assumption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorityRef, err := egeproto.EBAArtifactRef(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims.EBAContextProfile = egeproto.EBAContextProfileVersion
+	claims.EBATraceID = traceID
+	claims.EBAAudience = audience
+	claims.EBANamespace = namespace
+	claims.EBAAssumptionRefs = []string{assumptionRef}
+	claims.EBAAuthorityRef = authorityRef
 
 	approval, err := egeproto.SignApproval(ctx, approvalAuthority, egeproto.ApprovalClaims{
 		ApprovalID:      "approval-eba-1",
@@ -118,55 +201,6 @@ func newEBAExecuteFixture(t *testing.T) (
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	assumption := signedEBAArtifact(t, map[string]any{
-		"contract_version":     egeproto.EBAContractVersion,
-		"kind":                 "AssumptionState",
-		"id":                   "as_eba_1",
-		"trace_id":             "tr_eba_1",
-		"producer":             "assumption-gate/kubernetes-drain-profile",
-		"created_at":           now.Format(time.RFC3339),
-		"assumption_id":        "kubernetes.node-drain-preconditions-hold",
-		"proposition":          "The observed node and workload state still satisfies the drain preconditions.",
-		"status":               "VALID",
-		"evidence_refs":        []any{"sha256:evidence"},
-		"dependencies":         []any{"node-resource-version", "pod-set", "pdb-state"},
-		"checked_at":           now.Format(time.RFC3339),
-		"valid_until":          now.Add(time.Minute).Format(time.RFC3339),
-		"invalidation_reasons": []any{},
-	})
-
-	scope := map[string]any{
-		"actor":       "aegis-ege",
-		"tool":        "kubernetes",
-		"operation":   "drain",
-		"resource":    "kubernetes://node/node-7",
-		"side_effect": true,
-	}
-	authority := signedEBAArtifact(t, map[string]any{
-		"contract_version": egeproto.EBAContractVersion,
-		"kind":             "AuthorityGrant",
-		"id":               "auth_eba_1",
-		"trace_id":         "tr_eba_1",
-		"producer":         "agent-action-guard/kubernetes-drain-profile",
-		"created_at":       now.Format(time.RFC3339),
-		"principal":        map[string]any{"type": "agent", "id": "aegis-ege"},
-		"allowed_actions": []any{
-			map[string]any{"tool": "kubernetes", "operation": "drain", "side_effect": true},
-		},
-		"resource_scope":      []any{"kubernetes://node/node-7"},
-		"context_constraints": map[string]any{"kind": []any{egeNodeDrainKind}},
-		"issued_by":           "policy:kubernetes-drain-authority-v1",
-		"not_before":          now.Add(-time.Minute).Format(time.RFC3339),
-		"expires_at":          now.Add(time.Minute).Format(time.RFC3339),
-		"revoked":             false,
-		"policy_ref":          "kubernetes-drain-authority-v1",
-		"matched_allow_rule_ids": []any{
-			"allow-aegis-node-drain",
-		},
-		"action_id":           claims.IntentID,
-		"action_scope_digest": canonicalTestDigest(t, scope),
-	})
 
 	controller := &fakeController{
 		report: kubeadapter.GuardedDrainExecutionReport{
@@ -304,7 +338,7 @@ func TestEGEExecuteEBAEnforcementRejectsTamperedAuthority(t *testing.T) {
 		t.Fatalf("expected 403, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if !strings.Contains(recorder.Body.String(), "EBA_CONFORMANCE_BLOCKED") ||
-		!strings.Contains(recorder.Body.String(), "AUTHORITY_INTEGRITY_INVALID") {
+		!strings.Contains(recorder.Body.String(), "AUTHORITY_REFERENCE_MISMATCH") {
 		t.Fatalf("unexpected body: %s", recorder.Body.String())
 	}
 	if controller.executeCalls != 0 {

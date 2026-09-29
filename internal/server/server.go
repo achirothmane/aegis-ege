@@ -36,6 +36,8 @@ type Config struct {
 	RequireEBAConformance      bool
 	EBAApprovalAuthority       egeproto.SignatureVerifier
 	EBAExecutionPrincipal      string
+	EBAAudience                string
+	EBANamespace               string
 	RequireCapabilityFencing   bool
 	CapabilityFenceAuthority   CapabilityFenceAuthority
 	EGEConsequencePolicy       *egeproto.ConsequencePolicy
@@ -132,6 +134,16 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 		config.EBAExecutionPrincipal = "aegis-ege"
 	} else {
 		config.EBAExecutionPrincipal = strings.TrimSpace(config.EBAExecutionPrincipal)
+	}
+	if strings.TrimSpace(config.EBAAudience) == "" {
+		config.EBAAudience = "aegis-ege"
+	} else {
+		config.EBAAudience = strings.TrimSpace(config.EBAAudience)
+	}
+	if strings.TrimSpace(config.EBANamespace) == "" {
+		config.EBANamespace = "deployment:aegis-ege"
+	} else {
+		config.EBANamespace = strings.TrimSpace(config.EBANamespace)
 	}
 	permitAuthority := config.EGEPermitAuthority
 	if permitAuthority == nil {
