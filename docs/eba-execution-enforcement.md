@@ -84,6 +84,32 @@ authenticate caller
 This matters: an invalid EBA bundle does not consume the replay claim and never
 reaches the mutation controller.
 
+## Complete mediation across node-drain execution routes
+
+The legacy endpoint `POST /v1/node-drains/execute` cannot carry the EBA
+execution bundle, consequence-admission inputs, or capability-fence claims used
+by the governed EGE boundary.
+
+Therefore, when either of these execution obligations is configured:
+
+- `RequireEBAConformance == true`; or
+- `RequireCapabilityFencing == true`;
+
+Aegis rejects the legacy execute route **before** it claims replay/capability
+state or calls the mutation controller:
+
+```text
+409 EGE_EXECUTION_REQUIRED
+```
+
+The caller must migrate the mutation to `POST /v1/ege/execute`, where the
+configured obligations are enforced at the actual execution boundary. Route
+choice is not allowed to select weaker governance.
+
+This restriction is scoped to configured governed execution. When neither
+EBA conformance nor capability fencing is required, the legacy route remains
+available for its existing authenticated/replay-guarded compatibility path.
+
 ## Failure behavior
 
 - missing bundle -> `403 EBA_CONFORMANCE_REQUIRED`
@@ -95,7 +121,13 @@ reaches the mutation controller.
 ## Backward compatibility
 
 When `RequireEBAConformance == false`, the existing `/v1/ege/execute`
-contract behaves as before. The new `eba` object is optional.
+contract behaves as before and the `eba` object is optional.
+
+The legacy `/v1/node-drains/execute` route remains available only while no
+EGE-only execution obligation is configured. Enabling EBA conformance or
+capability fencing intentionally makes that legacy mutation shape incompatible
+and returns `409 EGE_EXECUTION_REQUIRED` instead of silently omitting the
+stronger checks.
 
 This gives us a migration path:
 
