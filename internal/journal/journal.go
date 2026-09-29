@@ -36,8 +36,13 @@ type Event struct {
 	ReasonCodes    []string  `json:"reason_codes,omitempty"`
 	EvidenceDigest       string    `json:"evidence_digest,omitempty"`
 	EvidencePacketDigest string    `json:"evidence_packet_digest,omitempty"`
-	PlanDigest     string    `json:"plan_digest,omitempty"`
-	OutcomeVerdict string    `json:"outcome_verdict,omitempty"`
+	PlanDigest           string    `json:"plan_digest,omitempty"`
+	AttemptID            string    `json:"attempt_id,omitempty"`
+	DestinationID        string    `json:"destination_id,omitempty"`
+	AccountID            string    `json:"account_id,omitempty"`
+	ObservationHandle    string    `json:"observation_handle,omitempty"`
+	AttemptState         string    `json:"attempt_state,omitempty"`
+	OutcomeVerdict       string    `json:"outcome_verdict,omitempty"`
 	PayloadDigest  string    `json:"payload_digest,omitempty"`
 	OccurredAt     time.Time `json:"occurred_at"`
 }

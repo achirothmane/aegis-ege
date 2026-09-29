@@ -44,6 +44,7 @@ The current packet binds:
 - input-event digest;
 - observation and capture timestamps;
 - authority, policy, redaction-profile, consequence-class, control, and approval references;
+- an optional execution binding for destination/account/endpoint/adapter/expected-state context;
 - redacted evidence body;
 - the exact redacted JSON Pointer paths;
 - a canonical SHA-256 packet digest.
@@ -62,7 +63,8 @@ Unit tests prove that:
 6. packet digests are stable across JSON map insertion order;
 7. an execution permit can be minted only when packet intent/kind/operation/target match the permit and the packet represents a side effect;
 8. changing the bound `evidence_packet_digest` invalidates the permit signature;
-9. the same digest can be projected into the tamper-evident journal together with a digest of the signed permit.
+9. the same digest can be projected into the tamper-evident journal together with a digest of the signed permit;
+10. when an execution binding is present, the signed Permit must carry the exact same binding and resource version before it can consume that packet.
 
 ## Security boundary
 
@@ -76,6 +78,7 @@ For EEP-aware execution, the binding path is now explicit:
 Evidence Packet v0alpha2
 → verify packet integrity
 → require exact intent + kind + operation + target + side-effect binding
+→ if present, require exact execution destination/account/endpoint/profile/state binding
 → evidence_packet_digest in PermitClaims
 → Ed25519-signed execution permit
 → verified permit projection

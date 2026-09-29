@@ -52,6 +52,13 @@ The caller needs the existing `PREPARE` permission.
   "policy_ref": "policy://agent-actions/v8",
   "redaction_profile_ref": "redaction://crm/pii/v4",
   "consequence_class": "customer-record-write",
+  "execution_binding": {
+    "destination_id": "crm-primary",
+    "account_id": "acct-1",
+    "endpoint": "https://crm.example.test",
+    "adapter_profile": "aegis.eep/crm-http-json/v1",
+    "expected_resource_version": "\"rv-17\""
+  },
   "control_refs": ["soc2:CC6.1"],
   "approval_refs": ["approval://ticket/T-42"],
   "sensitive_paths": ["/customer/email"]
@@ -62,7 +69,9 @@ Sensitive paths are RFC 6901 JSON Pointers and fail closed if a declared path is
 
 ## Response
 
-A successful response contains an `aegis.ege/evidence-packet/v0alpha2` packet. It binds the authenticated caller principal, n8n workflow/execution IDs, intent/action identity, declared authority/policy/redaction context, redacted evidence, provenance, and a deterministic SHA-256 digest.
+A successful response contains an `aegis.ege/evidence-packet/v0alpha2` packet. It binds the authenticated caller principal, n8n workflow/execution IDs, intent/action identity, declared authority/policy/redaction context, optional execution binding, redacted evidence, provenance, and a deterministic SHA-256 digest.
+
+For the current CRM automatic-mutation profile, the execution binding is later required to match the signed Permit and the executor's configured destination/account/endpoint/profile. The compile endpoint records proposed context; it does not itself grant mutation authority.
 
 ## Identity rule
 
@@ -87,4 +96,4 @@ Trigger / AI Agent
 → tamper-evident journal
 ```
 
-This PR establishes the real n8n ingestion boundary only. The next evidence gate is one concrete side-effect integration that consumes the returned packet and proves the full pre-action → permit → mutation → outcome → journal cycle.
+The n8n ingestion boundary now feeds the bounded CRM side-effect profile documented in [EEP CRM execution profile v1](eep-crm-execution-profile-v1.md). Compilation remains distinct from mutation admission: the returned packet must still be bound into a signed Permit and satisfy the executor's destination/precondition/attempt-custody checks before an effect can escape.

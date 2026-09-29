@@ -20,7 +20,11 @@ The harness:
 - prints only target identifiers, digests, workflow/execution IDs, outcome, and journal entry count;
 - binds the exact n8n-derived Evidence Packet digest into the signed permit;
 - binds the exact customer-update plan digest into the signed permit;
-- journals authorization before the mutation;
+- binds destination id, account id, endpoint, adapter profile and expected resource version into the Evidence Packet and signed Permit;
+- persists a durable local attempt claim before dispatch;
+- journals authorization and dispatch intent before the mutation can escape;
+- requires destination identity/account headers and ETag-style conditional mutation;
+- disables redirect following for the mutating request;
 - rereads the external CRM state after the mutation;
 - creates verifiable outcome evidence from before/after state digests;
 - requires a valid two-entry authorization + outcome journal before reporting `PASS`.
@@ -37,6 +41,9 @@ Configure these repository or environment secrets before running `.github/workfl
 | `EEP_N8N_AUTH_TOKEN` | Bearer token required by that n8n webhook |
 | `EEP_SOURCE_PRINCIPAL` | Predeclared source identity for this validation workflow |
 | `EEP_CRM_BASE_URL` | HTTPS base URL of the external CRM-style API |
+| `EEP_CRM_DESTINATION_ID` | Predeclared destination identity expected from the CRM profile |
+| `EEP_CRM_ACCOUNT_ID` | Predeclared account/tenant identity expected from the CRM profile |
+| `EEP_CRM_EXPECTED_RESOURCE_VERSION` | Exact ETag/resource version to guard the one mutation |
 | `EEP_CRM_BEARER_TOKEN` | Optional bearer token for the CRM API |
 | `EEP_PATCH_JSON` | JSON object representing the one allowed customer patch |
 | `EEP_N8N_TRIGGER_JSON` | Optional JSON body sent to the n8n webhook; defaults to `{}` |
@@ -90,9 +97,22 @@ GET   {EEP_CRM_BASE_URL}/customers/{customer_id}
 PATCH {EEP_CRM_BASE_URL}/customers/{customer_id}
 ```
 
-`GET` must return a JSON object. `PATCH` receives exactly the JSON object stored in `EEP_PATCH_JSON` and must return a 2xx response. After PATCH, Aegis performs another GET and compares state digests.
+`GET` must return a JSON object plus the headers `ETag`,
+`X-Aegis-Destination-ID`, and `X-Aegis-Account-ID`. Their values must match
+the configured execution binding.
 
-The harness accepts an optional bearer token through `EEP_CRM_BEARER_TOKEN`. The workflow or evidence packet cannot choose the CRM base URL.
+`PATCH` receives exactly the JSON object stored in `EEP_PATCH_JSON` and is
+sent with `If-Match: EEP_CRM_EXPECTED_RESOURCE_VERSION` plus the destination
+and account headers. The destination must enforce the conditional write. A 412
+precondition failure blocks the operation. Redirects are not followed.
+
+After a successful PATCH, Aegis performs another GET and records outcome
+evidence. The harness accepts an optional bearer token through
+`EEP_CRM_BEARER_TOKEN`.
+
+The workflow/evidence payload cannot redirect the executor to another
+destination: the endpoint, destination id, account id, adapter profile and
+expected resource version are bound into the Evidence Packet and signed Permit.
 
 ## Passing criterion
 
@@ -102,11 +122,12 @@ A run is evidence of external end-to-end behavior only if the command returns:
 {
   "status": "PASS",
   "outcome": "APPLIED",
-  "journal_entries": 2
+  "journal_entries": 3
 }
 ```
 
-with non-empty packet, permit, and outcome digests.
+with non-empty packet, permit, and outcome digests. The three journal entries
+are authorization, dispatch intent, and outcome.
 
 A locally green CI run is not the same thing as external validation.
 

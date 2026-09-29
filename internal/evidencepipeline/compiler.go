@@ -119,9 +119,22 @@ func validateCompileRequest(req CompileRequest) error {
 		return errors.New("consequence_class is required")
 	case req.Event.Data == nil:
 		return errors.New("event data is required")
-	default:
-		return nil
 	}
+	if binding := req.Context.ExecutionBinding; binding != nil {
+		switch {
+		case strings.TrimSpace(binding.DestinationID) == "":
+			return errors.New("execution binding destination_id is required")
+		case strings.TrimSpace(binding.AccountID) == "":
+			return errors.New("execution binding account_id is required")
+		case strings.TrimSpace(binding.Endpoint) == "":
+			return errors.New("execution binding endpoint is required")
+		case strings.TrimSpace(binding.AdapterProfile) == "":
+			return errors.New("execution binding adapter_profile is required")
+		case strings.TrimSpace(binding.ExpectedResourceVersion) == "":
+			return errors.New("execution binding expected_resource_version is required")
+		}
+	}
+	return nil
 }
 
 func digestPacket(packet Packet) (string, error) {

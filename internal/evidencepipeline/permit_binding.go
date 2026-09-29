@@ -43,6 +43,24 @@ func BindPermitClaims(packet Packet, claims egeproto.PermitClaims) (egeproto.Per
 	if packet.Context.ConsequenceClass == "" {
 		return egeproto.PermitClaims{}, errors.New("evidence packet consequence_class is required")
 	}
+	switch {
+	case packet.Context.ExecutionBinding == nil && claims.ExecutionBinding == nil:
+	case packet.Context.ExecutionBinding == nil || claims.ExecutionBinding == nil:
+		return egeproto.PermitClaims{}, errors.New("execution binding presence mismatch")
+	default:
+		expected := packet.Context.ExecutionBinding
+		actual := claims.ExecutionBinding
+		if expected.DestinationID != actual.DestinationID ||
+			expected.AccountID != actual.AccountID ||
+			expected.Endpoint != actual.Endpoint ||
+			expected.AdapterProfile != actual.AdapterProfile ||
+			expected.ExpectedResourceVersion != actual.ExpectedResourceVersion {
+			return egeproto.PermitClaims{}, errors.New("execution binding mismatch")
+		}
+		if claims.ResourceVersion != actual.ExpectedResourceVersion {
+			return egeproto.PermitClaims{}, errors.New("execution binding resource version mismatch")
+		}
+	}
 
 	claims.EvidencePacketDigest = packet.Integrity.Digest
 	return claims, nil

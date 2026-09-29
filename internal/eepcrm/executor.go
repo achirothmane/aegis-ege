@@ -19,10 +19,25 @@ import (
 	"github.com/achirothmane/aegis-ege/internal/journal"
 )
 
-const OutcomeVersion = "aegis.eep/crm-outcome/v0alpha1"
+const (
+	OutcomeVersion           = "aegis.eep/crm-outcome/v0alpha1"
+	CRMAdapterProfileVersion = "aegis.eep/crm-http-json/v1"
+
+	headerDestinationID = "X-Aegis-Destination-ID"
+	headerAccountID     = "X-Aegis-Account-ID"
+)
+
+var ErrMutationOutcomeUnknown = errors.New("CRM mutation outcome is unknown")
 
 type JournalAppender interface {
 	Append(context.Context, journal.Event) (journal.Entry, error)
+}
+
+type DestinationConfig struct {
+	BaseURL        string
+	DestinationID  string
+	AccountID      string
+	AdapterProfile string
 }
 
 type CustomerUpdatePlan struct {
@@ -45,22 +60,34 @@ type OutcomeEvidence struct {
 	IntegrityDigest      string    `json:"integrity_digest"`
 }
 
+type customerSnapshot struct {
+	State           map[string]any
+	ResourceVersion string
+	DestinationID   string
+	AccountID       string
+}
+
 type Executor struct {
 	baseURL        *url.URL
+	destinationID  string
+	accountID      string
+	adapterProfile string
 	client         *http.Client
 	permitVerifier egeproto.SignatureVerifier
 	journal        JournalAppender
+	attempts       AttemptStore
 	clock          func() time.Time
 }
 
 func NewExecutor(
-	baseURL string,
+	destination DestinationConfig,
 	client *http.Client,
 	permitVerifier egeproto.SignatureVerifier,
 	journalAppender JournalAppender,
+	attemptStore AttemptStore,
 	clock func() time.Time,
 ) (*Executor, error) {
-	baseURL = strings.TrimSpace(baseURL)
+	baseURL := strings.TrimSpace(destination.BaseURL)
 	if baseURL == "" {
 		return nil, errors.New("CRM base URL is required")
 	}
@@ -77,8 +104,22 @@ func NewExecutor(
 	if parsed.User != nil {
 		return nil, errors.New("CRM base URL must not embed credentials")
 	}
-	if client == nil {
-		client = http.DefaultClient
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, errors.New("CRM base URL must not contain query or fragment")
+	}
+	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
+
+	destinationID := strings.TrimSpace(destination.DestinationID)
+	accountID := strings.TrimSpace(destination.AccountID)
+	adapterProfile := strings.TrimSpace(destination.AdapterProfile)
+	if destinationID == "" {
+		return nil, errors.New("CRM destination id is required")
+	}
+	if accountID == "" {
+		return nil, errors.New("CRM account id is required")
+	}
+	if adapterProfile != CRMAdapterProfileVersion {
+		return nil, fmt.Errorf("unsupported CRM adapter profile %q", adapterProfile)
 	}
 	if permitVerifier == nil {
 		return nil, errors.New("permit verifier is required")
@@ -86,14 +127,29 @@ func NewExecutor(
 	if journalAppender == nil {
 		return nil, errors.New("tamper-evident journal is required")
 	}
+	if attemptStore == nil {
+		return nil, errors.New("durable CRM attempt store is required")
+	}
 	if clock == nil {
 		clock = time.Now
 	}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	isolatedClient := *client
+	isolatedClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
 	return &Executor{
 		baseURL:        parsed,
-		client:         client,
+		destinationID:  destinationID,
+		accountID:      accountID,
+		adapterProfile: adapterProfile,
+		client:         &isolatedClient,
 		permitVerifier: permitVerifier,
 		journal:        journalAppender,
+		attempts:       attemptStore,
 		clock:          clock,
 	}, nil
 }
@@ -105,9 +161,13 @@ func DigestCustomerUpdatePlan(plan CustomerUpdatePlan) (string, error) {
 	if len(plan.Patch) == 0 {
 		return "", errors.New("customer patch is required")
 	}
-	body, err := json.Marshal(plan)
+	raw, err := json.Marshal(plan)
 	if err != nil {
 		return "", fmt.Errorf("marshal customer update plan: %w", err)
+	}
+	body, err := egeproto.CanonicalJSON(raw)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize customer update plan: %w", err)
 	}
 	sum := sha256.Sum256(body)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
@@ -129,7 +189,7 @@ func (e *Executor) Execute(
 		return OutcomeEvidence{}, fmt.Errorf("verify permit/evidence binding: %w", err)
 	}
 	now := e.clock().UTC()
-	if permit.Claims.ValidUntil.IsZero() || now.After(permit.Claims.ValidUntil.UTC()) {
+	if permit.Claims.ValidUntil.IsZero() || !now.Before(permit.Claims.ValidUntil.UTC()) {
 		return OutcomeEvidence{}, errors.New("execution permit expired")
 	}
 	if packet.Action.Kind != "crm.customer_update" ||
@@ -143,12 +203,47 @@ func (e *Executor) Execute(
 	if strings.TrimSpace(plan.CustomerID) != permit.Claims.Target.Name {
 		return OutcomeEvidence{}, errors.New("customer update plan target mismatch")
 	}
+	if err := e.validateExecutionBinding(packet, permit.Claims); err != nil {
+		return OutcomeEvidence{}, err
+	}
+
 	planDigest, err := DigestCustomerUpdatePlan(plan)
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
 	if permit.Claims.PlanDigest != planDigest {
 		return OutcomeEvidence{}, errors.New("customer update plan digest mismatch")
+	}
+	permitDigest, err := journal.DigestPayload(permit)
+	if err != nil {
+		return OutcomeEvidence{}, err
+	}
+	attemptID, err := MutationAttemptID(permitDigest, planDigest)
+	if err != nil {
+		return OutcomeEvidence{}, err
+	}
+	binding := permit.Claims.ExecutionBinding
+	observationHandle := e.customerURL(plan.CustomerID)
+	attempt := AttemptRecord{
+		Version:                 AttemptRecordVersion,
+		AttemptID:               attemptID,
+		State:                   AttemptClaimed,
+		IntentID:                permit.Claims.IntentID,
+		PermitDigest:            permitDigest,
+		PlanDigest:              planDigest,
+		DestinationID:           binding.DestinationID,
+		AccountID:               binding.AccountID,
+		Endpoint:                binding.Endpoint,
+		AdapterProfile:          binding.AdapterProfile,
+		CustomerID:              plan.CustomerID,
+		Operation:               permit.Claims.Action,
+		ExpectedResourceVersion: binding.ExpectedResourceVersion,
+		ObservationHandle:       observationHandle,
+		ClaimedAt:               now,
+		UpdatedAt:               now,
+	}
+	if err := e.attempts.Claim(ctx, attempt); err != nil {
+		return OutcomeEvidence{}, fmt.Errorf("claim CRM mutation attempt: %w", err)
 	}
 
 	authEvent, err := journal.AuthorizationEventFromEvidenceBoundPermit(
@@ -160,33 +255,88 @@ func (e *Executor) Execute(
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
+	authEvent.AttemptID = attemptID
+	authEvent.DestinationID = binding.DestinationID
+	authEvent.AccountID = binding.AccountID
+	authEvent.ObservationHandle = observationHandle
+	authEvent.AttemptState = string(AttemptClaimed)
 	if _, err := e.journal.Append(ctx, authEvent); err != nil {
 		return OutcomeEvidence{}, fmt.Errorf("journal authorization before mutation: %w", err)
 	}
 
 	before, err := e.getCustomer(ctx, plan.CustomerID)
 	if err != nil {
+		_, _ = e.attempts.Transition(
+			context.Background(), attemptID, AttemptClaimed, AttemptBlocked,
+			0, "precondition read failed: "+err.Error(), e.clock().UTC(),
+		)
 		return OutcomeEvidence{}, fmt.Errorf("read customer before mutation: %w", err)
 	}
-	beforeDigest, err := journal.DigestPayload(before)
+	if err := e.validateSnapshotBinding(before, binding); err != nil {
+		_, _ = e.attempts.Transition(
+			context.Background(), attemptID, AttemptClaimed, AttemptBlocked,
+			0, err.Error(), e.clock().UTC(),
+		)
+		return OutcomeEvidence{}, err
+	}
+	beforeDigest, err := journal.DigestPayload(before.State)
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
 
-	status, err := e.patchCustomer(ctx, plan.CustomerID, plan.Patch)
+	executionEvent := journal.Event{
+		Type:                 journal.EventExecution,
+		ActionID:             permit.Claims.IntentID,
+		Target:               permit.Claims.Target.Type + "/" + permit.Claims.Target.Name,
+		EvidenceDigest:       permit.Claims.EvidenceDigest,
+		EvidencePacketDigest: packet.Integrity.Digest,
+		PlanDigest:           planDigest,
+		AttemptID:            attemptID,
+		DestinationID:        binding.DestinationID,
+		AccountID:            binding.AccountID,
+		ObservationHandle:    observationHandle,
+		AttemptState:         string(AttemptPossibleEffect),
+		OccurredAt:           e.clock().UTC(),
+	}
+	if _, err := e.journal.Append(ctx, executionEvent); err != nil {
+		return OutcomeEvidence{}, fmt.Errorf("journal dispatch intent before mutation: %w", err)
+	}
+	if _, err := e.attempts.Transition(
+		ctx, attemptID, AttemptClaimed, AttemptPossibleEffect, 0,
+		"dispatch boundary entered", e.clock().UTC(),
+	); err != nil {
+		return OutcomeEvidence{}, fmt.Errorf("persist possible CRM effect before dispatch: %w", err)
+	}
+
+	status, err := e.patchCustomer(ctx, plan.CustomerID, plan.Patch, binding.ExpectedResourceVersion)
 	if err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("apply customer mutation: %w", err)
+		if status == http.StatusPreconditionFailed {
+			_, transitionErr := e.attempts.Transition(
+				context.Background(), attemptID, AttemptPossibleEffect, AttemptBlocked,
+				status, "destination rejected stale precondition", e.clock().UTC(),
+			)
+			if transitionErr != nil {
+				return OutcomeEvidence{}, fmt.Errorf("CRM precondition failed and attempt finalization failed: %w", transitionErr)
+			}
+			return OutcomeEvidence{}, errors.New("CRM destination rejected stale precondition")
+		}
+		return OutcomeEvidence{}, fmt.Errorf("%w: %v", ErrMutationOutcomeUnknown, err)
+	}
+	if _, err := e.attempts.Transition(
+		ctx, attemptID, AttemptPossibleEffect, AttemptAccepted,
+		status, "destination returned successful mutation response", e.clock().UTC(),
+	); err != nil {
+		return OutcomeEvidence{}, fmt.Errorf("persist accepted CRM effect: %w", err)
 	}
 
 	after, err := e.getCustomer(ctx, plan.CustomerID)
 	if err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("read customer after mutation: %w", err)
+		return OutcomeEvidence{}, fmt.Errorf("%w: accepted mutation could not be observed: %v", ErrMutationOutcomeUnknown, err)
 	}
-	afterDigest, err := journal.DigestPayload(after)
-	if err != nil {
-		return OutcomeEvidence{}, err
+	if err := e.validateDestinationIdentity(after); err != nil {
+		return OutcomeEvidence{}, fmt.Errorf("%w: post-mutation observation binding failed: %v", ErrMutationOutcomeUnknown, err)
 	}
-	permitDigest, err := journal.DigestPayload(permit)
+	afterDigest, err := journal.DigestPayload(after.State)
 	if err != nil {
 		return OutcomeEvidence{}, err
 	}
@@ -221,13 +371,82 @@ func (e *Executor) Execute(
 		EvidenceDigest:       permit.Claims.EvidenceDigest,
 		EvidencePacketDigest: packet.Integrity.Digest,
 		PlanDigest:           planDigest,
+		AttemptID:            attemptID,
+		DestinationID:        binding.DestinationID,
+		AccountID:            binding.AccountID,
+		ObservationHandle:    observationHandle,
+		AttemptState:         string(AttemptCompleted),
 		OutcomeVerdict:       outcome.Result,
 		PayloadDigest:        outcome.IntegrityDigest,
 		OccurredAt:           outcome.ObservedAt,
 	}); err != nil {
 		return outcome, fmt.Errorf("mutation completed but outcome journal append failed: %w", err)
 	}
+	if _, err := e.attempts.Transition(
+		context.Background(), attemptID, AttemptAccepted, AttemptCompleted,
+		status, outcome.Result, e.clock().UTC(),
+	); err != nil {
+		return outcome, fmt.Errorf("mutation completed but attempt finalization failed: %w", err)
+	}
 	return outcome, nil
+}
+
+func (e *Executor) validateExecutionBinding(
+	packet evidencepipeline.Packet,
+	claims egeproto.PermitClaims,
+) error {
+	binding := claims.ExecutionBinding
+	if binding == nil {
+		return errors.New("CRM execution permit is missing destination binding")
+	}
+	if packet.Context.ExecutionBinding == nil {
+		return errors.New("CRM evidence packet is missing destination binding")
+	}
+	if binding.DestinationID != e.destinationID {
+		return errors.New("CRM destination identity mismatch")
+	}
+	if binding.AccountID != e.accountID {
+		return errors.New("CRM account identity mismatch")
+	}
+	if binding.Endpoint != e.baseURL.String() {
+		return errors.New("CRM endpoint binding mismatch")
+	}
+	if binding.AdapterProfile != e.adapterProfile {
+		return errors.New("CRM adapter profile mismatch")
+	}
+	if strings.TrimSpace(binding.ExpectedResourceVersion) == "" {
+		return errors.New("CRM expected resource version is required")
+	}
+	if claims.ResourceVersion != binding.ExpectedResourceVersion {
+		return errors.New("CRM permit resource version mismatch")
+	}
+	return nil
+}
+
+func (e *Executor) validateSnapshotBinding(
+	snapshot customerSnapshot,
+	binding *egeproto.ExecutionBindingClaims,
+) error {
+	if err := e.validateDestinationIdentity(snapshot); err != nil {
+		return err
+	}
+	if strings.TrimSpace(snapshot.ResourceVersion) == "" {
+		return errors.New("CRM destination does not expose required conditional-write resource version")
+	}
+	if snapshot.ResourceVersion != binding.ExpectedResourceVersion {
+		return errors.New("CRM precondition is stale")
+	}
+	return nil
+}
+
+func (e *Executor) validateDestinationIdentity(snapshot customerSnapshot) error {
+	if snapshot.DestinationID != e.destinationID {
+		return errors.New("CRM destination response identity mismatch")
+	}
+	if snapshot.AccountID != e.accountID {
+		return errors.New("CRM destination response account mismatch")
+	}
+	return nil
 }
 
 func VerifyOutcome(outcome OutcomeEvidence) error {
@@ -253,29 +472,39 @@ func digestOutcome(outcome OutcomeEvidence) (string, error) {
 	return journal.DigestPayload(unsigned)
 }
 
-func (e *Executor) getCustomer(ctx context.Context, customerID string) (map[string]any, error) {
+func (e *Executor) getCustomer(ctx context.Context, customerID string) (customerSnapshot, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.customerURL(customerID), nil)
 	if err != nil {
-		return nil, err
+		return customerSnapshot{}, err
 	}
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil, err
+		return customerSnapshot{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		io.Copy(io.Discard, resp.Body)
-		return nil, fmt.Errorf("CRM GET returned HTTP %d", resp.StatusCode)
+		return customerSnapshot{}, fmt.Errorf("CRM GET returned HTTP %d", resp.StatusCode)
 	}
 	var state map[string]any
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))
 	if err := decoder.Decode(&state); err != nil {
-		return nil, fmt.Errorf("decode CRM customer: %w", err)
+		return customerSnapshot{}, fmt.Errorf("decode CRM customer: %w", err)
 	}
-	return state, nil
+	return customerSnapshot{
+		State:           state,
+		ResourceVersion: strings.TrimSpace(resp.Header.Get("ETag")),
+		DestinationID:   strings.TrimSpace(resp.Header.Get(headerDestinationID)),
+		AccountID:       strings.TrimSpace(resp.Header.Get(headerAccountID)),
+	}, nil
 }
 
-func (e *Executor) patchCustomer(ctx context.Context, customerID string, patch map[string]any) (int, error) {
+func (e *Executor) patchCustomer(
+	ctx context.Context,
+	customerID string,
+	patch map[string]any,
+	expectedResourceVersion string,
+) (int, error) {
 	body, err := json.Marshal(patch)
 	if err != nil {
 		return 0, err
@@ -285,6 +514,9 @@ func (e *Executor) patchCustomer(ctx context.Context, customerID string, patch m
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", expectedResourceVersion)
+	req.Header.Set(headerDestinationID, e.destinationID)
+	req.Header.Set(headerAccountID, e.accountID)
 	resp, err := e.client.Do(req)
 	if err != nil {
 		return 0, err
