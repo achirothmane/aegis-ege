@@ -1,3 +1,8 @@
+// C09 note: this legacy decision-path fixture exercises distinct source labels
+// and contradiction semantics only. RequiredSourceCount does not establish
+// independent failure domains. Independence claims belong to the versioned
+// server evidence-composition profile.
+
 //go:build integration
 
 package kubeadapter
@@ -18,7 +23,7 @@ import (
 	"github.com/achirothmane/aegis-ege/internal/prometheusprobe"
 )
 
-func TestKindIndependentPrometheusAgreementAllows(t *testing.T) {
+func TestKindDistinctSourcePrometheusAgreementAllows(t *testing.T) {
 	env, node, observedAt := prepareM2ReadyNode(t, "m2-agree")
 	server := prometheusHealthServer(t, observedAt.Add(time.Second), "1")
 	defer server.Close()
@@ -34,7 +39,7 @@ func TestKindIndependentPrometheusAgreementAllows(t *testing.T) {
 
 	if resolved.Final.Decision != decision.Allow {
 		t.Fatalf(
-			"expected independent agreeing evidence to ALLOW, got %s reasons=%v attempts=%+v",
+			"expected agreeing distinct-source evidence to ALLOW, got %s reasons=%v attempts=%+v",
 			resolved.Final.Decision,
 			resolved.Final.ReasonCodes,
 			resolved.Attempts,
@@ -44,14 +49,14 @@ func TestKindIndependentPrometheusAgreementAllows(t *testing.T) {
 		t.Fatal("agreement must mint authorization only after independent evidence")
 	}
 	if len(resolved.EffectiveRequest.Evidence) != 2 {
-		t.Fatalf("expected two independent observations, got %+v", resolved.EffectiveRequest.Evidence)
+		t.Fatalf("expected two distinct-source observations, got %+v", resolved.EffectiveRequest.Evidence)
 	}
 	if resolved.EffectiveRequest.Evidence[0].Source == resolved.EffectiveRequest.Evidence[1].Source {
-		t.Fatalf("expected independent sources, got %+v", resolved.EffectiveRequest.Evidence)
+		t.Fatalf("expected distinct source labels, got %+v", resolved.EffectiveRequest.Evidence)
 	}
 }
 
-func TestKindIndependentPrometheusContradictionBlocks(t *testing.T) {
+func TestKindPrometheusContradictionBlocks(t *testing.T) {
 	env, node, observedAt := prepareM2ReadyNode(t, "m2-conflict")
 	server := prometheusHealthServer(t, observedAt.Add(time.Second), "0")
 	defer server.Close()
@@ -62,7 +67,7 @@ func TestKindIndependentPrometheusContradictionBlocks(t *testing.T) {
 
 	if resolved.Final.Decision != decision.Block {
 		t.Fatalf(
-			"expected independent contradiction to BLOCK, got %s reasons=%v attempts=%+v",
+			"expected Prometheus contradiction to BLOCK, got %s reasons=%v attempts=%+v",
 			resolved.Final.Decision,
 			resolved.Final.ReasonCodes,
 			resolved.Attempts,
