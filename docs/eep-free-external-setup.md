@@ -44,9 +44,11 @@ The manual EEP Live Validation workflow is successful only when it reports:
 ```json
 {
   "status": "PASS",
-  "outcome": "APPLIED",
+  "outcome": "VERIFIED",
   "journal_entries": 3
 }
 ```
 
 Use synthetic data only. Free mock endpoints may be public and are not a production security boundary.
+
+Current C07 runs report `VERIFIED` only when the requested CRM patch fields are observed stably on the exact bound customer. Whole-state digest change and HTTP success are not sufficient.
