@@ -288,7 +288,7 @@ func validateAttemptRecord(record AttemptRecord) error {
 func allowedAttemptTransition(from, to AttemptState) bool {
 	switch from {
 	case AttemptClaimed:
-		return to == AttemptBlocked || to == AttemptPossibleEffect
+		return to == AttemptBlocked || to == AttemptPossibleEffect || to == AttemptCompleted
 	case AttemptPossibleEffect:
 		return to == AttemptBlocked || to == AttemptAccepted || to == AttemptCompleted
 	case AttemptAccepted:

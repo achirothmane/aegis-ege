@@ -242,8 +242,17 @@ func TestExecutorBoundConditionalMutationAndDurableCompletion(t *testing.T) {
 	log := &memoryJournal{}
 	executor := newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, server.Client(), log, attempts)
 
-	if _, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan); err != nil {
+	outcome, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := VerifyOutcome(outcome); err != nil {
+		t.Fatalf("verify outcome: %v", err)
+	}
+	if outcome.Result != PostconditionVerified ||
+		outcome.RequestAcceptance != RequestAccepted ||
+		outcome.ObservationStatus != ObservationStable {
+		t.Fatalf("verified outcome = %+v", outcome)
 	}
 	mu.Lock()
 	gotCalls := patchCalls
@@ -454,7 +463,7 @@ func TestExecutorAttemptStoreAndJournalOutagePreventDispatch(t *testing.T) {
 	}
 }
 
-func TestExecutorLostResponseAfterCommitRemainsPossibleEffectAndNoRetry(t *testing.T) {
+func TestExecutorLostResponseAfterCommitCanVerifyPostconditionWithoutClaimingAcceptance(t *testing.T) {
 	var patchCalls atomic.Int32
 	server := conditionalCRMServer(t, &patchCalls, testETag, false)
 	defer server.Close()
@@ -480,9 +489,18 @@ func TestExecutorLostResponseAfterCommitRemainsPossibleEffectAndNoRetry(t *testi
 	attempts, _ := NewFileAttemptStore(storeDir)
 	executor := newTestExecutor(t, fx, server.URL, testDestinationID, testAccountID, &lostClient, &memoryJournal{}, attempts)
 
-	_, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan)
-	if !errors.Is(err, ErrMutationOutcomeUnknown) {
-		t.Fatalf("error = %v, want outcome unknown", err)
+	outcome, err := executor.Execute(context.Background(), fx.packet, fx.permit, fx.plan)
+	if err != nil {
+		t.Fatalf("stable intended postcondition should resolve effect state despite lost response: %v", err)
+	}
+	if outcome.Result != PostconditionVerified {
+		t.Fatalf("outcome result = %s, want VERIFIED", outcome.Result)
+	}
+	if outcome.RequestAcceptance != RequestAcceptanceUnknown {
+		t.Fatalf("request acceptance = %s, want UNKNOWN", outcome.RequestAcceptance)
+	}
+	if outcome.ObservationStatus != ObservationStable {
+		t.Fatalf("observation status = %s, want OBSERVED_STABLE", outcome.ObservationStatus)
 	}
 	if patchCalls.Load() != 1 {
 		t.Fatalf("PATCH calls = %d, want 1", patchCalls.Load())
@@ -491,8 +509,8 @@ func TestExecutorLostResponseAfterCommitRemainsPossibleEffectAndNoRetry(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.State != AttemptPossibleEffect {
-		t.Fatalf("attempt state = %s, want POSSIBLE_EFFECT", record.State)
+	if record.State != AttemptCompleted {
+		t.Fatalf("attempt state = %s, want COMPLETED", record.State)
 	}
 
 	restarted, _ := NewFileAttemptStore(storeDir)

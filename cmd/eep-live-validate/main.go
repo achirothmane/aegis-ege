@@ -69,7 +69,12 @@ type result struct {
 	PacketDigest         string `json:"packet_digest"`
 	PermitDigest         string `json:"permit_digest"`
 	OutcomeDigest        string `json:"outcome_digest"`
+	PostconditionProfile string `json:"postcondition_profile"`
 	Outcome              string `json:"outcome"`
+	RequestAcceptance    string `json:"request_acceptance"`
+	ObservationStatus    string `json:"observation_status"`
+	MatchedFields        int    `json:"matched_fields"`
+	TotalFields          int    `json:"total_fields"`
 	JournalEntries       uint64 `json:"journal_entries"`
 	N8NWorkflowID        string `json:"n8n_workflow_id"`
 	N8NExecutionID       string `json:"n8n_execution_id"`
@@ -260,24 +265,44 @@ func run(ctx context.Context) error {
 	if !verification.Valid {
 		return fmt.Errorf("verify live journal: %s", verification.Error)
 	}
-	if verification.EntryCount != 3 {
-		return fmt.Errorf("expected 3 journal entries, got %d", verification.EntryCount)
+	expectedJournalEntries := uint64(3)
+	if outcome.Result == eepcrm.PostconditionAlreadySatisfied {
+		expectedJournalEntries = 2
+	}
+	if verification.EntryCount != expectedJournalEntries {
+		return fmt.Errorf(
+			"expected %d journal entries for outcome %s, got %d",
+			expectedJournalEntries,
+			outcome.Result,
+			verification.EntryCount,
+		)
 	}
 	permitDigest, err := journal.DigestPayload(permit)
 	if err != nil {
 		return err
 	}
 
+	matchedFields := 0
+	totalFields := 0
+	if outcome.Postcondition != nil {
+		matchedFields = outcome.Postcondition.MatchedFields
+		totalFields = outcome.Postcondition.TotalFields
+	}
 	summary := result{
-		Status:         "PASS",
-		Target:         outcome.Target,
-		PacketDigest:   packet.Integrity.Digest,
-		PermitDigest:   permitDigest,
-		OutcomeDigest:  outcome.IntegrityDigest,
-		Outcome:        outcome.Result,
-		JournalEntries: verification.EntryCount,
-		N8NWorkflowID:  envelope.WorkflowID,
-		N8NExecutionID: envelope.ExecutionID,
+		Status:               "PASS",
+		Target:               outcome.Target,
+		PacketDigest:         packet.Integrity.Digest,
+		PermitDigest:         permitDigest,
+		OutcomeDigest:        outcome.IntegrityDigest,
+		PostconditionProfile: outcome.PostconditionProfile,
+		Outcome:              string(outcome.Result),
+		RequestAcceptance:    string(outcome.RequestAcceptance),
+		ObservationStatus:    string(outcome.ObservationStatus),
+		MatchedFields:        matchedFields,
+		TotalFields:          totalFields,
+		JournalEntries:       verification.EntryCount,
+		N8NWorkflowID:        envelope.WorkflowID,
+		N8NExecutionID:       envelope.ExecutionID,
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")

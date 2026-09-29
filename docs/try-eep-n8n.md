@@ -117,12 +117,12 @@ A successful independent run should end with:
 ```json
 {
   "status": "PASS",
-  "outcome": "APPLIED",
+  "outcome": "VERIFIED",
   "journal_entries": 3
 }
 ```
 
-and non-empty packet, permit, and outcome digests. The current profile also requires that the mutation was conditionally guarded at the destination and that the durable attempt record prevented duplicate dispatch.
+and non-empty packet, permit, and outcome digests. The current profile also requires that the mutation was conditionally guarded at the destination, that the durable attempt record prevented duplicate dispatch, and that the requested CRM fields were stably verified on the exact bound customer. A changed unrelated field or 2xx response alone is not success.
 
 ## 5. Report the result
 

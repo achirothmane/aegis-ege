@@ -74,6 +74,14 @@ attempt claiming, redirect rejection, or ambiguous-response replay blocking.
 A new external validation under the C06 profile requires a target that exposes
 the required destination/account identity headers and enforces If-Match.
 
+## C07 migration note
+
+This historical run also predates
+`aegis.eep/crm-postcondition/v1` and
+`aegis.eep/crm-outcome/v0alpha2`. Any earlier APPLIED-style conclusion based
+on whole-state digest change does not establish that the requested CRM fields
+were satisfied. It remains historical transport/execution evidence only.
+
 ## What this does not prove
 
 This is **technical validation, not business evidence**.
