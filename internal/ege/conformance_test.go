@@ -172,6 +172,31 @@ func validKubernetesDrainConformanceScenario(t *testing.T) (
 	}, permitAuthority, approvalAuthority, now
 }
 
+func resignConformancePermit(
+	t *testing.T,
+	permitAuthority PermitAuthority,
+	approvalAuthority SignatureVerifier,
+	input *KubernetesDrainConformanceInput,
+	now time.Time,
+	mutate func(*PermitClaims),
+) {
+	t.Helper()
+	claims := input.Permit.Claims
+	mutate(&claims)
+	permit, err := SignPermitWithApprovals(
+		context.Background(),
+		permitAuthority,
+		approvalAuthority,
+		claims,
+		input.Approvals,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Permit = permit
+}
+
 func TestEBAKubernetesDrainConformanceScenario(t *testing.T) {
 	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
 	if err := ValidateKubernetesDrainConformance(
@@ -215,6 +240,78 @@ func TestEBAKubernetesDrainConformanceRejectsTamperedAuthority(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "AUTHORITY_INTEGRITY_INVALID") {
 		t.Fatalf("expected tampered authority block, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsRehashedAuthoritySubstitution(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AuthorityArtifact = rewriteEBAFixture(t, input.AuthorityArtifact, func(artifact map[string]any) {
+		artifact["resource_scope"] = []any{"kubernetes://node/node-999"}
+	})
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "AUTHORITY_REFERENCE_MISMATCH") {
+		t.Fatalf("expected authenticated parent binding to reject rehashed authority, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsRehashedAssumptionEvidenceSubstitution(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AssumptionArtifacts[0] = rewriteEBAFixture(t, input.AssumptionArtifacts[0], func(artifact map[string]any) {
+		artifact["evidence_refs"] = []any{"sha256:other-evidence"}
+	})
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "ASSUMPTION_REFERENCE_SET_MISMATCH") {
+		t.Fatalf("expected authenticated parent binding to reject rehashed assumption, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsWrongSignedAudience(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	resignConformancePermit(t, permitAuthority, approvalAuthority, &input, now, func(claims *PermitClaims) {
+		claims.EBAAudience = "other-consumer"
+	})
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "EBA_AUDIENCE_MISMATCH") {
+		t.Fatalf("expected wrong audience rejection, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsWrongSignedNamespace(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	resignConformancePermit(t, permitAuthority, approvalAuthority, &input, now, func(claims *PermitClaims) {
+		claims.EBANamespace = "deployment:other"
+	})
+	err := ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "EBA_NAMESPACE_MISMATCH") {
+		t.Fatalf("expected wrong namespace rejection, got %v", err)
+	}
+}
+
+func TestEBAKubernetesDrainConformanceRejectsPrincipalSubstitutionEvenWhenResigned(t *testing.T) {
+	input, permitAuthority, approvalAuthority, now := validKubernetesDrainConformanceScenario(t)
+	input.AuthorityArtifact = rewriteEBAFixture(t, input.AuthorityArtifact, func(artifact map[string]any) {
+		artifact["principal"] = map[string]any{"type": "agent", "id": "other-agent"}
+	})
+	newRef, err := EBAArtifactRef(input.AuthorityArtifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resignConformancePermit(t, permitAuthority, approvalAuthority, &input, now, func(claims *PermitClaims) {
+		claims.EBAAuthorityRef = newRef
+	})
+	err = ValidateKubernetesDrainConformance(
+		context.Background(), permitAuthority, approvalAuthority, input, now,
+	)
+	if err == nil || !strings.Contains(err.Error(), "AUTHORITY_PRINCIPAL_MISMATCH") {
+		t.Fatalf("expected principal binding rejection, got %v", err)
 	}
 }
 
