@@ -695,3 +695,84 @@ func TestEGEEvidenceContributorRegistryRejectsDuplicateSourceName(t *testing.T) 
 		t.Fatal("duplicate source name unexpectedly accepted")
 	}
 }
+
+
+func TestEGEEvidenceIndependenceSharedMaterialFailureDomainsRemainDependent(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*egeEvidenceCompositionPolicy)
+	}{
+		{
+			name: "shared upstream",
+			mutate: func(policy *egeEvidenceCompositionPolicy) {
+				telemetry := policy.SourceDeclarations["telemetry"]
+				telemetry.Dependencies = append(
+					telemetry.Dependencies,
+					egeproto.EvidenceDependency{
+						Kind: "upstream",
+						ID: "upstream:kubernetes-api",
+						Material: true,
+					},
+				)
+				policy.SourceDeclarations["telemetry"] = telemetry
+			},
+		},
+		{
+			name: "shared credential",
+			mutate: func(policy *egeEvidenceCompositionPolicy) {
+				telemetry := policy.SourceDeclarations["telemetry"]
+				for i := range telemetry.Dependencies {
+					if telemetry.Dependencies[i].Kind == "credential" {
+						telemetry.Dependencies[i].ID = "credential:kubernetes-reader"
+					}
+				}
+				policy.SourceDeclarations["telemetry"] = telemetry
+			},
+		},
+		{
+			name: "shared cache",
+			mutate: func(policy *egeEvidenceCompositionPolicy) {
+				primary := policy.SourceDeclarations["primary"]
+				telemetry := policy.SourceDeclarations["telemetry"]
+				primary.DependencyCoverage = append(primary.DependencyCoverage, "cache")
+				telemetry.DependencyCoverage = append(telemetry.DependencyCoverage, "cache")
+				primary.Dependencies = append(
+					primary.Dependencies,
+					egeproto.EvidenceDependency{
+						Kind: "cache",
+						ID: "cache:shared-observation",
+						Material: true,
+					},
+				)
+				telemetry.Dependencies = append(
+					telemetry.Dependencies,
+					egeproto.EvidenceDependency{
+						Kind: "cache",
+						ID: "cache:shared-observation",
+						Material: true,
+					},
+				)
+				policy.SourceDeclarations["primary"] = primary
+				policy.SourceDeclarations["telemetry"] = telemetry
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := declaredCompositionPolicy(
+				egeproto.EvidenceIndependenceAsserted,
+				egeproto.EvidenceDeclarationAsserted,
+			)
+			tt.mutate(&policy)
+			result := composeTwoSourcePolicy(t, policy)
+			if result.Decision != decision.Escalate || result.PermitBinding != nil {
+				t.Fatalf("shared material failure domain must fail closed: %+v", result)
+			}
+			pair := result.EvidenceComposition.PairAssessments[0]
+			if pair.Status != egeproto.EvidenceIndependenceDependent ||
+				len(pair.SharedDependencies) == 0 {
+				t.Fatalf("shared failure domain not recorded: %+v", pair)
+			}
+		})
+	}
+}
