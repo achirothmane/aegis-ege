@@ -1,8 +1,8 @@
 # Candidate Governed-Action Kernel v1 — K01 + K02 + K03 + K04 + K05 contract
 
-Status: **DRAFT / UNFROZEN**  
+Status: **FROZEN — candidate kernel contract v1 (K06 baseline)**  
 Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**; **K03 — Define temporal and next-effect resumption semantics**; **K04 — Define truthful closure and UNKNOWN disposition**; **K05 — Publish normative examples and change control**  
-Normative scope: **K01 + K02 + K03 + K04 + K05**. The contract remains **DRAFT / UNFROZEN** until K06 records the freeze.
+Normative scope: **K01 + K02 + K03 + K04 + K05**. K06 freezes this exact semantic baseline; K07 may execute it but may not change its accepted/rejected meaning under v1.
 
 This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, identify and retain accountable custody of possible effects/attempts, determine what must be re-established before any later effect boundary, and truthfully dispose of the resulting closure obligation without manufacturing certainty. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, universal outcome service, scheduler, workflow runtime, durable workflow service, global clock, revocation bus, global lock, or generic authorization token.
 
@@ -1449,4 +1449,4 @@ K01 fails if completion requires:
 - a caller-selectable weak profile;
 - a new core discriminator beyond the fixed candidate concepts.
 
-This document remains **unfrozen** until K06 verifies the prerequisite evidence and records the immutable freeze.
+This document is frozen by the K06 manifest and freeze record. Any trace-affecting semantic change requires a new normative version and a new freeze.

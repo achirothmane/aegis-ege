@@ -88,8 +88,8 @@ func TestNormativeSchemaAndFixturesAreStructurallyValid(t *testing.T) {
 	if set.SchemaVersion != normativeVersion {
 		t.Fatalf("unknown normative version %q", set.SchemaVersion)
 	}
-	if set.ContractStatus != "DRAFT_UNFROZEN" {
-		t.Fatalf("K05 must remain unfrozen before K06, got %q", set.ContractStatus)
+	if set.ContractStatus != "FROZEN" {
+		t.Fatalf("K06 frozen case set required, got %q", set.ContractStatus)
 	}
 	if len(set.ImmutableSources) == 0 {
 		t.Fatal("immutable source references are required")
