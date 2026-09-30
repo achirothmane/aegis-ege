@@ -21,7 +21,7 @@ type freezeSupporting struct {
 	PR     int    `json:"pr"`
 	Head   string `json:"head"`
 	Merge  string `json:"merge"`
-	CIRuns []int  `json:"ci_runs"`
+	CIRuns []int64 `json:"ci_runs"`
 }
 
 type freezePrerequisite struct {
@@ -31,7 +31,7 @@ type freezePrerequisite struct {
 	PR         int                `json:"pr"`
 	Head       string             `json:"head"`
 	Merge      string             `json:"merge"`
-	CIRuns     []int              `json:"ci_runs"`
+	CIRuns     []int64            `json:"ci_runs"`
 	Supporting []freezeSupporting `json:"supporting"`
 }
 
