@@ -289,6 +289,98 @@
         },
         "fixed_expected": "ALLOW_BOUND_EFFECT"
       }
+    },
+    {
+      "id": "D03A-TORTOISE-3442-A",
+      "repository": "daniel-ospina/tortoise",
+      "domain": "ci-runner-acquisition",
+      "issue": {
+        "number": 3442,
+        "url": "https://github.com/daniel-ospina/tortoise/issues/3442",
+        "state": "closed",
+        "title": "python-ci 'changes' job is flaky — same head/diff failed, then passed on re-run (required check)"
+      },
+      "ground_truth": {
+        "root_cause": "The cited failed changes job never acquired a GitHub runner. PR #5474 records steps=[], runner_name=\"\", runner_id=0 and the check-run annotation that acquisition failed after 5 attempts. The selector/workflow code did not execute in that attempt.",
+        "consequence": "A required check failed without crossing the job's execution boundary. A rerun on the same head/diff acquired a runner and the changes job passed in 11 seconds.",
+        "fix": {
+          "type": "observed_recovery_not_code_fix",
+          "ref": "https://github.com/daniel-ospina/tortoise/pull/5474",
+          "summary": "The rerun acquired a runner and succeeded. PR #5474 explicitly states that this runner-acquisition incident was not the in-repo code path repaired by that PR."
+        }
+      },
+      "evidence": {
+        "workflow_run_id": 34748148065,
+        "failed_job_id": 103701145755,
+        "failed_job_steps_observed": [],
+        "failed_job_steps_verified_via_github": true,
+        "runner_name_recorded_by_pr": "",
+        "runner_id_recorded_by_pr": 0,
+        "acquisition_attempts_recorded_by_pr": 5,
+        "rerun_same_head_same_diff": true
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "ExecutionAttempt",
+          "EffectIdentity",
+          "I5"
+        ],
+        "rationale": "When authoritative evidence establishes that the prior attempt never acquired an executor and executed zero steps, there is no possible prior effect from that attempt to retain or reconcile. Under otherwise unchanged valid bindings, a new bounded attempt is not a forbidden second effect. This is a positive boundary case, not evidence that every fail→rerun-pass is flaky.",
+        "historical_overrides": {
+          "emit_effect": true
+        },
+        "historical_expected": "ALLOW_BOUND_EFFECT",
+        "historical_valid_trace": true,
+        "fixed_overrides": {},
+        "fixed_expected": ""
+      }
+    },
+    {
+      "id": "D03A-TORTOISE-3442-B",
+      "repository": "daniel-ospina/tortoise",
+      "domain": "ci-selection-integrity",
+      "issue": {
+        "number": 3442,
+        "url": "https://github.com/daniel-ospina/tortoise/issues/3442",
+        "state": "closed",
+        "title": "python-ci 'changes' job is flaky — same head/diff failed, then passed on re-run (required check)"
+      },
+      "ground_truth": {
+        "root_cause": "PR #5474 found a separate in-repo defect: changed files were derived with a merge-base diff followed by a two-ref fallback that answers a different question. stderr suppression could also leave CHANGED empty, while select() mapped empty input to a reduced tier-1 smoke set.",
+        "consequence": "A diff computation failure or non-canonical fallback could silently reduce test coverage and still report green, making the decision basis inadequate for the claim that the selected suite reflects the canonical PR diff.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/daniel-ospina/tortoise/pull/5474",
+          "merge_commit": "1917852e17ffe741f37ca419c2c433c741112159",
+          "summary": "Use one canonical merge-base diff after proving the base commit exists; fail loudly when the base is absent or changed set is empty; add determinism and mutation-verification tests. PR verification reports 182 passing tests."
+        }
+      },
+      "evidence": {
+        "merged_pr": 5474,
+        "merge_commit": "1917852e17ffe741f37ca419c2c433c741112159",
+        "verification_tests_passed": 182,
+        "mutation_guards_verified": true,
+        "canonical_merge_base_diff": true,
+        "empty_changed_set_fails_closed": true
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "DecisionBasis",
+          "StateBinding",
+          "trusted-profile-adequacy/v1",
+          "I2"
+        ],
+        "rationale": "The canonical merge-base changed set is a known decision-relevant distinction for test-selection admissibility. A profile that can silently substitute a different diff question or treat an unavailable/empty changed set as a smaller green suite cannot distinguish states requiring different coverage and therefore cannot support automatic ALLOW.",
+        "historical_overrides": {
+          "profile_adequate": false
+        },
+        "historical_expected": "DEFER_PROFILE_INCOMPLETE",
+        "historical_valid_trace": false,
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
     }
   ],
   "stop_rule": "If any incident requires changing the frozen oracle, evaluator ordering, or semantic meaning to obtain the expected safety disposition, record D03-A as a falsification failure. Do not edit candidate-kernel-contract-v1 in place.",
