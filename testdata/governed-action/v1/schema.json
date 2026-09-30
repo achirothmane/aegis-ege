@@ -14,7 +14,7 @@
       "const": "governed-action.normative-cases/v1"
     },
     "contract_status": {
-      "const": "DRAFT_UNFROZEN"
+      "const": "FROZEN"
     },
     "immutable_sources": {
       "type": "array",
