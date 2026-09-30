@@ -1,0 +1,96 @@
+{
+  "schema_version": "governed-action.change-control-cases/v1",
+  "cases": [
+    {
+      "id": "CC-R1-unknown-version",
+      "input": {
+        "known_version": false,
+        "changes_valid_trace_acceptance": false,
+        "changes_core_relation": false,
+        "silent_profile_downgrade": false,
+        "contradictory_expected_verdicts": false,
+        "implementation_fix": false,
+        "new_policy_specialization": false
+      },
+      "expected": "REJECT_UNSUPPORTED_VERSION"
+    },
+    {
+      "id": "CC-R2-silent-profile-downgrade",
+      "input": {
+        "known_version": true,
+        "changes_valid_trace_acceptance": false,
+        "changes_core_relation": false,
+        "silent_profile_downgrade": true,
+        "contradictory_expected_verdicts": false,
+        "implementation_fix": false,
+        "new_policy_specialization": false
+      },
+      "expected": "REJECT_PROFILE_DOWNGRADE"
+    },
+    {
+      "id": "CC-R3-contradictory-verdict",
+      "input": {
+        "known_version": true,
+        "changes_valid_trace_acceptance": false,
+        "changes_core_relation": false,
+        "silent_profile_downgrade": false,
+        "contradictory_expected_verdicts": true,
+        "implementation_fix": false,
+        "new_policy_specialization": false
+      },
+      "expected": "INVALID_ORACLE"
+    },
+    {
+      "id": "CC-N1-clarification-changes-acceptance",
+      "input": {
+        "known_version": true,
+        "changes_valid_trace_acceptance": true,
+        "changes_core_relation": false,
+        "silent_profile_downgrade": false,
+        "contradictory_expected_verdicts": false,
+        "implementation_fix": false,
+        "new_policy_specialization": false
+      },
+      "expected": "NORMATIVE_CORE_CHANGE"
+    },
+    {
+      "id": "CC-N2-core-relation-change",
+      "input": {
+        "known_version": true,
+        "changes_valid_trace_acceptance": false,
+        "changes_core_relation": true,
+        "silent_profile_downgrade": false,
+        "contradictory_expected_verdicts": false,
+        "implementation_fix": false,
+        "new_policy_specialization": false
+      },
+      "expected": "NORMATIVE_CORE_CHANGE"
+    },
+    {
+      "id": "CC-A1-implementation-fix-unchanged-oracle",
+      "input": {
+        "known_version": true,
+        "changes_valid_trace_acceptance": false,
+        "changes_core_relation": false,
+        "silent_profile_downgrade": false,
+        "contradictory_expected_verdicts": false,
+        "implementation_fix": true,
+        "new_policy_specialization": false
+      },
+      "expected": "IMPLEMENTATION_ONLY"
+    },
+    {
+      "id": "CC-A2-new-typed-policy-specialization",
+      "input": {
+        "known_version": true,
+        "changes_valid_trace_acceptance": false,
+        "changes_core_relation": false,
+        "silent_profile_downgrade": false,
+        "contradictory_expected_verdicts": false,
+        "implementation_fix": false,
+        "new_policy_specialization": true
+      },
+      "expected": "POLICY_ONLY"
+    }
+  ]
+}
