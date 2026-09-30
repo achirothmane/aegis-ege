@@ -1,0 +1,108 @@
+{
+  "schema_version": "governed-action.d02-completion/v1",
+  "status": "COMPLETE_DESIGN_VISIBLE_DOMAIN_EXPERIMENT",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "implementation": {
+    "pr": 86,
+    "exact_head": "6ea1cb3c49f37540d1a992cdb27f4594a99fc713",
+    "squash_merge": "f71f89bff0ad5ba243f3e42a75060a6ec95f1d2f",
+    "fault_schedule_blob": "13f16231857257df1c10c1d9e6fab5ed9b0776e1",
+    "eep_attempt_store_blob": "ea3a5a3b5be5318126e1ca3d21e270175859752d",
+    "eep_recovery_blob": "0e10fa4846ff3b4db6f841420f515c585cc9ea37",
+    "eep_d02_test_blob": "8fe67e670eaad63447a46e35f25d643df921583a",
+    "kind_integration_test_blob": "44e03b6dfebed532d34bd4ebbf805379a6fd1b39",
+    "runbook_blob": "3166d4c8778b1fa4ab22b40a50eb90c9acf890ff"
+  },
+  "falsification_history": {
+    "first_ci_run": {
+      "id": 36673051760,
+      "unit_job": {
+        "id": 109752024563,
+        "conclusion": "success"
+      },
+      "integration_job": {
+        "id": 109752193264,
+        "conclusion": "failure"
+      },
+      "observed_failure": "D02 test expected EXECUTION_LOCK_HELD from stale pre-crash authorization, but current-state recovery rejected it earlier with RESOURCE_VERSION_CHANGED + EXECUTION_PLAN_CHANGED",
+      "classification": "experiment expectation defect; the stale-authority path stopped before the Lease boundary",
+      "response": "separated the hypotheses: stale authorization must stop on current-state revalidation, while a separately fresh current-state contender must be stopped by the Kubernetes Lease",
+      "normative_change": false
+    },
+    "final_ci_run": {
+      "id": 36673322497,
+      "run_number": 430,
+      "conclusion": "success",
+      "unit_job": {
+        "id": 109752835870,
+        "conclusion": "success"
+      },
+      "integration_job": {
+        "id": 109752931918,
+        "conclusion": "success"
+      }
+    }
+  },
+  "exercised_boundaries": {
+    "kubernetes": {
+      "substrate": "isolated KinD cluster",
+      "native_effects": [
+        "Node cordon",
+        "Pod eviction"
+      ],
+      "custody": "Kubernetes ConfigMap checkpoint",
+      "cas_boundary": "ConfigMap resourceVersion",
+      "takeover_fence": "Kubernetes Lease",
+      "process_loss": "accepted eviction followed by injected worker interruption before completion checkpoint",
+      "recovery": "new adapter instance reconciles exact missing Pod UID, requires fresh authorization for remaining exact Pod, then resumes",
+      "stale_owner_behavior": "old pre-crash authority is denied by current-state revalidation; a separate current-state contender is denied while takeover Lease is held"
+    },
+    "eep_crm": {
+      "substrate": "loopback cooperative httptest HTTP fixture",
+      "destination_guard": "If-Match resource version",
+      "pre_effect_custody": [
+        "durable attempt claim",
+        "authorization journal",
+        "dispatch-intent journal",
+        "POSSIBLE_EFFECT transition"
+      ],
+      "observer_outage": "ACCEPTED/POSSIBLE_EFFECT remains retained; observation-only reconciliation creates no PATCH",
+      "authority_expiry": "expired start Permit cannot create a new PATCH; historical signed identity may still bind observation-only reconciliation",
+      "unknown_retirement": "RETIRED_UNKNOWN is journaled before state transition and retains the durable attempt/observation handle",
+      "replay": "closed or retired attempt cannot be replayed into a second mutation"
+    }
+  },
+  "counterexample_coverage": [
+    "CE3",
+    "CE4",
+    "CE5",
+    "CE6",
+    "CE7",
+    "CE8"
+  ],
+  "required_positive_behavior": [
+    "normal conditional CRM mutation completes with stable intended-postcondition evidence",
+    "routine CRM closure can complete without human review",
+    "normal guarded KinD mutation remains allowed",
+    "partial KinD execution can recover with fresh authorization rather than deny-all"
+  ],
+  "claims": {
+    "frozen_oracle_modified": false,
+    "stale_authority_replay_allowed": false,
+    "truthful_unknown_retained": true,
+    "real_kubernetes_lease_tested": true,
+    "real_kubernetes_checkpoint_cas_tested": true,
+    "external_crm_cas_proven": false,
+    "production_failover_proven": false,
+    "independent_domain_validation": false,
+    "operator_value_proven": false,
+    "commercial_evidence_proven": false
+  },
+  "limits": [
+    "EEP is an Aegis subsystem and does not count as the independent D03 domain",
+    "CRM execution uses a synthetic cooperative loopback fixture and does not establish an external provider CAS guarantee",
+    "KinD is an isolated test cluster, not production failover evidence",
+    "D02 does not establish operator savings or commercial value"
+  ]
+}
