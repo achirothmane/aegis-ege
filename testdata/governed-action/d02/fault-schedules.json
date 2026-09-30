@@ -48,8 +48,11 @@
       "counterexample": "CE6",
       "domain": "kubernetes",
       "fault": "new recovery owner acquires Kubernetes Lease while stale worker retains old authorization",
-      "expected": "stale worker receives EXECUTION_LOCK_HELD and creates zero new effects; fresh owner later resumes only remaining exact Pod effect",
-      "test": "internal/kubeadapter/kind_integration_test.go::TestKindD02CrashTakeoverAndClosureExercise"
+      "expected": "stale pre-crash authority is stopped by current-state revalidation before any new effect; a fresh current-state contender is independently fenced by the Kubernetes Lease while manual takeover owns the boundary; only fresh authorized recovery may mutate after takeover release",
+      "tests": [
+        "internal/kubeadapter/kind_integration_test.go::TestKindD02CrashTakeoverAndClosureExercise",
+        "internal/kubeadapter/kind_integration_test.go::TestKindExecutionLeasePreventsConcurrentDrainOnSameNode"
+      ]
     },
     {
       "id": "D02-CE7-FALSE-OUTCOME",
