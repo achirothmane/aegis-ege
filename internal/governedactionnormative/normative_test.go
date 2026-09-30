@@ -2,6 +2,7 @@ package governedactionnormative
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,28 +181,35 @@ func TestCE1CallerSelectedEmptyRequirementsRemainRejected(t *testing.T) {
 	t.Fatal("CE1 rejected fixture missing")
 }
 
+func validateCaseVerdicts(cases []normativeCase) error {
+	verdict := map[string]bool{}
+	for _, tc := range cases {
+		if previous, ok := verdict[tc.ID]; ok {
+			if previous != tc.ValidTrace {
+				return fmt.Errorf("contradictory expected verdict for %s", tc.ID)
+			}
+			return fmt.Errorf("duplicate normative case id %s", tc.ID)
+		}
+		verdict[tc.ID] = tc.ValidTrace
+	}
+	return nil
+}
+
 func TestContradictoryExpectedVerdictForSameCaseIDIsInvalid(t *testing.T) {
 	var set normativeCaseSet
 	readJSON(t, repoPath("testdata", "governed-action", "v1", "normative-cases.json"), &set)
 
-	verdict := map[string]bool{}
-	for _, tc := range set.Cases {
-		if previous, ok := verdict[tc.ID]; ok && previous != tc.ValidTrace {
-			t.Fatalf("contradictory expected verdict for %s", tc.ID)
-		}
-		verdict[tc.ID] = tc.ValidTrace
+	if err := validateCaseVerdicts(set.Cases); err != nil {
+		t.Fatalf("published oracle is inconsistent: %v", err)
 	}
 
-	// Prove the guard itself rejects an edited oracle that reuses an ID with
-	// the opposite verdict.
 	first := set.Cases[0]
 	opposite := first
 	opposite.ValidTrace = !first.ValidTrace
-	if first.ID == opposite.ID && first.ValidTrace != opposite.ValidTrace {
-		// This is the forbidden shape the validator above is intended to catch.
-		return
+	adversarial := append(append([]normativeCase(nil), set.Cases...), opposite)
+	if err := validateCaseVerdicts(adversarial); err == nil || !strings.Contains(err.Error(), "contradictory") {
+		t.Fatalf("expected contradictory-verdict rejection, got %v", err)
 	}
-	t.Fatal("failed to construct contradictory verdict adversary")
 }
 
 func classifyChange(in changeInput) string {
