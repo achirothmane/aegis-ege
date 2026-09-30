@@ -1,6 +1,6 @@
 # K07 — Executable frozen conformance and counterexample vectors
 
-Status: **DESIGN-VISIBLE CONFORMANCE HARNESS**  
+Status: **COMPLETE — frozen design-visible conformance**  
 Frozen contract: `candidate-kernel-contract-v1`  
 Frozen normative oracle blob: `37e2e0a0867fa78df37f9d4243a1c4107d62094b`
 
@@ -82,11 +82,53 @@ new freeze is required before later held-out testing.
 ## Cross-language obligation
 
 Workflow Failure Lab retains the Python compatibility owner for the semantics it
-shares with the frozen generic/CI slice. K07 is complete only after its Python
-runner executes the shared frozen case IDs from a pinned copy of the K07
-execution fixture and agrees with the Go result for that shared scope.
+shares with the frozen generic/CI slice. Its Python runner now executes the
+shared frozen case IDs from a byte-identical pinned copy of the K07 execution
+fixture and agrees with the frozen oracle for that shared scope.
 
 The Python runner does not claim ownership of Kubernetes/EEP domain semantics.
+
+## Completion evidence
+
+### Aegis / Go
+
+- PR: `achirothmane/aegis-ege#84`
+- exact reviewed head: `677699446ac641b3550926394ee1916d31e1b180`
+- squash merge: `2b08f173d7e0dc7390b7ba9fec57ab10e28c48ba`
+- CI run: `36667206044` — success
+- unit job: success, including `go test ./...`
+- integration/KinD job: success
+- frozen oracle blob: `37e2e0a0867fa78df37f9d4243a1c4107d62094b`
+- K07 execution fixture blob:
+  `89b971ab136d7b2c889c586429a803fec9587c0d`
+- executed frozen cases: all 28, covering CE1–CE12 plus the four positive
+  CI/Kubernetes/EEP seeds
+
+### Workflow Failure Lab / Python
+
+- PR: `achirothmane/workflow-failure-lab#113`
+- exact reviewed head: `de9a28412750c57030b46b265e685df6fd757a8c`
+- squash merge: `aabe4a04c4ea8857f448e148cb59e36efff6af8c`
+- vendored oracle blob:
+  `37e2e0a0867fa78df37f9d4243a1c4107d62094b`
+- vendored execution fixture blob:
+  `89b971ab136d7b2c889c586429a803fec9587c0d`
+- shared generic/CI executable cases: 23
+- CI run `36667574371`: success
+- Compatibility Matrix run `36667574361`: success
+- Remote v1 Consumer E2E run `36667574498`: success
+
+### K07 completion decision
+
+The mandatory design-visible frozen cases pass without changing the frozen
+oracle or K01–K05 relations. Rejected traces produce zero new effects; positive
+paths demonstrate useful permitted behavior or accountable safe containment;
+domain observations remain typed.
+
+Therefore K07 is complete for the scope required before D01/D02.
+
+This is still not real-substrate D01/D02 evidence, independent D03 validation,
+operator-value evidence, or a demonstrated platform kernel.
 
 ## What K07 does not prove
 
