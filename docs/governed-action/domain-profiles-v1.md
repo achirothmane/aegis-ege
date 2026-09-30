@@ -1,10 +1,10 @@
-# K01 + K02 + K03 + K04 domain-profile mapping — candidate Kernel v1
+# K01 + K02 + K03 + K04 + K05 domain-profile mapping — candidate Kernel v1
 
 Status: **DRAFT / UNFROZEN**  
 Normative owner: Aegis integration-contract steward  
 Companion contract: [kernel-v1.md](kernel-v1.md)
 
-This mapping applies the K01 ActionRef / DecisionBasis rules, K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules, K03 temporal / next-effect resumption rules, and K04 truthful closure / UNKNOWN-disposition rules to the three design-visible seeds already selected by the queue:
+This mapping applies the K01 ActionRef / DecisionBasis rules, K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules, K03 temporal / next-effect resumption rules, K04 truthful closure / UNKNOWN-disposition rules, and K05 published normative trace IDs to the three design-visible seeds already selected by the queue:
 
 - CI rerun / Workflow Failure Lab;
 - Kubernetes node mutation / Aegis;
@@ -625,7 +625,7 @@ Retention continues until later K04 closure/disposition semantics authorize reti
 
 | Queue test / adversary | Current K02 evidence / disposition |
 |---|---|
-| one intended effect with several attempts | normative relation is defined in `kernel-v1.md`; Kubernetes recovery preserves one effect identity across recovery attempts; K05 will later freeze executable cross-domain vectors rather than invent a shared runtime here |
+| one intended effect with several attempts | normative relation is defined in `kernel-v1.md`; Kubernetes recovery preserves one effect identity across recovery attempts; K05 publishes the semantic example; K06 freezes the oracle and K07 later executes cross-adapter coverage rather than inventing a shared runtime here |
 | two deliberately distinct identical requests | defined as distinct only through trusted ActionIdentity/domain cardinality, never by payload bytes alone |
 | already-satisfied no-op | EEP `TestExecutorAlreadySatisfiedAvoidsMutation` |
 | domain-supported idempotent retry | permitted only with declared provider/CAS scope; current EEP deliberately does **not** retry POSSIBLE_EFFECT; Kubernetes retries/resumes only after reconciliation/fresh authorization |
@@ -636,7 +636,7 @@ Retention continues until later K04 closure/disposition semantics authorize reti
 | provider-local key outside retention/account | no current seed is credited with a universal provider key; any future key must bind provider/account/operation/retention |
 | aliases to one target | Kube uses exact Pod UID; EEP binds destination/account/customer; CI binds repository/run/job execution rather than display label |
 
-The first row is intentionally a **semantic relation review**, not a frozen general conformance vector. K05 owns immutable accepted/rejected vector publication. K02 must not pre-empt K05 by creating a hidden reference runtime.
+The first row is intentionally a **semantic relation review**, not a frozen general conformance vector. K05 owns draft accepted/rejected vector publication; K06 records immutable freeze references. K02 must not pre-empt that sequence by creating a hidden reference runtime.
 
 ### 5.5 Declared crash-window matrix
 
@@ -1066,7 +1066,7 @@ If GitHub history expires or becomes inaccessible before the required recovery f
 - do not infer safe replay;
 - apply the trusted residual-risk / terminal-UNKNOWN policy.
 
-The current WFL repository does not implement a universal terminal-UNKNOWN retirement service. K04 defines the allowed semantics; K05 will freeze the normative cases.
+The current WFL repository does not implement a universal terminal-UNKNOWN retirement service. K04 defines the allowed semantics; K05 publishes the normative cases and K06 freezes their immutable identity.
 
 #### Continuing provider job
 
@@ -1309,7 +1309,7 @@ If later authorized observation becomes available, it must be appended as new ev
 
 The old outcome's integrity digest and historical uncertainty remain intact.
 
-The current executor does not implement a universal late-evidence case service; this is a normative K04 relation to be frozen in K05.
+The current executor does not implement a universal late-evidence case service; this is a normative K04 relation published in K05 and frozen only by K06.
 
 #### Compensation
 
@@ -1339,7 +1339,7 @@ If a future domain compensation is authorized, it gets its own ActionRef/EffectI
 | routine automatic discharge | EEP already-satisfied/verified tests; Kubernetes postflight MATCH semantics; WFL validated-recovery profile |
 | verified scoped postcondition | EEP exact requested-field oracle; Kubernetes exact node/Pod UID postflight |
 | partial result with retained residual effects | EEP PARTIAL; Kubernetes checkpoint completed/remaining Pod sets |
-| authorized UNKNOWN retirement | normative K04 case only; current repos do not get credited with a universal retirement authority; K05 freezes the accepted/rejected vector |
+| authorized UNKNOWN retirement | normative K04 case only; current repos do not get credited with a universal retirement authority; K05 publishes and K06 freezes the accepted/rejected vector |
 | late observation appended without rewriting history | normative append-only K04 rule over existing journals/artifacts; no existing universal case service is claimed |
 
 ### 7.6 K04 adversarial review
@@ -1418,7 +1418,21 @@ A positive seed is useful only when the required operation can still proceed und
 
 Reject-all behavior does not satisfy K01.
 
-## 11. K01/K02/K03/K04 limits
+### K05 normative case IDs for these seeds
+
+Published positive seed IDs:
+
+- CI: `SEED-CI-A1-validated-rerun`;
+- Kubernetes: `SEED-KUBE-A1-bounded-drain-completes`;
+- EEP conditional mutation: `SEED-EEP-A1-conditional-update-verified`;
+- EEP already-satisfied no-op: `SEED-EEP-A2-already-satisfied-noop`.
+
+CE1–CE8 rejected/positive counterpart IDs are defined in
+`testdata/governed-action/v1/normative-cases.json`.
+
+These IDs are draft normative oracle identifiers. K06, not this mapping, records their immutable frozen hash.
+
+## 11. K01/K02/K03/K04/K05 limits
 
 This map does not claim:
 
@@ -1431,4 +1445,4 @@ This map does not claim:
 - automatic provider substitution;
 - a new shared runtime or repository.
 
-The next semantic item after K04 is K05, not platform extraction.
+The next item after K05 is K06 — the immutable freeze gate, not platform extraction.
