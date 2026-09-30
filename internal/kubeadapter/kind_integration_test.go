@@ -1124,16 +1124,50 @@ func TestKindD02CrashTakeoverAndClosureExercise(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stale ResumeAuthorizedNodeDrain returned error: %v", err)
 	}
-	if staleWhileFenced.Decision != decision.Escalate ||
+	if staleWhileFenced.Decision == decision.Allow {
+		t.Fatalf("stale worker unexpectedly resumed: reasons=%v", staleWhileFenced.ReasonCodes)
+	}
+	if !hasReason(staleWhileFenced.ReasonCodes, decision.ResourceVersionChanged) &&
 		!hasReason(staleWhileFenced.ReasonCodes, ReasonExecutionLockHeld) {
-		t.Fatalf("stale worker was not fenced: decision=%s reasons=%v", staleWhileFenced.Decision, staleWhileFenced.ReasonCodes)
+		t.Fatalf("stale worker was not stopped by state revalidation or fence: decision=%s reasons=%v", staleWhileFenced.Decision, staleWhileFenced.ReasonCodes)
 	}
 	if _, err := env.client.CoreV1().Pods(env.namespace).Get(
 		ctx,
 		"workload-d02-second",
 		metav1.GetOptions{},
 	); err != nil {
-		t.Fatalf("fenced stale worker changed remaining target: %v", err)
+		t.Fatalf("stale worker changed remaining target: %v", err)
+	}
+
+	// Separately prove that the claimed takeover fence operates at the actual
+	// mutation boundary. A newly prepared contender can pass current-state
+	// admission, but cannot mutate while the manual takeover Lease is held.
+	fencedPreparation := prepareKindDrainWithFreshAuthorization(
+		t,
+		recoveryWorker,
+		"act-kind-d02-fenced-contender",
+		env.nodeName,
+		policy,
+	)
+	fencedContender, err := recoveryWorker.ExecuteAuthorizedNodeDrain(
+		ctx,
+		*fencedPreparation.Authorization,
+		env.nodeName,
+		policy,
+	)
+	if err != nil {
+		t.Fatalf("fenced contender execution returned error: %v", err)
+	}
+	if fencedContender.Decision != decision.Escalate ||
+		!hasReason(fencedContender.ReasonCodes, ReasonExecutionLockHeld) {
+		t.Fatalf("takeover Lease did not fence fresh contender: decision=%s reasons=%v", fencedContender.Decision, fencedContender.ReasonCodes)
+	}
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(
+		ctx,
+		"workload-d02-second",
+		metav1.GetOptions{},
+	); err != nil {
+		t.Fatalf("takeover-fenced contender changed remaining target: %v", err)
 	}
 
 	if err := recoveryReader.ReleaseExecutionLock(ctx, takeoverLease); err != nil {
