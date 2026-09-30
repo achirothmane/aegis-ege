@@ -20,12 +20,13 @@ type d03AGroundTruth struct {
 }
 
 type d03AKernelMapping struct {
-	PrimaryRelations   []string        `json:"primary_relations"`
-	Rationale          string          `json:"rationale"`
-	HistoricalOverrides map[string]bool `json:"historical_overrides"`
-	HistoricalExpected string          `json:"historical_expected"`
-	FixedOverrides     map[string]bool `json:"fixed_overrides"`
-	FixedExpected      string          `json:"fixed_expected"`
+	PrimaryRelations     []string        `json:"primary_relations"`
+	Rationale            string          `json:"rationale"`
+	HistoricalOverrides  map[string]bool `json:"historical_overrides"`
+	HistoricalExpected   string          `json:"historical_expected"`
+	HistoricalValidTrace bool            `json:"historical_valid_trace"`
+	FixedOverrides       map[string]bool `json:"fixed_overrides"`
+	FixedExpected        string          `json:"fixed_expected"`
 }
 
 type d03AIncident struct {
@@ -226,8 +227,8 @@ func TestD03APublicCorpusPinsFrozenOracleAndCannotClaimD03Pass(t *testing.T) {
 
 func TestD03APublicCorpusSourcesAreExternalClosedAndGrounded(t *testing.T) {
 	corpus := loadD03ACorpus(t)
-	if len(corpus.Incidents) < 6 {
-		t.Fatalf("D03-A v1 expected at least 6 grounded incidents, got %d", len(corpus.Incidents))
+	if len(corpus.Incidents) < 8 {
+		t.Fatalf("D03-A v1 expected at least 8 grounded reference mappings, got %d", len(corpus.Incidents))
 	}
 
 	seen := map[string]bool{}
@@ -269,23 +270,34 @@ func TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions(t *testi
 			if got.Disposition != incident.KernelMapping.HistoricalExpected {
 				t.Fatalf("public held-out falsification mismatch: expected=%s got=%s; do not edit frozen v1 to repair this", incident.KernelMapping.HistoricalExpected, got.Disposition)
 			}
-			if got.ValidTrace {
-				t.Fatalf("historical unsafe incident unexpectedly accepted: %s", got.Disposition)
+			if got.ValidTrace != incident.KernelMapping.HistoricalValidTrace {
+				t.Fatalf("historical validity mismatch: expected=%v got=%v disposition=%s", incident.KernelMapping.HistoricalValidTrace, got.ValidTrace, got.Disposition)
 			}
-			if got.AuthorizedEffects != 0 || got.UnauthorizedEffects != 0 {
-				t.Fatalf("historical rejected trace emitted effect: authorized=%d unauthorized=%d", got.AuthorizedEffects, got.UnauthorizedEffects)
+			if !got.ValidTrace {
+				if got.AuthorizedEffects != 0 || got.UnauthorizedEffects != 0 {
+					t.Fatalf("historical rejected trace emitted effect: authorized=%d unauthorized=%d", got.AuthorizedEffects, got.UnauthorizedEffects)
+				}
+			} else {
+				if !got.UsefulBehavior {
+					t.Fatalf("historical positive boundary case must remain useful: disposition=%s", got.Disposition)
+				}
+				if got.Disposition == "ALLOW_BOUND_EFFECT" && got.AuthorizedEffects != 1 {
+					t.Fatalf("positive historical ALLOW_BOUND_EFFECT must exercise one permitted effect, got %d", got.AuthorizedEffects)
+				}
 			}
 		})
 
-		t.Run(incident.ID+"/fixed", func(t *testing.T) {
-			tc := d03AExecutable(t, incident, "fixed", incident.KernelMapping.FixedOverrides)
-			got := evaluateK07(tc)
-			if got.Disposition != incident.KernelMapping.FixedExpected {
-				t.Fatalf("fixed public counterpart mismatch: expected=%s got=%s; do not edit frozen v1 to repair this", incident.KernelMapping.FixedExpected, got.Disposition)
-			}
-			if !got.ValidTrace || !got.UsefulBehavior {
-				t.Fatalf("fixed counterpart must demonstrate useful permitted/closed behavior: valid=%v useful=%v disposition=%s", got.ValidTrace, got.UsefulBehavior, got.Disposition)
-			}
-		})
+		if strings.TrimSpace(incident.KernelMapping.FixedExpected) != "" {
+			t.Run(incident.ID+"/fixed", func(t *testing.T) {
+				tc := d03AExecutable(t, incident, "fixed", incident.KernelMapping.FixedOverrides)
+				got := evaluateK07(tc)
+				if got.Disposition != incident.KernelMapping.FixedExpected {
+					t.Fatalf("fixed public counterpart mismatch: expected=%s got=%s; do not edit frozen v1 to repair this", incident.KernelMapping.FixedExpected, got.Disposition)
+				}
+				if !got.ValidTrace || !got.UsefulBehavior {
+					t.Fatalf("fixed counterpart must demonstrate useful permitted/closed behavior: valid=%v useful=%v disposition=%s", got.ValidTrace, got.UsefulBehavior, got.Disposition)
+				}
+			})
+		}
 	}
 }

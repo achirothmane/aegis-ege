@@ -34,14 +34,18 @@ evidence.
 
 ## v1 corpus
 
-The first batch contains six incidents across three structurally different
-areas:
+The corpus currently contains eight reference mappings sourced from seven
+closed public issues across four external repositories:
 
 - OpenMeter: migration-baseline completeness and concurrent billing-result
   attribution;
 - Hatchet: redelivery/idempotency, lost completion observation causing duplicate
   child work, and exact durable cancellation identity;
-- Infisical: migration rollback state ownership.
+- Infisical: migration rollback state ownership;
+- Tortoise #3442: two deliberately separated facets from one investigation:
+  a **positive execution-boundary case** where the failed job acquired no runner
+  and executed zero steps, and a **negative selection-integrity case** where a
+  non-canonical changed-set fallback could silently reduce test coverage.
 
 The exact issue/fix references and merged commit identities are recorded in
 `testdata/governed-action/d03a/corpus-v1.json`.
@@ -61,7 +65,12 @@ The corpus is therefore forbidden from:
 - claiming that external maintainers implemented the contract.
 
 For every historical unsafe trace the evaluator must produce the preregistered
-safety disposition. For every fixed counterpart it must produce the
+safety disposition. A public incident may also contribute a positive historical
+boundary case when the external evidence establishes that no prior effect crossed
+the relevant boundary; such a case must be explicitly marked
+`historical_valid_trace=true` and must exercise useful permitted behavior.
+
+For every fixed counterpart that exists, the evaluator must produce the
 preregistered useful disposition.
 
 ## Falsification rule
@@ -99,3 +108,38 @@ was fixed. None of these incidents may be used to silently redesign
 
 Normative change: **NO**  
 Runtime change: **NO**
+
+
+## Reference case — Tortoise #3442 / PR #5474
+
+This incident is intentionally not flattened into “fail then rerun passed =
+flaky test.”
+
+The original cited `changes` job (job `103701145755`) executed zero steps.
+The merged PR records `runner_name=""`, `runner_id=0`, and a check-run
+annotation that the job failed to be acquired after five attempts. The rerun on
+the same head/diff acquired a runner and the `changes` job passed in 11
+seconds.
+
+D03-A therefore records:
+
+1. **TORTOISE-3442-A — positive boundary case.** If authoritative evidence shows
+   that the prior attempt never acquired an executor and executed no steps, that
+   attempt did not create a possible prior effect merely because the check
+   concluded failure. Under otherwise unchanged valid bindings, a bounded new
+   attempt may be admissible. This does not classify every fail→pass sequence as
+   a flaky test.
+2. **TORTOISE-3442-B — negative selection-integrity case.** PR #5474 separately
+   found that the old changed-file derivation could fall back from the canonical
+   merge-base question to a different two-ref diff, and could turn an
+   unavailable/empty changed set into a smaller smoke suite that still reported
+   green. Under the frozen kernel mapping, that is an inadequate DecisionBasis /
+   profile for the claim and must DEFER rather than silently ALLOW.
+
+PR #5474 merged as
+`1917852e17ffe741f37ca419c2c433c741112159` and reports 182 passing
+verification tests plus mutation checks for the canonical-diff and empty-set
+guards.
+
+This split preserves both pieces of ground truth: the runner-acquisition event
+was not fixed by the workflow patch, while the changed-set defect was.
