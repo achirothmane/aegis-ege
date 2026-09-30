@@ -19,8 +19,15 @@
       ],
       "contribution_surface": "README/public repository; no repository-local CONTRIBUTING.md observed",
       "material_difference_from_design_domains": "database transaction/rollback/version state rather than CI rerun or Kubernetes node mutation",
-      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
-      "selected": false
+      "participation_status": "CONTACTED_AWAITING_RESPONSE",
+      "selected": false,
+      "outreach": {
+        "issue_url": "https://github.com/maragudk/migrate/issues/87",
+        "issue_number": 87,
+        "issue_state": "open",
+        "created_at": "2026-09-30T21:25:20Z",
+        "consent_confirmed": false
+      }
     },
     {
       "repository": "padurean/gosmig",
@@ -105,7 +112,7 @@
     "the independent maintainer must accept participation and own cohort selection in its existing repository",
     "candidate-specific facts must not feed frozen-core redesign before held-out execution"
   ],
-  "allowed_next_action": "Continue recruitment in parallel while preserving the holdout. The first qualified independent maintainer who explicitly accepts may proceed to a separate post-freeze cohort-selection/applicability/oracle record; no implementation begins before that record.",
+  "allowed_next_action": "Maintain parallel recruitment without selecting a cohort. Two public requests are pending (padurean/gosmig#1 and maragudk/migrate#87). The first qualified independent maintainer who explicitly accepts may proceed to a separate post-freeze cohort-selection/applicability/oracle record; no implementation begins before that record.",
   "normative_change": false,
   "runtime_change": false
 }

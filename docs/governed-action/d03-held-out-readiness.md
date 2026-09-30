@@ -33,8 +33,9 @@ observation, recovery and outcome.
 The selected run also needs a bounded test grant appropriate to that substrate
 and a post-freeze applicability/oracle commitment before integration.
 
-One public recruitment request is now recorded at `padurean/gosmig#1`, but no
-independent maintainer has explicitly accepted participation. Therefore no
+Two public recruitment requests are now pending at `padurean/gosmig#1` and
+`maragudk/migrate#87`, but neither independent maintainer has explicitly
+accepted participation. Therefore no
 qualified participant, cohort selection, bounded test grant, applicability/oracle
 commitment, or independent implementation is yet recorded. The same-owner
 repositories used for D00-D02 do not satisfy independence.
