@@ -2,7 +2,7 @@
 
 Freeze ID: `candidate-kernel-contract-v1`  
 Owner: `achirothmane`  
-Status: **FROZEN BASELINE — pending K06 PR merge**
+Status: **FROZEN BASELINE RECORD — K06**
 
 This checklist maps the queue's required repairs/semantic items to the immutable evidence recorded by K06.
 
