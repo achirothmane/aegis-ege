@@ -1,0 +1,76 @@
+{
+  "schema_version": "governed-action.d03-readiness/v1",
+  "status": "BLOCKED_UNSTARTED",
+  "recorded_at": "2026-09-30",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "prerequisite_evidence": [
+    {
+      "id": "K06",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 83,
+      "merge": "b3fb4da1fe26511be806cf8a959e2aa3bd6b6a65",
+      "status": "COMPLETE"
+    },
+    {
+      "id": "K07",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 84,
+      "merge": "2b08f173d7e0dc7390b7ba9fec57ab10e28c48ba",
+      "status": "COMPLETE"
+    },
+    {
+      "id": "D00",
+      "repo": "achirothmane/workflow-failure-lab",
+      "pr": 114,
+      "merge": "0e049d78538602e4ce1e068020abb32f4c4c558c",
+      "status": "COMPLETE"
+    },
+    {
+      "id": "D01",
+      "repo": "achirothmane/ci-retry-gate-consumer-e2e",
+      "pr": 20,
+      "merge": "36b11f6deb504153304552d7f07f64b2c816b0c5",
+      "status": "COMPLETE"
+    },
+    {
+      "id": "D02",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 87,
+      "merge": "f2fbece23ce168e5e7bda7a799dd2bec5c638a8f",
+      "status": "COMPLETE"
+    }
+  ],
+  "operational_prerequisite": {
+    "satisfied": false,
+    "required": [
+      "named independent domain maintainer",
+      "that maintainer's existing repository; not a repository created by the contract author to inflate independence",
+      "materially different native substrate with typed transaction/idempotency/authority/observation/recovery/outcome semantics",
+      "bounded test authority/grant appropriate to the selected substrate",
+      "post-freeze applicability/oracle commitment before integration"
+    ],
+    "current_evidence": "No approved/identified independent participant and existing consumer repository are recorded in the D03 project evidence. Same-owner repositories used for D00-D02 do not satisfy independence.",
+    "interpretation": "D03 remains unstarted. This is an operational blocker, not a failure of the frozen contract and not permission to fabricate a cohort."
+  },
+  "prohibited_shortcuts": [
+    "count EEP as a third independent domain",
+    "count another achirothmane-owned repository as independent adoption",
+    "create a new consumer repository under the same owner and call it held-out independence",
+    "preselect concrete held-out cases and use them to redesign the frozen core before the independent maintainer commits applicability",
+    "copy hidden reference-runtime rules and call the result independent implementation",
+    "claim D03 PASS from same-owner tests"
+  ],
+  "cohort_selection": {
+    "selected": false,
+    "domain": null,
+    "repository": null,
+    "maintainer": null,
+    "substrate": null,
+    "oracle_commitment": null,
+    "test_grant": null
+  },
+  "allowed_next_action": "Identify and obtain participation from one real independent maintainer with an existing materially different repository/substrate; only then record cohort selection and begin D03.",
+  "normative_change": false,
+  "runtime_change": false
+}
