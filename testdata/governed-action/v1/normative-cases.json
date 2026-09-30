@@ -1,6 +1,6 @@
 {
   "schema_version": "governed-action.normative-cases/v1",
-  "contract_status": "DRAFT_UNFROZEN",
+  "contract_status": "FROZEN",
   "contract_ref": "docs/governed-action/kernel-v1.md",
   "oracle_ref": "docs/governed-action/normative-vectors-and-change-control-v1.md",
   "immutable_sources": [
