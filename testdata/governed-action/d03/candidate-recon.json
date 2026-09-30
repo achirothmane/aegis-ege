@@ -1,0 +1,109 @@
+{
+  "schema_version": "governed-action.d03-candidate-recon/v1",
+  "status": "RECRUITMENT_RECON_ONLY",
+  "recorded_at": "2026-09-30",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "selection_status": "NONE_SELECTED",
+  "candidates": [
+    {
+      "repository": "maragudk/migrate",
+      "owner": "maragudk",
+      "owner_type": "Organization",
+      "domain_category": "database migration",
+      "primary_language": "Go",
+      "last_observed_push": "2026-09-16T10:47:11Z",
+      "native_substrate": "database/sql migration execution",
+      "public_test_surface": [
+        "GitHub Actions CI",
+        "transactional migration behavior"
+      ],
+      "contribution_surface": "README/public repository; no repository-local CONTRIBUTING.md observed",
+      "material_difference_from_design_domains": "database transaction/rollback/version state rather than CI rerun or Kubernetes node mutation",
+      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
+      "selected": false
+    },
+    {
+      "repository": "padurean/gosmig",
+      "owner": "padurean",
+      "owner_type": "User",
+      "domain_category": "database migration",
+      "primary_language": "Go",
+      "last_observed_push": "2025-11-04T10:25:58Z",
+      "native_substrate": "PostgreSQL/database.sql migrations",
+      "public_test_surface": [
+        "Go tests",
+        "PostgreSQL integration tests",
+        "transactional and non-transactional migrations",
+        "documented version-conflict handling"
+      ],
+      "contribution_surface": "public repository; no repository-local CONTRIBUTING.md observed",
+      "material_difference_from_design_domains": "database transaction/rollback/version state rather than CI rerun or Kubernetes node mutation",
+      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
+      "selected": false
+    },
+    {
+      "repository": "openmeterio/openmeter",
+      "owner": "openmeterio",
+      "owner_type": "Organization",
+      "domain_category": "usage metering and billing",
+      "primary_language": "Go",
+      "last_observed_push": "2026-09-29T13:56:42Z",
+      "native_substrate": "self-hosted metering/billing stack with Kafka, ClickHouse, PostgreSQL, Redis/Svix components",
+      "public_test_surface": [
+        "CI",
+        "Docker Compose local evaluation stack",
+        "public contributing guide requiring tests for affected behavior"
+      ],
+      "contribution_surface": "GitHub Discussions, Issues and CONTRIBUTING.md",
+      "material_difference_from_design_domains": "usage event accounting/access/billing rather than CI rerun or Kubernetes node mutation",
+      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
+      "selected": false
+    },
+    {
+      "repository": "hatchet-dev/hatchet",
+      "owner": "hatchet-dev",
+      "owner_type": "Organization",
+      "domain_category": "durable workflow execution",
+      "primary_language": "Go",
+      "last_observed_push": "2026-09-29T20:48:39Z",
+      "native_substrate": "self-hosted Postgres-backed durable task/workflow engine",
+      "public_test_surface": [
+        "unit tests",
+        "Docker-backed integration tests",
+        "documented contributor workflow"
+      ],
+      "contribution_surface": "CONTRIBUTING.md and public contributing Discord channel",
+      "material_difference_from_design_domains": "long-running durable task lifecycle rather than CI rerun or Kubernetes node mutation",
+      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
+      "selected": false
+    },
+    {
+      "repository": "Infisical/infisical",
+      "owner": "Infisical",
+      "owner_type": "Organization",
+      "domain_category": "secrets and credential lifecycle",
+      "primary_language": "TypeScript",
+      "last_observed_push": "2026-09-30T05:53:32Z",
+      "native_substrate": "self-hosted secrets/certificates/privileged-access platform with Docker setup",
+      "public_test_surface": [
+        "public contribution guide",
+        "self-hosted Docker deployment path"
+      ],
+      "contribution_surface": "CONTRIBUTING.md and public contribution documentation",
+      "material_difference_from_design_domains": "credential rotation/revocation/authorization lifecycle rather than CI rerun or Kubernetes node mutation",
+      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
+      "selected": false
+    }
+  ],
+  "guardrails": [
+    "candidate reconnaissance does not select a D03 cohort",
+    "no concrete held-out oracle or adversarial schedule is recorded here",
+    "no candidate is contacted or represented as consenting by this record",
+    "the independent maintainer must accept participation and own cohort selection in its existing repository",
+    "candidate-specific facts must not feed frozen-core redesign before held-out execution"
+  ],
+  "allowed_next_action": "Obtain explicit participation from one independent maintainer; then create a separate post-freeze cohort-selection record before any D03 implementation.",
+  "normative_change": false,
+  "runtime_change": false
+}
