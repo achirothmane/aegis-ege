@@ -1,0 +1,473 @@
+{
+  "schema_version": "governed-action.freeze-manifest/v1",
+  "freeze_id": "candidate-kernel-contract-v1",
+  "status": "FROZEN",
+  "freeze_kind": "specification_baseline",
+  "normative_semantics_parent_commit": "43431ac8a2998ccd80cbc546583bb414304df7d7",
+  "repository": "achirothmane/aegis-ege",
+  "claims": {
+    "demonstrated_platform_kernel": false,
+    "runtime_release": false,
+    "held_out_generalization_completed": false,
+    "k07_executable_conformance_completed": false,
+    "independent_review_claimed": false
+  },
+  "normative_artifacts": [
+    {
+      "path": "docs/governed-action/kernel-v1.md",
+      "git_blob_sha": "fb3f0516b21fb74dde75bf5991a9fffc0910d411"
+    },
+    {
+      "path": "docs/governed-action/domain-profiles-v1.md",
+      "git_blob_sha": "a8bd83497e8420f1e4e98028fb74ed4a855e99e8"
+    },
+    {
+      "path": "docs/governed-action/normative-vectors-and-change-control-v1.md",
+      "git_blob_sha": "0d37d5a704a68939867718e3b543931d269c2b71"
+    },
+    {
+      "path": "testdata/governed-action/v1/schema.json",
+      "git_blob_sha": "963c81fc4682d25cf7ee9442e178f3762ed8f6ef"
+    },
+    {
+      "path": "testdata/governed-action/v1/normative-cases.json",
+      "git_blob_sha": "d72fcdebe7234f9d253a62e308ae55ed8f217fc4"
+    },
+    {
+      "path": "testdata/governed-action/v1/change-control-cases.json",
+      "git_blob_sha": "5de2a6e3d28ddd5a89b8bcf0635b636b631e7961"
+    },
+    {
+      "path": "testdata/governed-action/v1/change-log-template.json",
+      "git_blob_sha": "e2e1d0f711e5452b0dad852264a0493266bd6517"
+    }
+  ],
+  "verification_artifacts": [
+    {
+      "path": "internal/governedactionnormative/normative_test.go",
+      "git_blob_sha": "d82a8844f5e8d1f070ed84dd1593b2394d37be82"
+    }
+  ],
+  "external_corpora": [
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "docs/integration-contract.md",
+      "git_blob_sha": "8c846a9618351f6c38137198ae78aab841681bdc",
+      "profile": "eba.integration/v0.1"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "conformance/eba-temporal-v1.json",
+      "git_blob_sha": "0a161956b19e16d6adaaf3fa2cbeb453a7ddbcc3",
+      "profile": "eba.temporal/v1"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "conformance/eba-context-v1.json",
+      "git_blob_sha": "6f3d062e5c02c8844142c72097bf86e85c034982",
+      "profile": "eba.context/v1"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "conformance/eba-canonical-json-v1.json",
+      "git_blob_sha": "99b13dbb634e3894aa6610c70e1f9820fc1c73d8",
+      "profile": "eba.canonical-json/v1"
+    },
+    {
+      "repo": "achirothmane/easl",
+      "commit": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
+      "path": "conformance/subject_state_binding.json",
+      "git_blob_sha": "82d151531da6f98262de1e247658d89a8299c53c",
+      "profile": "subject_state_binding/v1"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "tests/conformance/easl/subject_state_binding.json",
+      "git_blob_sha": "82d151531da6f98262de1e247658d89a8299c53c",
+      "profile": "subject_state_binding/v1 mirror"
+    }
+  ],
+  "consumer_pins": [
+    {
+      "repo": "achirothmane/aegis-ege",
+      "file": "go.mod",
+      "dependency": "github.com/achirothmane/easl",
+      "value": "v0.0.0-20260928052341-f7e3b79c6892"
+    }
+  ],
+  "prerequisites": [
+    {
+      "id": "C01",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 68,
+      "head": "774fb9ac19949e599098526d4566b5074ea9700d",
+      "merge": "a4fb223caea1e03eea1939a2e0ad4974850653f3",
+      "ci_runs": [
+        36628899842
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "C03",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 69,
+      "head": "31461753efd789744e81bdef64c7db85fc7d0163",
+      "merge": "718ce08c414f731912041121b57041ce7223aa4e",
+      "ci_runs": [
+        36632755727
+      ],
+      "status": "COMPLETE",
+      "supporting": [
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 110,
+          "head": "9209acbf93bf0bdb82dad4e180feacfa2b211c1a",
+          "merge": "f454804ac31e0eed8ee4789003e53b5a3350e122",
+          "ci_runs": [
+            36633254473,
+            36633255054,
+            36633254837
+          ]
+        },
+        {
+          "repo": "achirothmane/easl",
+          "pr": 13,
+          "head": "f6bf490d1bf9d4076553bf1f64e929cc6596a89a",
+          "merge": "764ec4debbebd5f9b2baa69fe9458da30157262c",
+          "ci_runs": [
+            36632887058
+          ]
+        },
+        {
+          "repo": "achirothmane/agent-action-guard",
+          "pr": 11,
+          "head": "b79322ea42769b18650b20fe4382f0ecd7759365",
+          "merge": "9cd2957291529515bae49379baa323846e201c8b",
+          "ci_runs": [
+            36632705589,
+            36632705562
+          ]
+        },
+        {
+          "repo": "achirothmane/assumption-gate-",
+          "pr": 2,
+          "head": "af8b907edc3618d734931ceaf8c9454c1d471951",
+          "merge": "3d7bf0782039e2d7746185b150258996f8109e3b",
+          "ci_runs": [
+            36632691098
+          ]
+        },
+        {
+          "repo": "achirothmane/token-governance-protocol",
+          "pr": 3,
+          "head": "03de82a609552291738ecac7d69f2c5b569fe9f6",
+          "merge": "038e3f028aaa71fae8d94d597d623a8f1219f6d9",
+          "ci_runs": [
+            36632720987
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 70,
+      "head": "d8bb967035022c0b13823d30498730e41177b64c",
+      "merge": "3e591ec4ccf284e798b5f1668863831f3866167a",
+      "ci_runs": [
+        36635400478
+      ],
+      "status": "COMPLETE",
+      "supporting": [
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 111,
+          "head": "7b16b6bf2fe5d289a576f215715185a9573d4b36",
+          "merge": "d96ebe91d8d83ae96c90df87faac9c7b02fc8c36",
+          "ci_runs": [
+            36637557481,
+            36637557500,
+            36637557582
+          ]
+        },
+        {
+          "repo": "achirothmane/agent-action-guard",
+          "pr": 12,
+          "head": "0b2556808aa0c63daa6a1529172fc76612c23ccb",
+          "merge": "81a4225611c983125ebc4cdc1d382c86008eece6",
+          "ci_runs": [
+            36635300416,
+            36635300402
+          ]
+        },
+        {
+          "repo": "achirothmane/assumption-gate-",
+          "pr": 3,
+          "head": "fe973e868117349d28d6a32a11543c3e4485ad9f",
+          "merge": "e0e3d3ea82de2331c62b3bbb0c6ba37f26218883",
+          "ci_runs": [
+            36635278043
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C05",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 71,
+      "head": "d24f40a47bcad34874f1ec81ae163554b7aeb1dc",
+      "merge": "f73524136514a3f93f37eab79ccf13476f782bcc",
+      "ci_runs": [
+        36639136998
+      ],
+      "status": "COMPLETE",
+      "supporting": [
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 112,
+          "head": "b99909c4ad217460a77615f833360d4f87131f1e",
+          "merge": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+          "ci_runs": [
+            36639626694,
+            36639626688,
+            36639626487
+          ]
+        },
+        {
+          "repo": "achirothmane/agent-action-guard",
+          "pr": 13,
+          "head": "2bc7b8c874eb9f407fde2bf031b4b458ba954827",
+          "merge": "5276336cec396a0ac0b77d45eb5b981b01d7d7ea",
+          "ci_runs": [
+            36638940946,
+            36638940980
+          ]
+        },
+        {
+          "repo": "achirothmane/assumption-gate-",
+          "pr": 4,
+          "head": "40fd5e4d1c7b996e5de27e221e7003ec2f0b2863",
+          "merge": "435bc970c10dda83b786677ce9cc98ab9eac3799",
+          "ci_runs": [
+            36638928546
+          ]
+        },
+        {
+          "repo": "achirothmane/token-governance-protocol",
+          "pr": 4,
+          "head": "e96f65d4378da3a914dbb4289f7ac90cd610b355",
+          "merge": "7b38fc9af5cf9934fec5842b8e195b9a2d3c2d4f",
+          "ci_runs": [
+            36639052877
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C06",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 72,
+      "head": "292a2faadb8e12d6f24b8b1064e62ba90fe33110",
+      "merge": "177a7a56ee8e572cb69e9c0e7a8e0d6e03c72234",
+      "ci_runs": [
+        36641503613
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "C07",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 73,
+      "head": "3f1342749d0b83b3ef505f41e7f7d01b7070b548",
+      "merge": "b49e89ad17a62d0d81d6d3f34cab51f09e9332af",
+      "ci_runs": [
+        36643796577
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "C08",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 74,
+      "head": "c483f2ba56db473e41117ffe3aa591ce01f206e2",
+      "merge": "339af9d1ce4b07640fecfea059115e7b4bbdf99d",
+      "ci_runs": [
+        36645506966
+      ],
+      "status": "COMPLETE",
+      "supporting": [
+        {
+          "repo": "achirothmane/easl",
+          "pr": 14,
+          "head": "36de0bf3cf8cb29aea280db0185c41c3cb62aee9",
+          "merge": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
+          "ci_runs": [
+            36645387840
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C09",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 75,
+      "head": "716c6883b5a226698bac6dab57e87e42048d236d",
+      "merge": "0d94613e1a05ae467170e615633d79c31a309d36",
+      "ci_runs": [
+        36647979579
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "E01",
+      "repo": "multi",
+      "status": "COMPLETE",
+      "supporting": [
+        {
+          "repo": "achirothmane/easl",
+          "pr": 8,
+          "head": "dce94c3b41f0662077b56de344fd505ab3f4d032",
+          "merge": "8e6a601be100aa54310f3bd94296af5a649a5f0d",
+          "ci_runs": [
+            36322393166
+          ]
+        },
+        {
+          "repo": "achirothmane/easl",
+          "pr": 9,
+          "head": "d43718fd03b15fe5ce6f66bd32992c8ff1cd5117",
+          "merge": "35addcbfe610345b2f97d9fec06a9dc63670505a",
+          "ci_runs": []
+        },
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 96,
+          "head": "2127c52d277e60d0d695dd93aecf3c538a92f649",
+          "merge": "0297cefd4b47f2073cada67cf25c263feb1b2b8a",
+          "ci_runs": [
+            36322623179,
+            36322623329,
+            36322623215
+          ]
+        }
+      ],
+      "vector_blob_sha": "82d151531da6f98262de1e247658d89a8299c53c",
+      "current_heads": {
+        "easl": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
+        "workflow_failure_lab": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6"
+      }
+    },
+    {
+      "id": "K01",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 76,
+      "head": "5336bfbe67742c4bb9cc02f15367c8c893a1801b",
+      "merge": "86d5b2184ee2084d206280ad3069b6da4fbdb2f5",
+      "ci_runs": [
+        36655718172
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "K02",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 77,
+      "head": "750545f58be6d2c287fe6cfb3aa4656a7fd10f75",
+      "merge": "8ba7ff710c3f75fe662ffd90f3569ecc81e98227",
+      "ci_runs": [
+        36656752699
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "K03",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 78,
+      "head": "c0dbba3cd18f49a01f8b7315438e38f8b63553ef",
+      "merge": "b6d25fe39f98b0a253c25fd8758cdc928331dce2",
+      "ci_runs": [
+        36658121460
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "K04",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 79,
+      "head": "2baf4eee3f1f28212fcd0461b34901502e866da7",
+      "merge": "6130e941437bc005ccc94006f9ff277edbcebd2f",
+      "ci_runs": [
+        36658875888
+      ],
+      "status": "COMPLETE"
+    },
+    {
+      "id": "K05",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 80,
+      "head": "57792a555e10f8a2afbc025bf82de588495b03cd",
+      "merge": "43431ac8a2998ccd80cbc546583bb414304df7d7",
+      "ci_runs": [
+        36659716084
+      ],
+      "status": "COMPLETE"
+    }
+  ],
+  "excluded_from_freeze_prerequisites": [
+    {
+      "id": "C02",
+      "reason": "explicitly excluded by freeze gate; ModFactory evidence is not used"
+    },
+    {
+      "id": "C10",
+      "reason": "independent portfolio closeout is not required for this freeze"
+    },
+    {
+      "id": "K07",
+      "reason": "executes the frozen vectors after K06"
+    },
+    {
+      "id": "D00-D06",
+      "reason": "experiments and measurements occur after the normative freeze as scheduled"
+    },
+    {
+      "id": "PR64",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 64,
+      "state": "OPEN",
+      "head": "ac5996beeaa0b6ea01217ad60b54f33c55c9b779",
+      "reason": "not merged and not counted as C08 protection"
+    },
+    {
+      "id": "PR65",
+      "repo": "achirothmane/aegis-ege",
+      "pr": 65,
+      "state": "OPEN",
+      "head": "54f355eb15c413808f00db1003077e0f42a52e94",
+      "reason": "not merged and not counted as C08 protection"
+    }
+  ],
+  "review_attribution": [
+    {
+      "identity": "achirothmane",
+      "roles": [
+        "repository owner",
+        "Aegis contract steward",
+        "merge approver for cited Aegis and cross-repository prerequisite PRs"
+      ],
+      "evidence": "GitHub PR metadata shows cited PRs authored by and merged_by achirothmane",
+      "independent_reviewer": false
+    }
+  ],
+  "change_control": {
+    "normative_document": "docs/governed-action/normative-vectors-and-change-control-v1.md",
+    "rule": "any change to accepted/rejected trace meaning or core relation is a normative core change and requires a new version/freeze",
+    "old_artifacts_gain_stronger_assurance": false,
+    "overwrite_existing_freeze": false
+  }
+}
