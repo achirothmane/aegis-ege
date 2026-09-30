@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/achirothmane/aegis-ege/testdata/governed-action/v1/schema.json",
+  "title": "Governed Action Kernel v1 Normative Case Set",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "contract_status",
+    "immutable_sources",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "governed-action.normative-cases/v1"
+    },
+    "contract_status": {
+      "const": "DRAFT_UNFROZEN"
+    },
+    "immutable_sources": {
+      "type": "array",
+      "minItems": 1
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1
+    }
+  },
+  "additionalProperties": true
+}
