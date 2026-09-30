@@ -1,10 +1,10 @@
 # Governed Action Kernel v1 — normative vectors and change control
 
-Status: **DRAFT / UNFROZEN**  
+Status: **FROZEN — candidate kernel contract v1 (K06 baseline)**  
 Queue item: **K05 — Publish normative examples and change control**  
 Normative case-set version: `governed-action.normative-cases/v1`
 
-This document turns the K01–K04 prose contract into reviewable normative examples without creating an executable challenge platform. K07 owns full cross-adapter execution after K06 freezes the baseline.
+This document turns the K01–K04 prose contract into reviewable normative examples without creating an executable challenge platform. K06 freezes this exact oracle baseline; K07 owns full cross-adapter execution.
 
 ## 1. Normative artifacts
 
@@ -238,11 +238,11 @@ After a normative redefinition, a case/cohort that caused the redefinition is de
 
 ## 12. Freeze boundary
 
-Until K06 records exact hashes and prerequisite evidence:
+K06 records exact hashes, prerequisite evidence and reviewer attribution for this baseline.
 
-- this contract remains **DRAFT / UNFROZEN**;
-- no held-out score may be claimed against it;
-- no conformance result may rely on a moving branch identity;
-- K07 executable cross-adapter coverage has not yet been performed.
+- the normative oracle is **FROZEN** as candidate kernel contract v1;
+- held-out selection must occur only after this freeze and the applicable experiment prerequisites;
+- conformance consumers pin the recorded immutable artifact identities rather than a moving branch;
+- K07 executable cross-adapter coverage has not yet been performed and is not implied by this freeze.
 
 K05 publishes the oracle. K06 freezes it. K07 executes it.
