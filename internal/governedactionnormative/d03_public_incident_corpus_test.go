@@ -21,6 +21,7 @@ type d03PublicIncidentCorpus struct {
 		SourceResolutionMerge string `json:"source_resolution_merge"`
 		Observed struct {
 			SameHeadDiffRerunPassed bool `json:"same_head_diff_rerun_passed"`
+			SameRepositoryCommitPriorPassThenRerunFailed bool `json:"same_repository_commit_prior_pass_then_rerun_failed"`
 		} `json:"observed"`
 		CorrectedGroundTruth struct {
 			Class string `json:"class"`
@@ -37,6 +38,12 @@ type d03PublicIncidentCorpus struct {
 			Class string `json:"class"`
 			RequiredGateBehavior string `json:"required_gate_behavior"`
 		} `json:"secondary_defect"`
+		Repair struct {
+			ProductBehaviorChanged *bool `json:"product_behavior_changed"`
+			TTLBeforeMS int `json:"ttl_before_ms"`
+			TTLAfterSeconds int `json:"ttl_after_seconds"`
+			VerificationConsecutivePasses int `json:"verification_consecutive_passes"`
+		} `json:"repair"`
 		HeldOutCohort bool `json:"held_out_cohort"`
 		IndependentParticipant bool `json:"independent_participant"`
 	} `json:"incidents"`
@@ -68,20 +75,73 @@ func TestD03PublicIncidentCorpusPreservesClaimBoundaryAndGroundTruth(t *testing.
 	if corpus.CountsAsD03IndependentValidation {
 		t.Fatal("public incident replay must not be counted as D03 independent validation")
 	}
-	if len(corpus.Incidents) == 0 {
-		t.Fatal("public incident corpus must contain at least one incident")
+
+	type expectedIncident struct {
+		repo string
+		issue int
+		pr int
+		merge string
+		class string
+		decision string
+		precondition string
+		forbidden string
+	}
+	expected := map[string]expectedIncident{
+		"PIC-0001": {
+			repo: "daniel-ospina/tortoise",
+			issue: 3442,
+			pr: 5474,
+			merge: "1917852e17ffe741f37ca419c2c433c741112159",
+			class: "INFRA_TRANSIENT_RUNNER_ACQUISITION_FAILURE",
+			decision: "ALLOW_RERUN_CANDIDATE",
+			precondition: "ZERO_EXECUTION_POSITIVELY_ESTABLISHED",
+			forbidden: "RERUN_PASS_IMPLIES_FLAKY_TEST",
+		},
+		"PIC-0002": {
+			repo: "lidge-jun/opencodex",
+			issue: 1563,
+			pr: 1575,
+			merge: "be3597ff2db1c2941ff15d04f65f1bfc6389c4a3",
+			class: "TEST_HARNESS_TIMEOUT_MARGIN",
+			decision: "ALLOW_BOUNDED_RERUN_CANDIDATE",
+			precondition: "KNOWN_TEST_HARNESS_TIMEOUT_SIGNATURE_WITH_NO_PRODUCT_FAILURE_EVIDENCE",
+			forbidden: "RERUN_PASS_ALONE_PROVES_TEST_FLAKE",
+		},
+		"PIC-0003": {
+			repo: "herdrdev/herdr",
+			issue: 3451,
+			pr: 3453,
+			merge: "69585b01d0297b50e302c98f883d705dec92834d",
+			class: "TEST_FIXTURE_WALL_CLOCK_RACE",
+			decision: "ALLOW_BOUNDED_RERUN_CANDIDATE",
+			precondition: "KNOWN_FIXTURE_RACE_SIGNATURE_WITH_NO_PRODUCT_FAILURE_EVIDENCE",
+			forbidden: "SAME_COMMIT_RERUN_PASS_IS_SUFFICIENT_CLASSIFICATION",
+		},
+		"PIC-0004": {
+			repo: "frappe/draw",
+			issue: 546,
+			pr: 547,
+			merge: "affaabd607bfec327867d3c170b81bb2f9bfdf3d",
+			class: "ENVIRONMENT_DEPENDENCY_DRIFT",
+			decision: "HOLD_REQUIRES_INPUT_PROVENANCE",
+			precondition: "RECONSTRUCT_OR_PIN_EXTERNAL_EXECUTION_INPUTS_BEFORE_CLASSIFYING",
+			forbidden: "SAME_REPOSITORY_COMMIT_IMPLIES_SAME_EXECUTION_INPUTS",
+		},
+	}
+	if len(corpus.Incidents) < len(expected) {
+		t.Fatalf("public incident corpus has %d incidents, want at least %d", len(corpus.Incidents), len(expected))
 	}
 
-	seen := map[string]bool{}
-	foundTortoise := false
+	seenIDs := map[string]bool{}
+	seenExpected := map[string]bool{}
 	for _, incident := range corpus.Incidents {
 		if incident.ID == "" || incident.SourceRepository == "" {
 			t.Fatalf("incident identity incomplete: %+v", incident)
 		}
-		if seen[incident.ID] {
+		if seenIDs[incident.ID] {
 			t.Fatalf("duplicate incident id %s", incident.ID)
 		}
-		seen[incident.ID] = true
+		seenIDs[incident.ID] = true
 		if strings.HasPrefix(incident.SourceRepository, "achirothmane/") {
 			t.Fatalf("public incident source must be externally owned: %s", incident.SourceRepository)
 		}
@@ -89,39 +149,62 @@ func TestD03PublicIncidentCorpusPreservesClaimBoundaryAndGroundTruth(t *testing.
 			t.Fatalf("public replay %s must not masquerade as held-out participation", incident.ID)
 		}
 
-		if incident.ID != "PIC-0001" {
+		want, ok := expected[incident.ID]
+		if !ok {
 			continue
 		}
-		foundTortoise = true
-		if incident.SourceRepository != "daniel-ospina/tortoise" ||
-			incident.SourceIssue != 3442 ||
-			incident.SourceResolutionPR != 5474 ||
-			incident.SourceResolutionMerge != "1917852e17ffe741f37ca419c2c433c741112159" {
-			t.Fatalf("PIC-0001 source provenance drifted: %+v", incident)
+		seenExpected[incident.ID] = true
+		if incident.SourceRepository != want.repo ||
+			incident.SourceIssue != want.issue ||
+			incident.SourceResolutionPR != want.pr ||
+			incident.SourceResolutionMerge != want.merge {
+			t.Fatalf("%s source provenance drifted: %+v", incident.ID, incident)
 		}
-		if !incident.Observed.SameHeadDiffRerunPassed {
-			t.Fatal("PIC-0001 must retain the observed fail/rerun-pass signal")
+		if incident.CorrectedGroundTruth.Class != want.class {
+			t.Fatalf("%s class = %q, want %q", incident.ID, incident.CorrectedGroundTruth.Class, want.class)
 		}
-		if incident.CorrectedGroundTruth.Class != "INFRA_TRANSIENT_RUNNER_ACQUISITION_FAILURE" ||
-			incident.CorrectedGroundTruth.StepsExecuted != 0 ||
-			incident.CorrectedGroundTruth.RunnerID != 0 ||
-			!incident.CorrectedGroundTruth.RunnerNameEmpty {
-			t.Fatalf("PIC-0001 corrected ground truth drifted: %+v", incident.CorrectedGroundTruth)
+		if incident.RetryGateExpectation.Decision != want.decision ||
+			incident.RetryGateExpectation.Precondition != want.precondition ||
+			incident.RetryGateExpectation.ForbiddenInference != want.forbidden {
+			t.Fatalf("%s retry expectation drifted: %+v", incident.ID, incident.RetryGateExpectation)
 		}
-		if incident.RetryGateExpectation.Decision != "ALLOW_RERUN_CANDIDATE" ||
-			incident.RetryGateExpectation.Precondition != "ZERO_EXECUTION_POSITIVELY_ESTABLISHED" {
-			t.Fatalf("PIC-0001 retry rule became broader than the evidence: %+v", incident.RetryGateExpectation)
-		}
-		if incident.RetryGateExpectation.ForbiddenInference != "RERUN_PASS_IMPLIES_FLAKY_TEST" {
-			t.Fatalf("PIC-0001 lost its counterexample: %+v", incident.RetryGateExpectation)
-		}
-		if incident.SecondaryDefect.Class != "NON_CANONICAL_CHANGED_SET_DERIVATION" ||
-			incident.SecondaryDefect.RequiredGateBehavior != "FAIL_CLOSED" {
-			t.Fatalf("PIC-0001 secondary defect rule drifted: %+v", incident.SecondaryDefect)
+
+		switch incident.ID {
+		case "PIC-0001":
+			if !incident.Observed.SameHeadDiffRerunPassed ||
+				incident.CorrectedGroundTruth.StepsExecuted != 0 ||
+				incident.CorrectedGroundTruth.RunnerID != 0 ||
+				!incident.CorrectedGroundTruth.RunnerNameEmpty {
+				t.Fatalf("PIC-0001 zero-execution evidence drifted: %+v", incident)
+			}
+			if incident.SecondaryDefect.Class != "NON_CANONICAL_CHANGED_SET_DERIVATION" ||
+				incident.SecondaryDefect.RequiredGateBehavior != "FAIL_CLOSED" {
+				t.Fatalf("PIC-0001 secondary defect rule drifted: %+v", incident.SecondaryDefect)
+			}
+		case "PIC-0002":
+			if !incident.Observed.SameHeadDiffRerunPassed {
+				t.Fatal("PIC-0002 must retain the same-commit fail/rerun-pass signal")
+			}
+			if incident.Repair.ProductBehaviorChanged == nil || *incident.Repair.ProductBehaviorChanged {
+				t.Fatal("PIC-0002 must record that product behavior was unchanged")
+			}
+		case "PIC-0003":
+			if !incident.Observed.SameHeadDiffRerunPassed ||
+				incident.Repair.TTLBeforeMS != 1 ||
+				incident.Repair.TTLAfterSeconds != 60 ||
+				incident.Repair.VerificationConsecutivePasses != 100 {
+				t.Fatalf("PIC-0003 fixture-race evidence drifted: %+v", incident)
+			}
+		case "PIC-0004":
+			if !incident.Observed.SameRepositoryCommitPriorPassThenRerunFailed {
+				t.Fatal("PIC-0004 must retain the same-repository-commit pass-then-fail signal")
+			}
 		}
 	}
-	if !foundTortoise {
-		t.Fatal("PIC-0001 tortoise #3442 is missing")
+	for id := range expected {
+		if !seenExpected[id] {
+			t.Fatalf("expected public incident %s is missing", id)
+		}
 	}
 	if corpus.NormativeChange || corpus.RuntimeChange {
 		t.Fatalf("public incident corpus must be evidence-only: normative=%v runtime=%v", corpus.NormativeChange, corpus.RuntimeChange)
