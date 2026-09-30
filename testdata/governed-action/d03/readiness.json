@@ -50,8 +50,8 @@
       "bounded test authority/grant appropriate to the selected substrate",
       "post-freeze applicability/oracle commitment before integration"
     ],
-    "current_evidence": "One recruitment request is publicly recorded at padurean/gosmig#1, but no independent maintainer has explicitly accepted participation. No cohort, bounded test grant, applicability/oracle commitment, or independent implementation is recorded.",
-    "interpretation": "D03 remains BLOCKED_UNSTARTED. Outreach is recruitment evidence only; it does not satisfy the independent-participant prerequisite."
+    "current_evidence": "Two public recruitment requests are pending: padurean/gosmig#1 and maragudk/migrate#87. Neither maintainer has explicitly accepted participation. No cohort, bounded test grant, applicability/oracle commitment, or independent implementation is recorded.",
+    "interpretation": "D03 remains BLOCKED_UNSTARTED. Parallel outreach reduces single-maintainer waiting risk but does not satisfy the independent-participant prerequisite."
   },
   "prohibited_shortcuts": [
     "count EEP as a third independent domain",
