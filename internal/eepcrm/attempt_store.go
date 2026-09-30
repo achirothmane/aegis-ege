@@ -30,6 +30,7 @@ const (
 	AttemptAccepted       AttemptState = "ACCEPTED"
 	AttemptBlocked        AttemptState = "BLOCKED"
 	AttemptCompleted      AttemptState = "COMPLETED"
+	AttemptRetiredUnknown AttemptState = "RETIRED_UNKNOWN"
 )
 
 type AttemptRecord struct {
@@ -290,9 +291,9 @@ func allowedAttemptTransition(from, to AttemptState) bool {
 	case AttemptClaimed:
 		return to == AttemptBlocked || to == AttemptPossibleEffect || to == AttemptCompleted
 	case AttemptPossibleEffect:
-		return to == AttemptBlocked || to == AttemptAccepted || to == AttemptCompleted
+		return to == AttemptBlocked || to == AttemptAccepted || to == AttemptCompleted || to == AttemptRetiredUnknown
 	case AttemptAccepted:
-		return to == AttemptCompleted
+		return to == AttemptCompleted || to == AttemptRetiredUnknown
 	default:
 		return false
 	}

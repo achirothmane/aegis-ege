@@ -1,0 +1,105 @@
+{
+  "schema_version": "governed-action.d02-fault-schedules/v1",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "schedules": [
+    {
+      "id": "D02-CE3-LOST-RESPONSE",
+      "counterexample": "CE3",
+      "domain": "eep-crm",
+      "fault": "provider commits PATCH; client loses response",
+      "expected": "no substitute/second PATCH; stable intended postcondition may discharge custody without rewriting request acceptance",
+      "test": "internal/eepcrm/executor_test.go::TestExecutorLostResponseAfterCommitCanVerifyPostconditionWithoutClaimingAcceptance"
+    },
+    {
+      "id": "D02-CE4-PRE-DISPATCH-JOURNAL-GAP",
+      "counterexample": "CE4",
+      "domain": "eep-crm",
+      "fault": "attempt store or authorization/dispatch-intent journal unavailable before PATCH",
+      "expected": "zero PATCH calls; claimed attempt remains durable and replay blocked",
+      "test": "internal/eepcrm/executor_test.go::TestExecutorAttemptStoreAndJournalOutagePreventDispatch"
+    },
+    {
+      "id": "D02-CE4-POST-ACCEPT-CHECKPOINT-GAP",
+      "counterexample": "CE4",
+      "domain": "kubernetes",
+      "fault": "eviction accepted by Kubernetes; worker stops before completion checkpoint",
+      "expected": "shared checkpoint remains PAUSED; live state reconciles accepted effect; no duplicate eviction",
+      "test": "internal/kubeadapter/kind_integration_test.go::TestKindD02CrashTakeoverAndClosureExercise"
+    },
+    {
+      "id": "D02-CE5-OBSERVER-OUTAGE-RECOVERY",
+      "counterexample": "CE5",
+      "domain": "eep-crm",
+      "fault": "PATCH accepted; required postcondition observer unavailable; observer later recovers after start permit expiry",
+      "expected": "attempt remains ACCEPTED with custody; observation-only reconciliation closes without another PATCH",
+      "test": "internal/eepcrm/d02_experiment_test.go::TestD02ObserverOutageRecoversAfterStartPermitExpiryWithoutSecondPatch"
+    },
+    {
+      "id": "D02-CE5-PERMANENT-GAP-RETIREMENT",
+      "counterexample": "CE5",
+      "domain": "eep-crm",
+      "fault": "observer horizon remains unavailable",
+      "expected": "administrative RETIRED_UNKNOWN only after closure journal succeeds; durable attempt record and observation handle remain",
+      "test": "internal/eepcrm/d02_experiment_test.go::TestD02PermanentObservationGapRetiresUnknownOnlyAfterJournaledCustody"
+    },
+    {
+      "id": "D02-CE6-MANUAL-TAKEOVER",
+      "counterexample": "CE6",
+      "domain": "kubernetes",
+      "fault": "new recovery owner acquires Kubernetes Lease while stale worker retains old authorization",
+      "expected": "stale pre-crash authority is stopped by current-state revalidation before any new effect; a fresh current-state contender is independently fenced by the Kubernetes Lease while manual takeover owns the boundary; only fresh authorized recovery may mutate after takeover release",
+      "tests": [
+        "internal/kubeadapter/kind_integration_test.go::TestKindD02CrashTakeoverAndClosureExercise",
+        "internal/kubeadapter/kind_integration_test.go::TestKindExecutionLeasePreventsConcurrentDrainOnSameNode"
+      ]
+    },
+    {
+      "id": "D02-CE7-FALSE-OUTCOME",
+      "counterexample": "CE7",
+      "domain": "eep-crm",
+      "fault": "provider changes unrelated timestamp or only part of requested patch",
+      "expected": "no VERIFIED claim unless every requested field is stably satisfied",
+      "tests": [
+        "internal/eepcrm/postcondition_test.go::TestExecutorUnrelatedChangeCannotProduceVerifiedOutcome",
+        "internal/eepcrm/postcondition_test.go::TestExecutorPartialApplicationIsNotVerified"
+      ]
+    },
+    {
+      "id": "D02-CE8-STALE-WRITE",
+      "counterexample": "CE8",
+      "domain": "eep-crm",
+      "fault": "destination resource version changes after read",
+      "expected": "destination If-Match/CAS rejects mutation; unsupported unguarded path stays blocked",
+      "test": "internal/eepcrm/executor_test.go::TestExecutorStalePreconditionBlocksAtDestination"
+    },
+    {
+      "id": "D02-AUTHORITY-EXPIRY",
+      "domain": "eep-crm",
+      "fault": "start permit reaches half-open expiry boundary before new PATCH",
+      "expected": "zero new effects; later observation of an already accepted fixed effect remains separate from new mutation authority",
+      "test": "internal/eepcrm/d02_experiment_test.go::TestD02ExpiredStartPermitCannotCreateNewEffect"
+    },
+    {
+      "id": "D02-CALLBACK-REPLAY",
+      "domain": "eep-crm",
+      "fault": "observation/recovery callback is replayed after closure",
+      "expected": "closed attempt rejects duplicate recovery and cannot create another PATCH",
+      "test": "internal/eepcrm/d02_experiment_test.go::TestD02ObserverOutageRecoversAfterStartPermitExpiryWithoutSecondPatch"
+    },
+    {
+      "id": "D02-PROFILE-PLAN-CHANGE-WHILE-WAITING",
+      "domain": "eep-crm",
+      "fault": "recovery caller presents a different plan after an unresolved accepted attempt",
+      "expected": "plan binding mismatch stops recovery; no new mutation",
+      "test": "internal/eepcrm/d02_experiment_test.go::TestD02RecoveryRejectsChangedPlanWhileWaitingWithoutNewEffect"
+    },
+    {
+      "id": "D02-SHARED-CHECKPOINT-CAS",
+      "domain": "kubernetes",
+      "fault": "two recovery owners write from the same stale checkpoint resourceVersion",
+      "expected": "Kubernetes rejects stale ConfigMap update with checkpoint conflict",
+      "test": "internal/kubeadapter/kind_integration_test.go::TestKindD02CrashTakeoverAndClosureExercise"
+    }
+  ]
+}
