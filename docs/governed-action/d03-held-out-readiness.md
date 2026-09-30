@@ -33,9 +33,11 @@ observation, recovery and outcome.
 The selected run also needs a bounded test grant appropriate to that substrate
 and a post-freeze applicability/oracle commitment before integration.
 
-No approved or identified participant satisfying that requirement is recorded
-in the current D03 evidence. The same-owner repositories used for D00-D02 do
-not satisfy independence.
+One public recruitment request is now recorded at `padurean/gosmig#1`, but no
+independent maintainer has explicitly accepted participation. Therefore no
+qualified participant, cohort selection, bounded test grant, applicability/oracle
+commitment, or independent implementation is yet recorded. The same-owner
+repositories used for D00-D02 do not satisfy independence.
 
 Therefore:
 
@@ -84,6 +86,16 @@ The following do not satisfy D03:
   written frozen contract and published vectors;
 - selecting concrete held-out cases and feeding them back into the core before
   the independent maintainer commits the cohort.
+
+## Recruitment state
+
+Recruitment may proceed in parallel across qualified candidates. Contact alone
+never counts as consent or cohort selection. The first qualified independent
+maintainer who explicitly accepts may proceed to the separate post-freeze
+selection/applicability/oracle record required by Protocol J.
+
+This avoids making progress depend on a single maintainer response while
+preserving the holdout boundary.
 
 ## Readiness condition
 
