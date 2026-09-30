@@ -1,0 +1,231 @@
+{
+  "schema_version": "origin-admission.experiment-cases/v0.1",
+  "profile": "extension-origin-admission/experiment-v0.1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "frozen_contract_blob": "3b45e4521b995f1cbf8d4523c426279a31052a80",
+  "baseline_commit": "324b3cbe06688c7252352dbd49544fd0453be49b",
+  "claims": {
+    "runtime_activated": false,
+    "new_shared_primitive": false,
+    "independent_validation": false,
+    "d03_evidence": false
+  },
+  "cases": [
+    {
+      "id": "ORIGIN-R01",
+      "capability": "hooks",
+      "fault": "missing_grant",
+      "expected_reason": "MISSING_GRANT",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R02",
+      "capability": "tools",
+      "fault": "forged_signer",
+      "expected_reason": "UNAUTHENTICATED_GRANT",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R03",
+      "capability": "hooks",
+      "fault": "tampered_grant",
+      "expected_reason": "UNAUTHENTICATED_GRANT",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R04",
+      "capability": "tools",
+      "fault": "wrong_actor",
+      "expected_reason": "GRANT_BINDING_MISMATCH",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R05",
+      "capability": "tools",
+      "fault": "wrong_origin",
+      "expected_reason": "SOURCE_BINDING_CHANGED",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R06",
+      "capability": "code",
+      "fault": "source_changed_after_admission",
+      "expected_reason": "SOURCE_BINDING_CHANGED",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R07",
+      "capability": "tools",
+      "fault": "dependency_changed_after_admission",
+      "expected_reason": "SOURCE_BINDING_CHANGED",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R08",
+      "capability": "hooks",
+      "fault": "revoked_after_admission",
+      "expected_reason": "REVOKED_OR_SUPERSEDED_GRANT",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R09",
+      "capability": "tools",
+      "fault": "revoked_after_activation",
+      "expected_reason": "REVOKED_OR_SUPERSEDED_GRANT",
+      "expected_activations": 1,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R10",
+      "capability": "code",
+      "fault": "policy_changed_after_activation",
+      "expected_reason": "REVOKED_OR_SUPERSEDED_GRANT",
+      "expected_activations": 1,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R11",
+      "capability": "code",
+      "fault": "actor_scope_removed_after_activation",
+      "expected_reason": "ACTOR_SCOPE_DENIED",
+      "expected_activations": 1,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R12",
+      "capability": "hooks",
+      "fault": "source_changed_after_activation",
+      "expected_reason": "SOURCE_BINDING_CHANGED",
+      "expected_activations": 1,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R13",
+      "capability": "tools",
+      "fault": "unknown_validator",
+      "expected_reason": "UNKNOWN_GRANT_PROFILE_OR_VALIDATOR",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R14",
+      "capability": "tools",
+      "fault": "wrong_namespace",
+      "expected_reason": "WRONG_BOUNDARY",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R15",
+      "capability": "code",
+      "fault": "expired_at_boundary",
+      "expected_reason": "GRANT_OUTSIDE_VALIDITY",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R16",
+      "capability": "code",
+      "fault": "not_yet_valid",
+      "expected_reason": "GRANT_OUTSIDE_VALIDITY",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R17",
+      "capability": "hooks",
+      "fault": "unknown_source",
+      "expected_reason": "UNKNOWN_SOURCE",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R18",
+      "capability": "hooks",
+      "fault": "mandatory_failure_low_consequence",
+      "expected_reason": "MANDATORY_EVALUATION_UNAVAILABLE",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R19",
+      "capability": "code",
+      "fault": "mandatory_failure_high_consequence",
+      "expected_reason": "MANDATORY_EVALUATION_UNAVAILABLE",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R20",
+      "capability": "tools",
+      "fault": "unknown_policy",
+      "expected_reason": "MANDATORY_EVALUATION_UNAVAILABLE",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R21",
+      "capability": "hooks",
+      "fault": "actor_scope_missing",
+      "expected_reason": "ACTOR_SCOPE_DENIED",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R22",
+      "capability": "code",
+      "fault": "authority_expansion",
+      "expected_reason": "UNSUPPORTED_CAPABILITY",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-R23",
+      "capability": "tools",
+      "fault": "unknown_profile",
+      "expected_reason": "UNKNOWN_ACTION_OR_PROFILE",
+      "expected_activations": 0,
+      "expected_invocations": 0
+    },
+    {
+      "id": "ORIGIN-A01",
+      "capability": "instructions",
+      "fault": "none",
+      "expected_reason": "ALLOW_BOUND_CAPABILITY",
+      "expected_activations": 1,
+      "expected_invocations": 1
+    },
+    {
+      "id": "ORIGIN-A02",
+      "capability": "tools",
+      "fault": "none",
+      "expected_reason": "ALLOW_BOUND_CAPABILITY",
+      "expected_activations": 1,
+      "expected_invocations": 1
+    },
+    {
+      "id": "ORIGIN-A03",
+      "capability": "hooks",
+      "fault": "none",
+      "expected_reason": "ALLOW_BOUND_CAPABILITY",
+      "expected_activations": 1,
+      "expected_invocations": 1
+    },
+    {
+      "id": "ORIGIN-A04",
+      "capability": "code",
+      "fault": "optional_cost_missing",
+      "expected_reason": "ALLOW_BOUND_CAPABILITY",
+      "expected_activations": 1,
+      "expected_invocations": 1
+    }
+  ]
+}
