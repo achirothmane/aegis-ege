@@ -63,7 +63,7 @@ func newOriginFixture(scope string) (*fixtureBoundary, activationRequest, ed2551
 		sourceKnown: true, policyStatus: "READY", policyHash: "fixture-policy-v1",
 		epoch: 1, now: 100, target: "fixture-tool-registry", namespace: "fixture-tenant",
 		actorScopes: map[string]map[string]bool{"fixture-agent": {"instructions": true, "tools": true, "hooks": true, "code": true}},
-		registry: make(map[capabilityKey]string),
+		registry:    make(map[capabilityKey]string),
 	}
 	hash, err := bundleHash(b.files)
 	if err != nil {
