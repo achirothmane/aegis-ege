@@ -1,10 +1,10 @@
-# K01 + K02 + K03 domain-profile mapping — candidate Kernel v1
+# K01 + K02 + K03 + K04 domain-profile mapping — candidate Kernel v1
 
 Status: **DRAFT / UNFROZEN**  
 Normative owner: Aegis integration-contract steward  
 Companion contract: [kernel-v1.md](kernel-v1.md)
 
-This mapping applies the K01 ActionRef / DecisionBasis rules, K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules, and K03 temporal / next-effect resumption rules to the three design-visible seeds already selected by the queue:
+This mapping applies the K01 ActionRef / DecisionBasis rules, K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules, K03 temporal / next-effect resumption rules, and K04 truthful closure / UNKNOWN-disposition rules to the three design-visible seeds already selected by the queue:
 
 - CI rerun / Workflow Failure Lab;
 - Kubernetes node mutation / Aegis;
@@ -16,7 +16,7 @@ It does not add a new runtime profile service. Existing domain contracts remain 
 
 | Owner | Reviewed revision / identity | K01 use |
 |---|---|---|
-| Aegis-EGE | `8ba7ff710c3f75fe662ffd90f3569ecc81e98227` | K03 base after merged K02 |
+| Aegis-EGE | `b6d25fe39f98b0a253c25fd8758cdc928331dce2` | K04 base after merged K03 |
 | EASL | `7c4e1e28218853919d00362dc071e1eb6f61cc56` | current subject-state semantics |
 | EASL StateBinding vectors | blob `82d151531da6f98262de1e247658d89a8299c53c` | earned conformance identity |
 | Workflow Failure Lab | `d44bd4c47f8748bfca706a4c4833adf8ce940cf6` | C05-repaired CI/EBA consumer |
@@ -995,7 +995,378 @@ A new profile version requires explicit compatibility or a new current basis.
 | policy/adapter rollout | old basis not silently reused | version/hash compatibility required | old Permit not reinterpreted under new semantics |
 | boot change | n/a | old boot-bound runtime deadline not reused | n/a |
 
-## 7. Obligation-to-owner table
+## 7. K04 truthful-closure mappings
+
+### 7.1 CI rerun / Workflow Failure Lab
+
+#### Closure Profile and owner
+
+The CI Closure Profile remains domain-owned by the WFL rerun/recovery verifier.
+
+K04 does not turn `ExecutionReceipt` into closure authority.
+
+The current contract is explicit:
+
+```text
+ExecutionReceipt.outcome = SUCCEEDED
+=> GitHub rerun request was dispatched and accepted by the API call
+!= later rerun passed
+```
+
+A downstream workflow/job result is a separate observation.
+
+#### Typed knowledge
+
+The current CI seed already preserves several outcome facts instead of one boolean:
+
+- dispatch accepted / not executed at the EBA receipt layer;
+- provider workflow/run-attempt/job facts;
+- ground-truth recovery states:
+  - `VALIDATED_RECOVERY`;
+  - `NOT_RECOVERED`;
+  - `UNVERIFIED_RECOVERY`;
+  - `INCONSISTENT_RECOVERY`;
+  - `NOT_OBSERVED`.
+
+A later green job is not sufficient by itself.
+
+The current ground-truth verifier requires the same failed operation/step to have been genuinely re-executed before calling the recovery validated.
+
+Executable evidence includes:
+
+- `test_validated_recovery_requires_same_failed_step_to_succeed`;
+- `test_success_without_confirmed_original_provenance_is_unverified`;
+- `test_success_without_reexecuting_original_failed_step_is_inconsistent`;
+- `test_failed_real_rerun_is_ground_truth_not_recovered`;
+- `test_no_real_rerun_stays_not_observed`.
+
+#### Routine discharge
+
+For the narrow flaky-recovery question, a ClosureObligation may discharge automatically as a **validated recovery fact** when:
+
+- the exact original failed job/step identity is bound;
+- a genuine later execution is observed;
+- the same failed step is re-executed;
+- that step succeeds under the WFL recovery-ground-truth profile;
+- provider history required to support the conclusion remains inspectable.
+
+This does not mean the kernel defines generic CI success.
+
+A no-dispatch gate invocation can also finish without creating an external-effect closure obligation when the profile proves no rerun was attempted.
+
+#### UNKNOWN / unavailable provider history
+
+`UNVERIFIED_RECOVERY`, `INCONSISTENT_RECOVERY`, and `NOT_OBSERVED` are not rewritten as successful recovery.
+
+If GitHub history expires or becomes inaccessible before the required recovery fact can be established:
+
+- preserve the exact run/job/effect identity;
+- preserve the last receipt and available provider references;
+- record provider-history unavailability;
+- do not infer safe replay;
+- apply the trusted residual-risk / terminal-UNKNOWN policy.
+
+The current WFL repository does not implement a universal terminal-UNKNOWN retirement service. K04 defines the allowed semantics; K05 will freeze the normative cases.
+
+#### Continuing provider job
+
+If the rerun has been accepted but the provider run is still in progress, administrative retirement must not claim that the job stopped.
+
+Observation can continue under K03.
+
+If policy permits terminal UNKNOWN before provider terminality, the continuing provider run must remain bounded and under named custody.
+
+#### Late evidence
+
+A later provider result may update the current recovery view, but it does not rewrite:
+
+- the original dispatch receipt;
+- an earlier period of uncertainty;
+- any earlier administrative disposition.
+
+The late observation is appended as new evidence.
+
+---
+
+### 7.2 Kubernetes node mutation / Aegis
+
+#### Closure Profile and typed knowledge
+
+The Kubernetes seed combines existing domain-owned records:
+
+- execution checkpoint / completed exact Pod UIDs;
+- recovery assessment;
+- postflight `outcome.Record`;
+- tamper-evident authorization/execution/outcome journal entries.
+
+The current postflight result is domain-local:
+
+```text
+MATCH
+DIVERGED
+UNKNOWN
+```
+
+The generic `internal/outcome` reliability ledger is advisory history.
+
+It is not closure authority and must not turn repeated MATCH observations into permission for future mutation.
+
+#### Verified scoped postcondition
+
+For the current node-drain profile, postflight `MATCH` requires the declared expected facts to be observed, including:
+
+- node remains unschedulable;
+- no unexpected workload pods remain;
+- each exact authorized evicted Pod UID is absent.
+
+An unrelated Kubernetes object change cannot satisfy this oracle.
+
+A routine successful closure therefore requires, at minimum for this seed:
+
+1. the exact ActionRef/plan/effect lineage;
+2. no unresolved remaining planned effect in the recovery checkpoint;
+3. trusted postflight observation for the exact plan;
+4. `MATCH` under the current Kubernetes postflight semantics;
+5. retained checkpoint/journal/outcome evidence sufficient for the claim.
+
+A completed checkpoint without the required postflight observation is not silently upgraded to verified closure.
+
+#### Partial / residual execution
+
+Partial drain progress remains represented by exact completed Pod UIDs plus remaining work.
+
+Recovery may reconcile an eviction that succeeded before the checkpoint write.
+
+If effects remain:
+
+- the obligation stays active;
+- residual effects stay owned;
+- fresh authority is required before new mutation under K03;
+- partial history is retained.
+
+The shared contract does not flatten this into a generic PARTIAL enum.
+
+#### DIVERGED / UNKNOWN
+
+`DIVERGED` is evidence that current reality does not match the declared postcondition.
+
+`UNKNOWN` is insufficient observation.
+
+Neither is success.
+
+If node/pod observation remains unavailable until the authorized evidence horizon ends, terminal UNKNOWN is possible only under the trusted Closure Profile and the K04 conditions.
+
+The current postflight package does not itself confer administrative UNKNOWN-retirement authority.
+
+#### Continuing external work / crash ambiguity
+
+An eviction may have succeeded before the local checkpoint recorded it.
+
+K02 recovery reconciles exact live Pod UID presence before replay.
+
+K04 closure cannot retire an unresolved drain in a way that abandons:
+
+- an accepted/in-flight effect;
+- exact remaining Pods;
+- checkpoint custody.
+
+If external work may still continue, custody and bounds must remain explicit.
+
+#### Evidence retention
+
+A journal payload digest is useful integrity binding, but a digest alone does not recreate a deleted payload.
+
+When future verification requires the underlying checkpoint/outcome/provider state, the Closure Profile must retain that record or supported provider access for the declared retention period.
+
+Deleting the only re-evaluable payload while keeping a digest cannot preserve a stronger verification claim.
+
+#### Late observation / correction
+
+A later Kubernetes observation is appended as another outcome/recovery fact.
+
+It may change the latest current view from UNKNOWN/DIVERGED to a stronger supported fact or reveal later divergence after an earlier MATCH.
+
+Prior journal entries remain historical.
+
+---
+
+### 7.3 EEP synthetic CRM
+
+#### Closure Profile
+
+The existing domain oracle is:
+
+- `aegis.eep/crm-postcondition/v1`;
+- outcome artifact `aegis.eep/crm-outcome/v0alpha2`.
+
+It already preserves three independent dimensions:
+
+1. request acceptance;
+2. observation quality;
+3. intended-postcondition result.
+
+K04 keeps that separation.
+
+#### Routine automatic discharge
+
+**Already satisfied**
+
+```text
+request_acceptance = NOT_DISPATCHED
+observation         = PRE_MUTATION
+result              = ALREADY_SATISFIED
+postcondition       = VERIFIED
+```
+
+This can discharge automatically for the intended-state obligation because no PATCH was needed and the exact bound target already satisfied every requested field.
+
+It does not claim this executor caused the state.
+
+Evidence:
+- `TestExecutorAlreadySatisfiedAvoidsMutation`.
+
+**Verified after an attempt**
+
+```text
+request_acceptance = ACCEPTED | UNKNOWN
+observation         = OBSERVED_STABLE
+result              = VERIFIED
+```
+
+This can discharge the intended-postcondition obligation when the exact requested fields are stably observed on the exact bound customer.
+
+If request acceptance remains UNKNOWN, that acceptance fact remains UNKNOWN in history.
+
+K04 does not rewrite it to ACCEPTED merely because the desired state is now verified.
+
+Evidence:
+- `TestExecutorLostResponseAfterCommitCanVerifyPostconditionWithoutClaimingAcceptance`;
+- `TestExecutorDelayedCompletionRequiresStableIntendedPostcondition`.
+
+#### Evidence horizon
+
+The current C07 postcondition profile uses three bounded post-mutation reads and requires the final two requested-field evaluations to agree for `OBSERVED_STABLE`.
+
+That is the current **observation horizon for one execution's immediate postcondition oracle**.
+
+It is not automatically a universal terminal-UNKNOWN retirement horizon.
+
+A separate trusted Closure Profile controls whether active investigation may retire after the immediate observer returns UNKNOWN.
+
+#### Partial / unsatisfied
+
+`PARTIAL` and `UNSATISFIED` remain domain facts.
+
+They are not converted to generic failure/success merely to close an administrative case.
+
+If request acceptance is UNKNOWN and stable observation shows PARTIAL/UNSATISFIED, the original possible effect remains historically uncertain even though the current target state is partially or fully unsatisfied.
+
+Residual-state handling and any compensation remain domain policy.
+
+Evidence:
+- `TestExecutorPartialApplicationIsNotVerified`.
+
+#### UNKNOWN
+
+The current outcome profile requires UNKNOWN when observation is:
+
+- `UNAVAILABLE`;
+- `CONTRADICTORY`;
+- `WRONG_TARGET`.
+
+An UNKNOWN outcome artifact is **not itself terminal retirement authority**.
+
+Terminal UNKNOWN requires K04's separate policy/custody conditions.
+
+Evidence:
+- `TestExecutorAcceptedRequestWithUnavailableObservationRemainsUnknown`;
+- `TestExecutorPostMutationWrongTargetReadRemainsUnknown`;
+- `TestExecutorContradictoryObservationsRemainUnknown`.
+
+#### CE7 — unrelated change cannot prove success
+
+The old whole-state-digest-change oracle was explicitly replaced.
+
+Only the requested signed patch fields on the exact customer can establish VERIFIED.
+
+Unrelated fields such as timestamps do not contribute to success.
+
+Evidence:
+- `TestUnrelatedTimestampChangeDoesNotAlterPostconditionObservation`;
+- `TestExecutorUnrelatedChangeCannotProduceVerifiedOutcome`.
+
+#### Contradictory observations
+
+Contradictory reads preserve UNKNOWN.
+
+The executor does not select whichever sample yields the desired result.
+
+K04 therefore maps contradiction to continued closure uncertainty / authorized UNKNOWN policy, never automatic success.
+
+#### Late evidence
+
+If later authorized observation becomes available, it must be appended as new evidence/current view rather than rewriting the original `aegis.eep/crm-outcome/v0alpha2` artifact.
+
+The old outcome's integrity digest and historical uncertainty remain intact.
+
+The current executor does not implement a universal late-evidence case service; this is a normative K04 relation to be frozen in K05.
+
+#### Compensation
+
+No automatic compensation primitive is claimed for the CRM seed.
+
+If a future domain compensation is authorized, it gets its own ActionRef/EffectIdentity/attempt/postcondition facts and is related to, not substituted for, the original effect history.
+
+---
+
+### 7.4 Cross-domain knowledge-versus-disposition matrix
+
+| Question | CI rerun | Kubernetes | EEP CRM |
+|---|---|---|---|
+| provider/request accepted? | receipt can say dispatch accepted | adapter/execution evidence is domain-specific | explicit `RequestAcceptance` |
+| exact postcondition observed? | later provider job/step evidence | postflight expected facts | exact requested patch fields |
+| verified scoped outcome? | validated same-step recovery where profile asks it | postflight MATCH for exact plan | VERIFIED / ALREADY_SATISFIED |
+| partial / negative fact | NOT_RECOVERED / inconsistent facts | completed Pod UIDs + remaining work / DIVERGED | PARTIAL / UNSATISFIED |
+| observation unavailable | NOT_OBSERVED / unverified | UNKNOWN | UNKNOWN + UNAVAILABLE/CONTRADICTORY/WRONG_TARGET |
+| administrative retirement | trusted Closure Profile, not receipt | trusted Closure Profile, not outcome ledger | trusted Closure Profile, not outcome artifact alone |
+| late evidence | append provider result | append new recovery/postflight fact | append new observation/current view |
+| safe retry inferred from UNKNOWN? | **no** | **no** | **no** |
+
+### 7.5 K04 required-test review
+
+| Queue case | Existing evidence / K04 disposition |
+|---|---|
+| routine automatic discharge | EEP already-satisfied/verified tests; Kubernetes postflight MATCH semantics; WFL validated-recovery profile |
+| verified scoped postcondition | EEP exact requested-field oracle; Kubernetes exact node/Pod UID postflight |
+| partial result with retained residual effects | EEP PARTIAL; Kubernetes checkpoint completed/remaining Pod sets |
+| authorized UNKNOWN retirement | normative K04 case only; current repos do not get credited with a universal retirement authority; K05 freezes the accepted/rejected vector |
+| late observation appended without rewriting history | normative append-only K04 rule over existing journals/artifacts; no existing universal case service is claimed |
+
+### 7.6 K04 adversarial review
+
+| Adversary | Required treatment |
+|---|---|
+| CE5 permanent observation gap | preserve UNKNOWN + identity/custody; bounded authorized disposition only |
+| CE7 unrelated change as success | reject; use exact domain postcondition/provenance |
+| observer outage | no false success; apply evidence horizon / UNKNOWN policy |
+| continuing provider job at retirement | retirement only with bounded named continuing custody; never claim stopped |
+| deletion of needed payload | narrow future claim; digest-only retention cannot recreate deleted evidence |
+| contradictory observations | retain contradiction; no cherry-picking |
+| requester self-retires high-consequence uncertainty | reject unless trusted Closure Profile explicitly delegates that consequence-bounded authority |
+
+### 7.7 Evidence-retention minimums
+
+| Domain | Minimum retained/access path for current claims |
+|---|---|
+| CI | exact ActionRequest/Decision/receipt refs; repository/run/attempt/job identity; provider history or retained job/step evidence needed by recovery oracle |
+| Kubernetes | ActionRef/plan/evidence refs; checkpoint; exact Pod UIDs; journal/outcome record; provider access/payload needed for the declared postflight claim |
+| EEP CRM | attempt record; journal; exact outcome artifact; postcondition profile; target/destination/account/plan bindings; observation/postcondition digests and retained/provider data required by policy |
+
+Secrets need not be stored in plaintext.
+
+The retention requirement is only what the selected profile needs to sustain its claimed closure.
+
+## 8. Obligation-to-owner table
 
 | K01 obligation | Owning implementation / contract |
 |---|---|
@@ -1013,9 +1384,9 @@ A new profile version requires explicit compatibility or a new current basis.
 | CRM intended-postcondition meaning | Aegis `aegis.eep/crm-postcondition/v1` |
 | effect/attempt common relations | **K02 — defined in `kernel-v1.md`; mapped here to existing domain mechanisms** |
 | resumption/time common relations | **K03 — defined in `kernel-v1.md`; mapped here to explicit temporal/revalidation owners** |
-| closure/UNKNOWN common relations | **K04 — not defined here** |
+| closure/UNKNOWN common relations | **K04 — defined in `kernel-v1.md`; domain facts remain typed and mapped here** |
 
-## 8. CE1 and CE2 seed review
+## 9. CE1 and CE2 seed review
 
 ### CE1 — vacuous profile
 
@@ -1037,7 +1408,7 @@ At minimum the review covers:
 - Kubernetes: action/target/cluster context/resourceVersion/plan/evidence/policy/adapter;
 - EEP: destination/account/endpoint/customer/expected version/plan/postcondition profile.
 
-## 9. Positive-seed review
+## 10. Positive-seed review
 
 A positive seed is useful only when the required operation can still proceed under its legitimate profile:
 
@@ -1047,7 +1418,7 @@ A positive seed is useful only when the required operation can still proceed und
 
 Reject-all behavior does not satisfy K01.
 
-## 10. K01/K02/K03 limits
+## 11. K01/K02/K03/K04 limits
 
 This map does not claim:
 
@@ -1060,4 +1431,4 @@ This map does not claim:
 - automatic provider substitution;
 - a new shared runtime or repository.
 
-The next semantic item after K03 is K04, not platform extraction.
+The next semantic item after K04 is K05, not platform extraction.
