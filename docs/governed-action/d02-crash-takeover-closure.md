@@ -82,7 +82,7 @@ manufacturing retirement.
 | CE3 | lost provider response after PATCH may have committed | no substitution or blind replay; observation can resolve the same effect |
 | CE4 | journal/checkpoint gap | no effect before durable custody; accepted Kubernetes effect is reconciled after restart |
 | CE5 | observation unavailable/contradictory | UNKNOWN retained; later observation may close; permanent gap may retire UNKNOWN with residual custody |
-| CE6 | takeover race | Kubernetes Lease fences stale worker; old authorization cannot resume changed remainder |
+| CE6 | takeover race | stale pre-crash authority stops on current-state revalidation; a fresh contender is independently fenced by the Kubernetes Lease; old authorization cannot resume the changed remainder |
 | CE7 | unrelated/partial destination change | no false VERIFIED |
 | CE8 | stale destination version | destination If-Match/CAS rejects stale write |
 
