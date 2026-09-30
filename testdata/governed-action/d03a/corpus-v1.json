@@ -1,0 +1,299 @@
+{
+  "schema_version": "governed-action.d03a-public-heldout-corpus/v1",
+  "status": "HELD_OUT_FALSIFICATION_ACTIVE",
+  "selected_at": "2026-09-30",
+  "selection_after_freeze": true,
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "purpose": "Test unseen-case generalization against public, externally-authored incidents without changing the frozen core.",
+  "claim_boundary": {
+    "can_support": [
+      "post-freeze unseen-case falsification",
+      "cross-domain semantic coverage evidence",
+      "counterexample discovery against the frozen evaluator"
+    ],
+    "cannot_support": [
+      "independent implementation",
+      "independent maintainer participation",
+      "D03 PASS by itself",
+      "production correctness",
+      "commercial or operator-value claims"
+    ]
+  },
+  "authoring_boundary": "The incident-to-kernel translation is authored in Aegis and is therefore not independent implementation evidence. Source incidents and fixes are external ground truth; the frozen evaluator and oracle are unchanged.",
+  "baseline": {
+    "profile_trusted": true,
+    "profile_adequate": true,
+    "revision_exact": true,
+    "current_witnesses": true,
+    "relevant_state_bound": true,
+    "relevant_state_current": true,
+    "required_independence": false,
+    "independence_satisfied": true,
+    "enforcement_boundary_declared": true,
+    "complete_mediation": true,
+    "effect_can_survive_process": false,
+    "custody_before_dispatch": true,
+    "possible_effect_exists": false,
+    "substitution_requested": false,
+    "safe_substitution_proven": false,
+    "observation_gap": false,
+    "terminal_unknown_authorized": false,
+    "residual_custody": true,
+    "takeover_requested": false,
+    "stale_worker_can_act": false,
+    "destination_fencing_effective": false,
+    "takeover_blocked": false,
+    "hard_precondition_required": false,
+    "destination_cas": true,
+    "verified_outcome_claim": false,
+    "postcondition_exact": false,
+    "already_satisfied": false,
+    "seed_mode": "",
+    "emit_effect": false
+  },
+  "incidents": [
+    {
+      "id": "D03A-OM-4952",
+      "repository": "openmeterio/openmeter",
+      "domain": "database-migration",
+      "issue": {
+        "number": 4952,
+        "url": "https://github.com/openmeterio/openmeter/issues/4952",
+        "state": "closed",
+        "title": "migrate adopt-ent: frozen Ent baseline misses raw-SQL-only objects (distributed_locks) — api crashloops after adoption"
+      },
+      "ground_truth": {
+        "root_cause": "The adoption baseline was Ent-derived and omitted raw-SQL-only distributed_locks objects; stamping the database at the frozen baseline prevented the earlier raw SQL migration from replaying.",
+        "consequence": "Migration reported success through head but the API crashlooped because the required sequence/table was absent.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/openmeterio/openmeter/pull/4996",
+          "merge_commit": "94d8fbde0622b0ed150137083e585a80dfce24f8",
+          "summary": "Add an idempotent forward migration restoring missing distributed-lock objects and cover missing/existing state."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "DecisionBasis",
+          "StateBinding",
+          "trusted-profile-adequacy/v1"
+        ],
+        "rationale": "A known material state distinction existed outside the baseline/profile view. Automatic continuation under a basis that cannot distinguish required raw-SQL state is incomplete.",
+        "historical_overrides": {
+          "profile_adequate": false
+        },
+        "historical_expected": "DEFER_PROFILE_INCOMPLETE",
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
+    },
+    {
+      "id": "D03A-OM-4945",
+      "repository": "openmeterio/openmeter",
+      "domain": "billing-concurrency",
+      "issue": {
+        "number": 4945,
+        "url": "https://github.com/openmeterio/openmeter/issues/4945",
+        "state": "closed",
+        "title": "Concurrent invoice collection shares the same error variable across goroutines"
+      },
+      "ground_truth": {
+        "root_cause": "Concurrent customer collection goroutines reused the same outer error variable, allowing one customer's result to overwrite another customer's result.",
+        "consequence": "Outcome/error attribution could be assigned to the wrong concurrent customer collection.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/openmeterio/openmeter/pull/4946",
+          "merge_commit": "3d0c88f8eed7b3faefa87ac53011ad4445321e3b",
+          "summary": "Use goroutine-local collection errors and add a deterministic concurrent regression test."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "EffectIdentity",
+          "ClosureObligation",
+          "I6"
+        ],
+        "rationale": "A closure/result claim must remain bound to the exact effect lineage; cross-customer result contamination cannot support a verified exact outcome.",
+        "historical_overrides": {
+          "verified_outcome_claim": true,
+          "postcondition_exact": false
+        },
+        "historical_expected": "REJECT_FALSE_VERIFIED",
+        "fixed_overrides": {
+          "verified_outcome_claim": true,
+          "postcondition_exact": true
+        },
+        "fixed_expected": "DISCHARGE_INTENDED_STATE_OBLIGATION"
+      }
+    },
+    {
+      "id": "D03A-HATCHET-4481",
+      "repository": "hatchet-dev/hatchet",
+      "domain": "durable-message-processing",
+      "issue": {
+        "number": 4481,
+        "url": "https://github.com/hatchet-dev/hatchet/issues/4481",
+        "state": "closed",
+        "title": "[BUG] No conflict handing for CreateTaskEventsOLAP"
+      },
+      "ground_truth": {
+        "root_cause": "A message could be written to PostgreSQL, lose its RabbitMQ ACK, then be redelivered; the affected older deployment lacked the conflict handling needed to make the replay safe.",
+        "consequence": "The same logical message entered repeated duplicate-key failure/redelivery loops after a possible prior effect.",
+        "fix": {
+          "type": "confirmed_release_behavior",
+          "ref": "hatchet v0.85.5+",
+          "summary": "Maintainer confirmed ON CONFLICT DO NOTHING was already added in v0.85.5; upgrading from chart engine v0.84.0 brought in the fix."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "EffectIdentity",
+          "ExecutionAttempt",
+          "I3",
+          "I5"
+        ],
+        "rationale": "After a possible prior effect, redelivery is not safe merely because it is a retry; an idempotency/conflict rule must make the same-effect replay safe.",
+        "historical_overrides": {
+          "effect_can_survive_process": true,
+          "possible_effect_exists": true,
+          "substitution_requested": true,
+          "safe_substitution_proven": false
+        },
+        "historical_expected": "REJECT_SECOND_EFFECT",
+        "fixed_overrides": {
+          "effect_can_survive_process": true,
+          "possible_effect_exists": true,
+          "substitution_requested": true,
+          "safe_substitution_proven": true,
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
+    },
+    {
+      "id": "D03A-HATCHET-4711",
+      "repository": "hatchet-dev/hatchet",
+      "domain": "durable-workflow-results",
+      "issue": {
+        "number": 4711,
+        "url": "https://github.com/hatchet-dev/hatchet/issues/4711",
+        "state": "closed",
+        "title": "[BUG] Go SDK: child Run can hang after child already COMPLETED (shared result listener)"
+      },
+      "ground_truth": {
+        "root_cause": "A shared workflow-result listener could race with clean exit/reconnect so a completed child result was not delivered to the waiter.",
+        "consequence": "The parent could time out and retry, spawning a second child and therefore duplicate side effects despite the first child already being complete.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/hatchet-dev/hatchet/pull/4730",
+          "merge_commit": "ba1c568e54ac654efab5c615a762d1c58cbbd01c",
+          "summary": "Make the clean-stop decision and listener gate release atomic so registered work keeps the result listener alive."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "ExecutionAttempt",
+          "ClosureObligation",
+          "I3",
+          "I5",
+          "I6"
+        ],
+        "rationale": "Missing completion observation cannot justify minting a second effect when the first may already have completed.",
+        "historical_overrides": {
+          "possible_effect_exists": true,
+          "substitution_requested": true,
+          "safe_substitution_proven": false,
+          "observation_gap": true
+        },
+        "historical_expected": "REJECT_SECOND_EFFECT",
+        "fixed_overrides": {
+          "verified_outcome_claim": true,
+          "postcondition_exact": true
+        },
+        "fixed_expected": "DISCHARGE_INTENDED_STATE_OBLIGATION"
+      }
+    },
+    {
+      "id": "D03A-HATCHET-4642",
+      "repository": "hatchet-dev/hatchet",
+      "domain": "durable-task-cancellation",
+      "issue": {
+        "number": 4642,
+        "url": "https://github.com/hatchet-dev/hatchet/issues/4642",
+        "state": "closed",
+        "title": "[BUG] Running Python durable tasks ignore cancellation"
+      },
+      "ground_truth": {
+        "root_cause": "Cancellation omitted the durable invocation count, so the worker looked up a different task key and failed to target the running durable invocation.",
+        "consequence": "A cancellation action was not bound to the exact current execution identity and the task continued.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/hatchet-dev/hatchet/pull/4657",
+          "merge_commit": "30349109f7e22def82b2e2b1f0a87e723618401d",
+          "summary": "Send the durable invocation count on cancel, matching the identity used on start."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "ActionRef",
+          "ExecutionAttempt",
+          "I1"
+        ],
+        "rationale": "A consequential cancel must bind the exact material execution identity; omitting invocation identity makes the action revision/target ambiguous.",
+        "historical_overrides": {
+          "revision_exact": false
+        },
+        "historical_expected": "REJECT_BEFORE_EFFECT",
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
+    },
+    {
+      "id": "D03A-INFISICAL-6654",
+      "repository": "Infisical/infisical",
+      "domain": "database-migration-rollback",
+      "issue": {
+        "number": 6654,
+        "url": "https://github.com/Infisical/infisical/issues/6654",
+        "state": "closed",
+        "title": "dropOnUpdateTrigger unconditional in down() causes rollback failure"
+      },
+      "ground_truth": {
+        "root_cause": "Migration up() conditionally created the WebAuthn table/trigger, while down() unconditionally tried to drop the trigger even when this migration had not created the relation.",
+        "consequence": "Rollback assumed a state transition that had not occurred and failed on a database whose relevant pre-state differed.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/Infisical/infisical/pull/6707",
+          "merge_commit": "c4c7517b84e17c80ef9ae81cfbb1cb33effd1e61",
+          "summary": "Mirror the state guard in down() with a hasTable check before dropping the trigger."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "StateBinding",
+          "DecisionBasis",
+          "I2"
+        ],
+        "rationale": "Whether this migration created/owns the rollback target is consequence-relevant state and must be bound before the rollback effect.",
+        "historical_overrides": {
+          "relevant_state_bound": false
+        },
+        "historical_expected": "DEFER_MISSING_RELEVANT_STATE",
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
+    }
+  ],
+  "stop_rule": "If any incident requires changing the frozen oracle, evaluator ordering, or semantic meaning to obtain the expected safety disposition, record D03-A as a falsification failure. Do not edit candidate-kernel-contract-v1 in place.",
+  "normative_change": false,
+  "runtime_change": false,
+  "independent_implementation_claim": false,
+  "d03_pass_claim": false
+}
