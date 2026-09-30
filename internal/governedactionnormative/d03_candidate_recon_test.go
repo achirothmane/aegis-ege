@@ -61,12 +61,15 @@ func TestD03CandidateReconDoesNotSelectOrConsumeHeldOutCohort(t *testing.T) {
 		if candidate.Selected {
 			t.Fatalf("candidate %s is marked selected before participation", candidate.Repository)
 		}
-		if candidate.Repository == "padurean/gosmig" {
+		switch candidate.Repository {
+		case "padurean/gosmig", "maragudk/migrate":
 			if candidate.ParticipationStatus != "CONTACTED_AWAITING_RESPONSE" {
-				t.Fatalf("gosmig participation status = %q", candidate.ParticipationStatus)
+				t.Fatalf("contacted candidate %s participation status = %q", candidate.Repository, candidate.ParticipationStatus)
 			}
-		} else if candidate.ParticipationStatus != "NOT_CONTACTED_NOT_CONFIRMED" {
-			t.Fatalf("candidate %s participation status = %q", candidate.Repository, candidate.ParticipationStatus)
+		default:
+			if candidate.ParticipationStatus != "NOT_CONTACTED_NOT_CONFIRMED" {
+				t.Fatalf("candidate %s participation status = %q", candidate.Repository, candidate.ParticipationStatus)
+			}
 		}
 	}
 	if record.NormativeChange || record.RuntimeChange {
