@@ -1,0 +1,56 @@
+{
+  "schema_version": "governed-action.d03-public-incident-corpus/v1",
+  "status": "ACTIVE_CORPUS_EVIDENCE_ONLY",
+  "recorded_at": "2026-09-30",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "counts_as_d03_independent_validation": false,
+  "incidents": [
+    {
+      "id": "PIC-0001",
+      "source_repository": "daniel-ospina/tortoise",
+      "source_issue": 3442,
+      "source_issue_url": "https://github.com/daniel-ospina/tortoise/issues/3442",
+      "source_resolution_pr": 5474,
+      "source_resolution_pr_url": "https://github.com/daniel-ospina/tortoise/pull/5474",
+      "source_resolution_merge": "1917852e17ffe741f37ca419c2c433c741112159",
+      "observed": {
+        "workflow": "python-ci",
+        "job": "changes",
+        "run_id": 34748148065,
+        "job_id": 103701145755,
+        "same_head_diff_rerun_passed": true
+      },
+      "corrected_ground_truth": {
+        "class": "INFRA_TRANSIENT_RUNNER_ACQUISITION_FAILURE",
+        "steps_executed": 0,
+        "runner_id": 0,
+        "runner_name_empty": true,
+        "acquisition_attempts": 5,
+        "interpretation": "The failed attempt never acquired a runner and never executed user steps."
+      },
+      "retry_gate_expectation": {
+        "decision": "ALLOW_RERUN_CANDIDATE",
+        "precondition": "ZERO_EXECUTION_POSITIVELY_ESTABLISHED",
+        "forbidden_inference": "RERUN_PASS_IMPLIES_FLAKY_TEST"
+      },
+      "secondary_defect": {
+        "class": "NON_CANONICAL_CHANGED_SET_DERIVATION",
+        "risk": "A fallback diff asked a different question and a swallowed failure could silently reduce the selected test suite.",
+        "repair": "Use one canonical merge-base diff with absent-base and empty-changed-set guards.",
+        "required_gate_behavior": "FAIL_CLOSED"
+      },
+      "evidence_role": "PUBLIC_INCIDENT_REPLAY",
+      "held_out_cohort": false,
+      "independent_participant": false
+    }
+  ],
+  "claim_limits": [
+    "does not satisfy D03 independent-participant readiness",
+    "does not establish held-out generalization",
+    "does not modify the frozen oracle",
+    "does not treat rerun success as proof of flakiness"
+  ],
+  "normative_change": false,
+  "runtime_change": false
+}
