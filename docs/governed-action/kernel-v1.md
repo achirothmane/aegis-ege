@@ -1,8 +1,8 @@
-# Candidate Governed-Action Kernel v1 — K01 + K02 + K03 + K04 contract
+# Candidate Governed-Action Kernel v1 — K01 + K02 + K03 + K04 + K05 contract
 
 Status: **DRAFT / UNFROZEN**  
-Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**; **K03 — Define temporal and next-effect resumption semantics**; **K04 — Define truthful closure and UNKNOWN disposition**  
-Normative scope: **K01 + K02 + K03 + K04 only**. K05 remains unresolved and must not be inferred from this document.
+Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**; **K03 — Define temporal and next-effect resumption semantics**; **K04 — Define truthful closure and UNKNOWN disposition**; **K05 — Publish normative examples and change control**  
+Normative scope: **K01 + K02 + K03 + K04 + K05**. The contract remains **DRAFT / UNFROZEN** until K06 records the freeze.
 
 This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, identify and retain accountable custody of possible effects/attempts, determine what must be re-established before any later effect boundary, and truthfully dispose of the resulting closure obligation without manufacturing certainty. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, universal outcome service, scheduler, workflow runtime, durable workflow service, global clock, revocation bus, global lock, or generic authorization token.
 
@@ -33,11 +33,13 @@ K03 defines validity intervals, clock domains, dependency-specific revalidation 
 
 K04 defines **ClosureObligation** as the accountable relation between effect/attempt history, typed observations/postconditions, evidence horizon, residual uncertainty, custody and administrative disposition.
 
+K05 publishes versioned accepted/rejected examples for CE1–CE8, paired positive counterparts, positive seed traces and the change-control rule that separates implementation fixes from normative changes.
+
 Still unresolved:
 
-- accepted/rejected normative vectors and frozen change control are reserved for **K05/K06**.
+- **K06** must verify prerequisite evidence and record immutable hashes/source commits before this draft becomes the frozen candidate kernel contract v1.
 
-No implementation may claim K05 semantics merely because it conforms to K01/K02/K03/K04.
+No implementation may claim frozen-v1 conformance merely because it conforms to the unfrozen K01–K05 draft.
 
 ## 2. Governing invariant slice
 
@@ -59,7 +61,7 @@ K04 establishes:
 
 - **I6 — Truthful disposition:** provider acceptance, observation, verified postcondition, residual uncertainty and administrative retirement remain distinct. UNKNOWN is never converted into success or proof that replay is safe.
 
-K01–K04 therefore define the candidate relations, while K05 still owns the frozen accepted/rejected normative examples.
+K01–K05 now define the candidate relations and the published draft oracle. K06 still owns the immutable freeze record.
 
 ## 3. ActionRef
 
@@ -1289,7 +1291,47 @@ K04 fails if the specification permits:
 
 Rollback/containment is to leave the obligation active or explicitly transfer it, pause affected new effects when residual exposure exceeds policy, and preserve observation/effect history.
 
-## 15. Six-concept / five-family review
+## 15. K05 normative oracle and change control
+
+The draft normative oracle is published in:
+
+- [normative-vectors-and-change-control-v1.md](normative-vectors-and-change-control-v1.md)
+- `testdata/governed-action/v1/schema.json`
+- `testdata/governed-action/v1/normative-cases.json`
+- `testdata/governed-action/v1/change-control-cases.json`
+- `testdata/governed-action/v1/change-log-template.json`
+
+The normative case set is:
+
+```text
+governed-action.normative-cases/v1
+status = DRAFT_UNFROZEN
+```
+
+It contains:
+
+- rejected CE1–CE8 traces;
+- one useful positive counterpart for each CE case;
+- positive CI, Kubernetes and EEP seed traces;
+- explicit source assumptions;
+- expected observations/dispositions;
+- invariant or domain-rule rationale for every rejected trace.
+
+The meta-level `valid_trace` value answers only whether a trace is permitted by this candidate contract under the stated typed assumptions/profile. It does not replace domain-owned outcome semantics.
+
+K05 also records these change-control rules:
+
+1. unknown normative/profile versions are not silently accepted;
+2. a caller cannot downgrade the same enforced action class to weaker obligations;
+3. one case ID cannot have contradictory expected validity in the same normative version;
+4. changing a core relation or accepted/rejected trace meaning is a **normative core change**;
+5. a purported clarification that changes `valid_trace` is normative;
+6. an implementation fix that moves code toward an unchanged oracle is not a normative change;
+7. a new typed domain policy/profile can remain policy-only only when the existing extension relation already permits it and the same old profile/version answer is unchanged.
+
+K07, not K05, owns full executable cross-adapter conformance. The K05 validator checks fixture/version/change-control consistency without pretending that a parsed JSON vector proves real destination enforcement.
+
+## 16. Six-concept / five-family review
 
 | Concept / family | K01 status | Seed review obligation |
 |---|---|---|
@@ -1302,7 +1344,7 @@ Rollback/containment is to leave the obligation active or explicitly transfer it
 
 The domain mapping is recorded in [domain-profiles-v1.md](domain-profiles-v1.md).
 
-## 16. CE1 / CE2 adversarial obligations owned by K01
+## 17. CE1 / CE2 adversarial obligations owned by K01
 
 ### CE1 — Vacuous profile
 
@@ -1330,7 +1372,7 @@ Material drift includes, where applicable:
 - adapter/effect/postcondition semantics;
 - required profile or validator version.
 
-## 17. Seed references
+## 18. Seed references
 
 K01 composes existing versioned contracts rather than replacing them:
 
@@ -1347,7 +1389,7 @@ K01 composes existing versioned contracts rather than replacing them:
 
 Their domain meaning and current owners remain intact.
 
-## 18. K01 completion rule
+## 19. K01 completion rule
 
 K01 is complete only when every design seed has:
 
@@ -1367,4 +1409,4 @@ K01 fails if completion requires:
 - a caller-selectable weak profile;
 - a new core discriminator beyond the fixed candidate concepts.
 
-This document remains **unfrozen** until K05 completes and K06 records the freeze.
+This document remains **unfrozen** until K06 verifies the prerequisite evidence and records the immutable freeze.

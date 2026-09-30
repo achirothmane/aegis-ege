@@ -1,0 +1,602 @@
+{
+  "schema_version": "governed-action.normative-cases/v1",
+  "contract_status": "DRAFT_UNFROZEN",
+  "contract_ref": "docs/governed-action/kernel-v1.md",
+  "oracle_ref": "docs/governed-action/normative-vectors-and-change-control-v1.md",
+  "immutable_sources": [
+    {
+      "repo": "achirothmane/aegis-ege",
+      "commit": "6130e941437bc005ccc94006f9ff277edbcebd2f",
+      "role": "K01-K04 integrated base"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "conformance/eba-temporal-v1.json",
+      "blob": "0a161956b19e16d6adaaf3fa2cbeb453a7ddbcc3",
+      "role": "temporal corpus"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "conformance/eba-canonical-json-v1.json",
+      "blob": "99b13dbb634e3894aa6610c70e1f9820fc1c73d8",
+      "role": "canonical JSON corpus"
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "commit": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6",
+      "path": "tests/conformance/easl/subject_state_binding.json",
+      "blob": "82d151531da6f98262de1e247658d89a8299c53c",
+      "role": "vendored StateBinding corpus"
+    },
+    {
+      "repo": "achirothmane/easl",
+      "commit": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
+      "path": "conformance/subject_state_binding.json",
+      "blob": "82d151531da6f98262de1e247658d89a8299c53c",
+      "role": "StateBinding source corpus"
+    },
+    {
+      "repo": "achirothmane/aegis-ege",
+      "commit": "292a2faadb8e12d6f24b8b1064e62ba90fe33110",
+      "role": "C06 reviewed head"
+    },
+    {
+      "repo": "achirothmane/aegis-ege",
+      "commit": "3f1342749d0b83b3ef505f41e7f7d01b7070b548",
+      "role": "C07 reviewed head"
+    }
+  ],
+  "cases": [
+    {
+      "id": "CE1-R1-vacuous-caller-profile",
+      "kind": "counterexample",
+      "counterexample": "CE1",
+      "valid_trace": false,
+      "applicability": [
+        "generic",
+        "ci"
+      ],
+      "source_assumptions": [
+        "The enforced action class has an owner-controlled Admission Profile with mandatory predicates."
+      ],
+      "trace": [
+        "Requester selects an empty mandatory-predicate set or self-declared trusted validator.",
+        "Executor treats that requester-selected profile as sufficient."
+      ],
+      "expected": {
+        "disposition": "REJECT_BEFORE_EFFECT",
+        "observations": [
+          "Caller-selected obligations cannot replace the trusted profile."
+        ]
+      },
+      "violates": [
+        "I2",
+        "trusted-profile-selection"
+      ],
+      "rationale": "A caller cannot weaken the predicate set or define its own trust root."
+    },
+    {
+      "id": "CE1-A1-trusted-minimal-profile",
+      "kind": "positive-counterpart",
+      "counterexample": "CE1",
+      "valid_trace": true,
+      "applicability": [
+        "generic",
+        "ci"
+      ],
+      "source_assumptions": [
+        "A trusted owner defines a legitimate profile that requires only the predicates actually needed for this action class."
+      ],
+      "trace": [
+        "Requester identifies the action class.",
+        "Owner-controlled selector chooses the known profile/version.",
+        "All profile-mandatory predicates validate at the declared boundary."
+      ],
+      "expected": {
+        "disposition": "ALLOW_BOUND_EFFECT",
+        "observations": [
+          "No unnecessary external-evidence requirement is invented."
+        ]
+      },
+      "violates": [],
+      "rationale": "A small trusted profile is valid when it is owner-defined rather than caller-selected."
+    },
+    {
+      "id": "CE2-R1-revision-substitution",
+      "kind": "counterexample",
+      "counterexample": "CE2",
+      "valid_trace": false,
+      "applicability": [
+        "generic",
+        "ci"
+      ],
+      "source_assumptions": [
+        "Approval/DecisionBasis is bound to revision A, account A and target A."
+      ],
+      "trace": [
+        "Material revision/account/target changes to B.",
+        "Old approval is reused without rebuilding the current basis."
+      ],
+      "expected": {
+        "disposition": "REJECT_BEFORE_EFFECT",
+        "observations": [
+          "Approval for A does not authorize B."
+        ]
+      },
+      "violates": [
+        "I1",
+        "I4"
+      ],
+      "rationale": "ActionRevision and authority scope are material bindings."
+    },
+    {
+      "id": "CE2-A1-exact-scope-reuse",
+      "kind": "positive-counterpart",
+      "counterexample": "CE2",
+      "valid_trace": true,
+      "applicability": [
+        "generic",
+        "ci"
+      ],
+      "source_assumptions": [
+        "Revision, account, target, policy/profile and all current witnesses are unchanged and still valid."
+      ],
+      "trace": [
+        "Previously issued exact-scope evidence is revalidated under K03.",
+        "The same bound effect reaches its declared boundary."
+      ],
+      "expected": {
+        "disposition": "ALLOW_BOUND_EFFECT",
+        "observations": [
+          "Still-valid immutable evidence may be reused without reacquisition."
+        ]
+      },
+      "violates": [],
+      "rationale": "K03 requires current validity, not mandatory reacquisition of unchanged immutable evidence."
+    },
+    {
+      "id": "CE3-R1-timeout-provider-substitution",
+      "kind": "counterexample",
+      "counterexample": "CE3",
+      "valid_trace": false,
+      "applicability": [
+        "eep",
+        "generic"
+      ],
+      "source_assumptions": [
+        "Provider A may have committed; its response was lost.",
+        "No proven cancellation/fencing/equivalence rule makes substitution safe."
+      ],
+      "trace": [
+        "Attempt A becomes POSSIBLY_DISPATCHED.",
+        "Executor sends an equivalent effect to provider B because a local shared id matches."
+      ],
+      "expected": {
+        "disposition": "REJECT_SECOND_EFFECT",
+        "observations": [
+          "Provider A possible effect remains under custody.",
+          "No unaccounted provider-B effect is permitted."
+        ]
+      },
+      "violates": [
+        "I3",
+        "I5"
+      ],
+      "rationale": "Provider substitution cannot manufacture exactly-once behavior from a local id."
+    },
+    {
+      "id": "CE3-A1-preserve-possible-effect",
+      "kind": "positive-counterpart",
+      "counterexample": "CE3",
+      "valid_trace": true,
+      "applicability": [
+        "eep",
+        "generic"
+      ],
+      "source_assumptions": [
+        "Provider A acceptance is ambiguous.",
+        "No supported cross-provider failover guarantee exists."
+      ],
+      "trace": [
+        "Attempt A remains POSSIBLY_DISPATCHED.",
+        "Executor retains custody and reconciles provider A.",
+        "No provider-B mutation is emitted."
+      ],
+      "expected": {
+        "disposition": "RETAIN_POSSIBLE_EFFECT",
+        "observations": [
+          "Uncertainty is preserved and no second effect is created."
+        ]
+      },
+      "violates": [],
+      "rationale": "Safe containment is a valid trace even though business completion is unresolved."
+    },
+    {
+      "id": "CE4-R1-effect-before-custody",
+      "kind": "counterexample",
+      "counterexample": "CE4",
+      "valid_trace": false,
+      "applicability": [
+        "eep",
+        "generic"
+      ],
+      "source_assumptions": [
+        "The external effect can survive the executing process."
+      ],
+      "trace": [
+        "Executor dispatches the external mutation.",
+        "Process crashes before the first durable attempt/custody record."
+      ],
+      "expected": {
+        "disposition": "REJECT_TRACE",
+        "observations": [
+          "Restart cannot reconstruct accountable ownership of the possible effect."
+        ]
+      },
+      "violates": [
+        "I5"
+      ],
+      "rationale": "Recoverable custody must exist before an effect may escape."
+    },
+    {
+      "id": "CE4-A1-custody-before-dispatch",
+      "kind": "positive-counterpart",
+      "counterexample": "CE4",
+      "valid_trace": true,
+      "applicability": [
+        "eep",
+        "generic"
+      ],
+      "source_assumptions": [
+        "Durable attempt storage and journal are available."
+      ],
+      "trace": [
+        "Executor persists reconstructable EffectIdentity/attempt custody.",
+        "Boundary entry is durably marked POSSIBLE_EFFECT.",
+        "External dispatch occurs.",
+        "Process loss still leaves recoverable attribution."
+      ],
+      "expected": {
+        "disposition": "ALLOW_BOUND_EFFECT",
+        "observations": [
+          "Restart recovers the same effect rather than minting a replacement."
+        ]
+      },
+      "violates": [],
+      "rationale": "Existing durable local custody is sufficient when its failure model is explicit."
+    },
+    {
+      "id": "CE5-R1-observation-gap-false-success",
+      "kind": "counterexample",
+      "counterexample": "CE5",
+      "valid_trace": false,
+      "applicability": [
+        "eep",
+        "kubernetes",
+        "generic"
+      ],
+      "source_assumptions": [
+        "Observation is permanently unavailable or provider history expires."
+      ],
+      "trace": [
+        "Owner converts unresolved outcome to success, safe retry, or drops custody to clear the case."
+      ],
+      "expected": {
+        "disposition": "REJECT_DISPOSITION",
+        "observations": [
+          "Knowledge remains UNKNOWN.",
+          "Blind replay and orphaned continuing work remain prohibited."
+        ]
+      },
+      "violates": [
+        "I5",
+        "I6"
+      ],
+      "rationale": "Administrative pressure cannot upgrade unavailable evidence."
+    },
+    {
+      "id": "CE5-A1-authorized-terminal-unknown",
+      "kind": "positive-counterpart",
+      "counterexample": "CE5",
+      "valid_trace": true,
+      "applicability": [
+        "eep",
+        "kubernetes",
+        "generic"
+      ],
+      "source_assumptions": [
+        "The trusted Closure Profile defines a bounded evidence horizon and authorized residual-risk owner.",
+        "Residual external work is absent or explicitly bounded and under named custody."
+      ],
+      "trace": [
+        "Evidence horizon is exhausted.",
+        "All obtainable observations and contradictions are retained.",
+        "Authorized owner retires active investigation as terminal UNKNOWN."
+      ],
+      "expected": {
+        "disposition": "RETIRE_AS_UNKNOWN",
+        "observations": [
+          "Current knowledge remains UNKNOWN.",
+          "No safe-retry, success or budget-release inference is created."
+        ]
+      },
+      "violates": [],
+      "rationale": "K04 permits bounded administrative retirement without epistemic upgrade."
+    },
+    {
+      "id": "CE6-R1-stale-worker-after-takeover",
+      "kind": "counterexample",
+      "counterexample": "CE6",
+      "valid_trace": false,
+      "applicability": [
+        "kubernetes",
+        "generic"
+      ],
+      "source_assumptions": [
+        "A stale worker can still reach the destination.",
+        "No destination CAS/idempotency/fencing rule prevents duplicate effect."
+      ],
+      "trace": [
+        "New owner takes custody based only on a local ownership label.",
+        "Stale worker later emits another conflicting effect."
+      ],
+      "expected": {
+        "disposition": "REJECT_TAKEOVER_EFFECT",
+        "observations": [
+          "Already accepted external work remains tracked.",
+          "False exclusivity is not advertised."
+        ]
+      },
+      "violates": [
+        "I3",
+        "I5"
+      ],
+      "rationale": "Local ownership is not downstream fencing."
+    },
+    {
+      "id": "CE6-A1-fenced-or-blocked-takeover",
+      "kind": "positive-counterpart",
+      "counterexample": "CE6",
+      "valid_trace": true,
+      "applicability": [
+        "kubernetes",
+        "generic"
+      ],
+      "source_assumptions": [
+        "The domain either has effective destination fencing/CAS or forbids automated takeover while stale execution may still act."
+      ],
+      "trace": [
+        "Recovery identifies the original effect lineage.",
+        "Current owner re-establishes required authority/state.",
+        "Only a safe remaining effect proceeds, or takeover remains blocked."
+      ],
+      "expected": {
+        "disposition": "ALLOW_SAFE_RECOVERY_OR_BLOCK",
+        "observations": [
+          "No stale-owned second effect is created."
+        ]
+      },
+      "violates": [],
+      "rationale": "Takeover is valid only within the real exclusivity guarantee of the destination."
+    },
+    {
+      "id": "CE7-R1-unrelated-change-as-success",
+      "kind": "counterexample",
+      "counterexample": "CE7",
+      "valid_trace": false,
+      "applicability": [
+        "eep"
+      ],
+      "source_assumptions": [
+        "The requested CRM patch is not fully satisfied."
+      ],
+      "trace": [
+        "An unrelated timestamp or whole-object digest changes.",
+        "Executor reports VERIFIED/APPLIED from that unrelated change."
+      ],
+      "expected": {
+        "disposition": "REJECT_FALSE_VERIFIED",
+        "observations": [
+          "Typed PARTIAL/UNSATISFIED/UNKNOWN evidence must be retained instead."
+        ]
+      },
+      "violates": [
+        "I6",
+        "crm-postcondition/v1"
+      ],
+      "rationale": "Only the exact requested fields on the exact target can establish the intended postcondition."
+    },
+    {
+      "id": "CE7-A1-exact-postcondition-verified",
+      "kind": "positive-counterpart",
+      "counterexample": "CE7",
+      "valid_trace": true,
+      "applicability": [
+        "eep"
+      ],
+      "source_assumptions": [
+        "The exact bound customer and requested fields are observable under aegis.eep/crm-postcondition/v1."
+      ],
+      "trace": [
+        "Bound PATCH attempt is made or state was already satisfied.",
+        "Stable observation shows every requested field has the requested JSON value on the exact target."
+      ],
+      "expected": {
+        "disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION",
+        "observations": [
+          "Postcondition result is VERIFIED or ALREADY_SATISFIED as applicable.",
+          "Request acceptance remains separately typed."
+        ]
+      },
+      "violates": [],
+      "rationale": "Useful success remains permitted when the scoped domain oracle is actually satisfied."
+    },
+    {
+      "id": "CE8-R1-current-read-stale-write",
+      "kind": "counterexample",
+      "counterexample": "CE8",
+      "valid_trace": false,
+      "applicability": [
+        "eep",
+        "kubernetes",
+        "generic"
+      ],
+      "source_assumptions": [
+        "Profile requires a destination-enforced version precondition."
+      ],
+      "trace": [
+        "Executor reads version 4.",
+        "Competing writer advances state to version 5.",
+        "Executor mutates using only the stale read or an unprotected reread, without required destination CAS."
+      ],
+      "expected": {
+        "disposition": "REJECT_UNGUARDED_MUTATION",
+        "observations": [
+          "A prior/current-looking observation is not atomicity."
+        ]
+      },
+      "violates": [
+        "I1",
+        "I2"
+      ],
+      "rationale": "Exact-state admission cannot permit a write that omits its required destination guard."
+    },
+    {
+      "id": "CE8-A1-destination-cas-success",
+      "kind": "positive-counterpart",
+      "counterexample": "CE8",
+      "valid_trace": true,
+      "applicability": [
+        "eep",
+        "kubernetes",
+        "generic"
+      ],
+      "source_assumptions": [
+        "Destination supports the profile-required CAS/conditional mutation.",
+        "Version 4 remains current until acceptance."
+      ],
+      "trace": [
+        "Executor binds version 4 in the ActionRevision/DecisionBasis.",
+        "Destination atomically enforces version 4 with the mutation.",
+        "Scoped postcondition is subsequently observed."
+      ],
+      "expected": {
+        "disposition": "ALLOW_BOUND_EFFECT",
+        "observations": [
+          "Destination, not a prior read, enforces the hard precondition."
+        ]
+      },
+      "violates": [],
+      "rationale": "The contract permits useful mutation when the claimed atomic guard actually exists."
+    },
+    {
+      "id": "SEED-CI-A1-validated-rerun",
+      "kind": "positive-seed",
+      "counterexample": null,
+      "valid_trace": true,
+      "applicability": [
+        "ci"
+      ],
+      "source_assumptions": [
+        "Trusted CI profile is selected by the owner-controlled verifier.",
+        "ActionRequest binds repository/run attempt/head/workflow/job identity.",
+        "Temporal and authority dependencies are current."
+      ],
+      "trace": [
+        "One selective rerun request crosses the GitHub boundary.",
+        "Dispatch receipt records API acceptance only.",
+        "A genuine later execution re-runs the same failed step and that step succeeds."
+      ],
+      "expected": {
+        "disposition": "DISCHARGE_RECOVERY_OBLIGATION",
+        "observations": [
+          "Dispatch acceptance and later validated recovery remain separate facts."
+        ]
+      },
+      "violates": [],
+      "rationale": "Demonstrates useful permitted CI behavior without treating the dispatch receipt as downstream success."
+    },
+    {
+      "id": "SEED-KUBE-A1-bounded-drain-completes",
+      "kind": "positive-seed",
+      "counterexample": null,
+      "valid_trace": true,
+      "applicability": [
+        "kubernetes"
+      ],
+      "source_assumptions": [
+        "Trusted node-drain profile, current authority, exact plan, node revision and Pod UIDs are bound.",
+        "Required destination/API preconditions are available."
+      ],
+      "trace": [
+        "Cordon/eviction effects execute within the declared plan.",
+        "Checkpoint records completed exact effects.",
+        "Postflight observes node unschedulable, no unexpected workload Pods and each planned Pod UID absent."
+      ],
+      "expected": {
+        "disposition": "DISCHARGE_CLOSURE_MATCH",
+        "observations": [
+          "Postflight MATCH applies to the exact plan/effect lineage."
+        ]
+      },
+      "violates": [],
+      "rationale": "Demonstrates useful bounded mutation and automatic closure without a manual case."
+    },
+    {
+      "id": "SEED-EEP-A1-conditional-update-verified",
+      "kind": "positive-seed",
+      "counterexample": null,
+      "valid_trace": true,
+      "applicability": [
+        "eep"
+      ],
+      "source_assumptions": [
+        "aegis.eep/crm-http-json/v1 and crm-postcondition/v1 are selected.",
+        "Destination/account/customer/ETag/plan are bound and current."
+      ],
+      "trace": [
+        "Durable custody is established.",
+        "PATCH uses If-Match at the destination.",
+        "Destination returns 2xx.",
+        "Stable observations verify every requested field on the exact customer."
+      ],
+      "expected": {
+        "disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION",
+        "observations": [
+          "RequestAcceptance=ACCEPTED.",
+          "Postcondition=VERIFIED.",
+          "Observation=OBSERVED_STABLE."
+        ]
+      },
+      "violates": [],
+      "rationale": "Demonstrates useful automatic CRM mutation with destination CAS and a truthful scoped outcome."
+    },
+    {
+      "id": "SEED-EEP-A2-already-satisfied-noop",
+      "kind": "positive-seed",
+      "counterexample": null,
+      "valid_trace": true,
+      "applicability": [
+        "eep"
+      ],
+      "source_assumptions": [
+        "The exact bound pre-mutation customer state already satisfies every requested field."
+      ],
+      "trace": [
+        "Executor verifies the scoped precondition state.",
+        "No PATCH is dispatched."
+      ],
+      "expected": {
+        "disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION",
+        "observations": [
+          "RequestAcceptance=NOT_DISPATCHED.",
+          "Postcondition=ALREADY_SATISFIED."
+        ]
+      },
+      "violates": [],
+      "rationale": "A legitimate no-op remains useful behavior and does not fabricate provider acceptance."
+    }
+  ]
+}
