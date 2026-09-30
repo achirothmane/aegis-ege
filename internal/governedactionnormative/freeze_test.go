@@ -140,6 +140,21 @@ func TestFreezePrerequisiteSetIsExactAndComplete(t *testing.T) {
 		if p.ID != "E01" && (p.Repo == "" || p.PR == 0 || p.Head == "" || p.Merge == "") {
 			t.Fatalf("%s missing exact merge provenance: %+v", p.ID, p)
 		}
+		supportingCI := 0
+		for _, s := range p.Supporting {
+			if s.Repo == "" || s.PR == 0 || s.Head == "" || s.Merge == "" {
+				t.Fatalf("%s has incomplete supporting provenance: %+v", p.ID, s)
+			}
+			if len(s.CIRuns) > 0 {
+				supportingCI++
+			}
+			if p.ID != "E01" && len(s.CIRuns) == 0 {
+				t.Fatalf("%s supporting head missing CI evidence: %+v", p.ID, s)
+			}
+		}
+		if p.ID == "E01" && supportingCI < 2 {
+			t.Fatalf("E01 requires CI-backed source and mirror evidence, got %d supporting CI records", supportingCI)
+		}
 	}
 	sort.Strings(got)
 	sort.Strings(want)
