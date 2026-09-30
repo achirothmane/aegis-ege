@@ -12,7 +12,6 @@
       "owner_type": "Organization",
       "domain_category": "database migration",
       "primary_language": "Go",
-      "last_observed_push": "2026-09-16T10:47:11Z",
       "native_substrate": "database/sql migration execution",
       "public_test_surface": [
         "GitHub Actions CI",
@@ -29,7 +28,6 @@
       "owner_type": "User",
       "domain_category": "database migration",
       "primary_language": "Go",
-      "last_observed_push": "2025-11-04T10:25:58Z",
       "native_substrate": "PostgreSQL/database.sql migrations",
       "public_test_surface": [
         "Go tests",
@@ -48,7 +46,6 @@
       "owner_type": "Organization",
       "domain_category": "usage metering and billing",
       "primary_language": "Go",
-      "last_observed_push": "2026-09-29T13:56:42Z",
       "native_substrate": "self-hosted metering/billing stack with Kafka, ClickHouse, PostgreSQL, Redis/Svix components",
       "public_test_surface": [
         "CI",
@@ -66,7 +63,6 @@
       "owner_type": "Organization",
       "domain_category": "durable workflow execution",
       "primary_language": "Go",
-      "last_observed_push": "2026-09-29T20:48:39Z",
       "native_substrate": "self-hosted Postgres-backed durable task/workflow engine",
       "public_test_surface": [
         "unit tests",
@@ -84,7 +80,6 @@
       "owner_type": "Organization",
       "domain_category": "secrets and credential lifecycle",
       "primary_language": "TypeScript",
-      "last_observed_push": "2026-09-30T05:53:32Z",
       "native_substrate": "self-hosted secrets/certificates/privileged-access platform with Docker setup",
       "public_test_surface": [
         "public contribution guide",
