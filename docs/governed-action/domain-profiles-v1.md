@@ -1,10 +1,10 @@
-# K01 + K02 domain-profile mapping — candidate Kernel v1
+# K01 + K02 + K03 domain-profile mapping — candidate Kernel v1
 
 Status: **DRAFT / UNFROZEN**  
 Normative owner: Aegis integration-contract steward  
 Companion contract: [kernel-v1.md](kernel-v1.md)
 
-This mapping applies the K01 ActionRef / DecisionBasis rules and the K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules to the three design-visible seeds already selected by the queue:
+This mapping applies the K01 ActionRef / DecisionBasis rules, K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules, and K03 temporal / next-effect resumption rules to the three design-visible seeds already selected by the queue:
 
 - CI rerun / Workflow Failure Lab;
 - Kubernetes node mutation / Aegis;
@@ -16,7 +16,7 @@ It does not add a new runtime profile service. Existing domain contracts remain 
 
 | Owner | Reviewed revision / identity | K01 use |
 |---|---|---|
-| Aegis-EGE | `86d5b2184ee2084d206280ad3069b6da4fbdb2f5` | K02 base after merged K01 |
+| Aegis-EGE | `8ba7ff710c3f75fe662ffd90f3569ecc81e98227` | K03 base after merged K02 |
 | EASL | `7c4e1e28218853919d00362dc071e1eb6f61cc56` | current subject-state semantics |
 | EASL StateBinding vectors | blob `82d151531da6f98262de1e247658d89a8299c53c` | earned conformance identity |
 | Workflow Failure Lab | `d44bd4c47f8748bfca706a4c4833adf8ce940cf6` | C05-repaired CI/EBA consumer |
@@ -646,7 +646,356 @@ The first row is intentionally a **semantic relation review**, not a frozen gene
 | Kubernetes drain | checkpoint/journal mechanisms retain bounded execution context | recovery inspects live target state and reconciles completed exact effects before resume | checkpoint recovery + fresh authorization for remaining mutations; accepted external work is not cancelled by ownership change |
 | EEP CRM | durable attempt claim + journal required before PATCH | `POSSIBLE_EFFECT`; no replay; use observation handle | `ACCEPTED` or later postcondition evidence retained; K04 later owns administrative closure |
 
-## 6. Obligation-to-owner table
+## 6. K03 temporal / resumption mappings
+
+### 6.1 CI rerun / Workflow Failure Lab
+
+#### Clock and validity domains
+
+The CI seed already uses `eba.temporal/v1` with an explicit evaluation instant.
+
+Current wall-clock semantics:
+
+```text
+not_before <= now < expires_at
+```
+
+and exact-expiry reuse fails closed.
+
+Relevant executable evidence includes:
+
+- `test_authority_uses_half_open_expiry_boundary`
+- `test_assumption_uses_half_open_expiry_boundary`
+- `test_future_checked_assumption_is_rejected`
+- `test_equivalent_timezone_offsets_share_the_same_boundary`
+- `test_authority_expiry_is_finite_by_default`
+
+The CI profile also preserves non-time epochs:
+
+- repository identity;
+- workflow run id;
+- run attempt;
+- head SHA;
+- workflow id;
+- exact failed job execution identity.
+
+Those state/revision epochs are not replaced by wall-clock freshness.
+
+#### Next-effect boundary
+
+The next consequential effect is the actual GitHub rerun request.
+
+Immediately before that boundary, the current implementation revalidates the selective-rerun subject.
+
+A wakeup, delayed runner step or callback cannot reuse an old decision without current checks.
+
+Current evidence:
+
+- `test_selective_subject_binding_allows_unchanged_job_execution`
+- `test_selective_subject_binding_blocks_run_attempt_drift`
+- `test_selective_subject_binding_blocks_when_target_job_execution_changes`
+- `test_selective_epoch_does_not_mutate_after_binding_drift`
+
+#### Expired authority
+
+An expired AuthorityGrant or Decision does not authorize another rerun.
+
+A future valid rerun requires a new current basis whose action revision still matches the provider state.
+
+A fresh timestamp alone cannot rescue a changed run/head/job revision.
+
+#### Observation after start authority expiry
+
+A rerun accepted by GitHub becomes a provider-side workflow operation.
+
+Later observation of that workflow attempt may remain useful after the original start authority expires, because observation does not itself create another rerun effect.
+
+This does not authorize:
+
+- a second rerun;
+- a different job;
+- another repository;
+- a new run attempt mutation.
+
+The current WFL receipt still means dispatch acceptance only; downstream pass/fail remains separate evidence.
+
+#### Revocation and partition limit
+
+The current CI profile does not claim an instant global revocation channel into GitHub.
+
+If a required authority/revocation view cannot be established before a new rerun effect, the automated rerun stops.
+
+Already accepted provider work is not claimed to be cancelled by later local revocation.
+
+---
+
+### 6.2 Kubernetes node mutation / Aegis
+
+#### Time and epoch domains
+
+The Kubernetes/Aegis seed uses several independent domains:
+
+1. EBA wall-clock validity for AssumptionState / AuthorityGrant / Permit inputs;
+2. Kubernetes state epochs such as node resourceVersion and exact Pod UID;
+3. deterministic plan digest / policy / adapter versions;
+4. Aegis lifecycle generation/epoch where runtime trust applies;
+5. boot-bound monotonic deadline for active Runtime Trust Lease enforcement.
+
+These are not collapsed into one timestamp.
+
+#### EBA commit-boundary temporal semantics
+
+Aegis C03 consumes the WFL `eba.temporal/v1` semantics at the actual mutation boundary.
+
+Current behavior includes:
+
+- explicit non-zero evaluation instant;
+- finite mutation-bound assumption validity;
+- finite AuthorityGrant `not_before` / `expires_at`;
+- exact-expiry rejection;
+- malformed time rejection;
+- future assumption-check rejection.
+
+Dependency evidence:
+- Aegis C03 PR #69 head `31461753efd789744e81bdef64c7db85fc7d0163`, CI success.
+- WFL C03 PR #110 head `9209acbf93bf0bdb82dad4e180feacfa2b211c1a`.
+
+#### Recovery / next effect
+
+A paused/restarted node drain does not resume mutation merely because a checkpoint exists.
+
+The recovery path:
+
+1. loads the original checkpoint;
+2. re-reads current Kubernetes state;
+3. reconciles already-completed exact effects;
+4. computes remaining authorized work;
+5. returns `RECOVERY_REAUTHORIZATION_REQUIRED` when more mutation remains;
+6. requires a fresh authorization before resuming remaining Pod effects.
+
+Evidence:
+
+- `TestCheckpointedExecutionRequiresFreshAuthorizationThenResumesRemainingPod`
+- `TestInspectDrainRecoveryReconcilesEvictionThatSucceededBeforeCheckpointWrite`
+
+Thus:
+
+```text
+checkpoint exists
+!=
+permission to mutate
+```
+
+#### Runtime Trust Lease clock separation
+
+Runtime Trust Lease is an Aegis runtime mechanism, not a universal kernel-v1 clock.
+
+Its signed lease expiry is wall-clock bounded by attestation freshness:
+
+```text
+lease_expires_at =
+min(now + lease_ttl,
+    remote_verified_at + max_attestation_age)
+```
+
+When applied on Linux, the active lease is also bound to the current boot through a monotonic deadline.
+
+Evidence includes:
+
+- `TestRuntimeTrustLeaseExpiryCappedByRemoteAttestation`
+- `TestRuntimeTrustRenewalRequiresNewerRemoteEvidence`
+- `TestRuntimeTrustEvaluationRevokesExpiredLease`
+- `TestRuntimeTrustEvaluationRevokesPolicySupersession`
+- `TestRuntimeTrustWatchdogRemainingUsesBootClock`
+- `TestRuntimeTrustWatchdogDoesNotRevokeBeforeDeadline`
+- `TestRuntimeTrustWatchdogRevokesAtDeadlineAndSignsEvidence`
+- `TestApplyRuntimeTrustRenewalFailsAfterCurrentMonotonicDeadline`
+- `TestRuntimeTrustWatchdogRejectsBootChange`
+
+Wall-clock rollback therefore cannot extend the active lease within the same boot.
+
+A changed boot does not reuse the old boot-bound deadline.
+
+#### Revocation-view guarantee
+
+The current runtime trust watchdog can revoke the local/kernel-mediated network scope it actually controls.
+
+At monotonic expiry it advances the current kernel revocation epoch before signing expiry evidence.
+
+That claim is local to the enforced action class.
+
+It does **not** mean:
+
+- a previously accepted cloud/provider job is cancelled;
+- all cluster writers instantly observe the same revocation;
+- a network partition is globally resolved.
+
+Before another governed Kubernetes mutation, the profile still requires its current authority/state/precondition witnesses.
+
+#### Policy/adapter rollout
+
+A node-drain basis is not reusable under materially changed:
+
+- consequence policy/version/hash;
+- capability policy;
+- evidence-composition requirement;
+- mutation adapter semantics;
+- postcondition semantics;
+- plan digest.
+
+Absent an explicit trusted compatibility rule, the old basis cannot authorize a new effect after such a rollout.
+
+#### Current-subject / C08 relation
+
+C08 strengthens the current-subject/freshness boundary used by the relying path:
+
+- current boot identity;
+- attestation challenge;
+- bounded remote verification freshness;
+- bounded bootstrap receipt freshness;
+- current executable/provenance subject;
+- revocation-list validity.
+
+C08 does not create global temporal authority.
+
+Its K03 role is narrower: an old relying artifact from another boot/current subject cannot become current authority merely because its signature/hash remains valid.
+
+Aegis C08 PR #74 head:
+`c483f2ba56db473e41117ffe3aa591ce01f206e2` — CI success.
+
+---
+
+### 6.3 EEP synthetic CRM
+
+#### Clock and state domains
+
+The current EEP executor evaluates the signed Permit against its current clock:
+
+```text
+now < permit.valid_until
+```
+
+before the CRM mutation path proceeds.
+
+The same ActionRevision also binds non-time state:
+
+- destination;
+- account;
+- endpoint;
+- customer;
+- operation;
+- expected resource version / ETag;
+- plan digest;
+- adapter profile;
+- postcondition profile.
+
+Permit freshness cannot replace an ETag/resource-version mismatch.
+
+#### Next-effect boundary
+
+The consequential effect boundary is the PATCH.
+
+Immediately before external dispatch, the existing profile has already established:
+
+- exact permit/plan binding;
+- configured destination/account/endpoint match;
+- durable attempt claim;
+- authorization journal;
+- destination identity;
+- current expected ETag/resource version;
+- dispatch-intent journal;
+- durable `POSSIBLE_EFFECT` state.
+
+A delayed worker cannot skip those checks because it still possesses the old Permit.
+
+If the Permit is expired before this path reaches the effect boundary, no new PATCH is authorized.
+
+#### Provider acceptance versus local dispatch
+
+The current CRM profile distinguishes:
+
+- local dispatch boundary;
+- destination HTTP acceptance;
+- post-mutation observation.
+
+A local send time is not represented as destination acceptance time.
+
+For the current synthetic HTTP profile there is no separate provider-enforced wall-clock deadline claim beyond the destination's conditional mutation semantics.
+
+Therefore K03 does not invent one.
+
+If a future CRM/provider profile has a server-enforced request deadline, acceptance-time claims must come from that provider protocol/evidence rather than local send time.
+
+#### Ambiguous request after authority expiry
+
+If a PATCH may already have escaped while authority was valid but acceptance becomes ambiguous:
+
+- K02 keeps the same `POSSIBLE_EFFECT` custody;
+- authority expiry does not prove the request failed;
+- postcondition observation may continue if authorized;
+- no second PATCH is emitted merely to regain certainty.
+
+This preserves:
+
+```text
+request_acceptance = UNKNOWN
+postcondition       = VERIFIED | PARTIAL | UNSATISFIED | UNKNOWN
+```
+
+without turning observation into new mutation authority.
+
+#### Adapter/postcondition rollout
+
+An old Permit/DecisionBasis cannot silently authorize a new effect under a materially changed:
+
+- `aegis.eep/crm-http-json/v1` successor;
+- postcondition profile;
+- destination/account/endpoint interpretation;
+- conditional-write semantics.
+
+A new profile version requires explicit compatibility or a new current basis.
+
+---
+
+### 6.4 Cross-domain K03 revalidation matrix
+
+| Dependency | CI rerun | Kubernetes/Aegis | EEP CRM |
+|---|---|---|---|
+| wall-clock authority | revalidate at rerun boundary | revalidate at governed mutation boundary | revalidate Permit before PATCH |
+| state revision | run attempt/head/workflow/job | resourceVersion, Pod UID, plan/state | ETag/resource version + exact target |
+| policy/adapter version | owner-controlled verifier semantics | consequence/capability/adapter/evidence profile | executor + postcondition profile |
+| hard destination precondition | provider-native semantics only; no invented fencing | API-server preconditions where required | `If-Match` |
+| revocation view | local/current authority view; no instant provider cancellation | configured authority + local runtime fence where applicable | signed Permit/current local authorization view |
+| accepted external work | later workflow observation may continue | already-running provider work is not cancelled by local ownership change | postcondition observation may continue |
+| next new effect | requires fresh/current basis | requires fresh/current basis | requires fresh/current basis |
+
+### 6.5 K03 required/adversarial test review
+
+| Queue case | Evidence / disposition |
+|---|---|
+| reuse still-valid bound evidence | WFL temporal validators accept before expiry; immutable artifact reuse remains allowed when profile requirements stay current |
+| refresh expired dependencies | Kubernetes recovery explicitly requires fresh authorization; runtime trust renewal requires newer remote evidence |
+| reject wrong revision | CI state-binding drift tests; Kubernetes resource/plan revalidation; EEP exact binding/ETag checks |
+| continuing observation after start-grant expiry | permitted only as observation/reconciliation of an already accepted fixed effect; no seed treats it as permission for a new mutation |
+| approval then revocation during partition | new effect stops when the profile-required current revocation view cannot be established; no instant global revocation claim |
+| stale policy after wakeup | runtime trust policy supersession revokes old lease semantics; domain maps reject silent adapter/policy reinterpretation |
+| process-local clock reset | active runtime lease uses boot-bound monotonic deadline; no cross-boot reuse |
+| provider-enforced deadline | no current seed claims remote acceptance-time guarantee without provider evidence |
+| duplicate callback | classified as observation vs new effect; new effect must revalidate current basis/cardinality |
+| next mutation after authority expiry | forbidden without fresh authority |
+| old policy under new adapter semantics | forbidden absent explicit compatibility |
+
+### 6.6 K03 outage / rollout treatment
+
+| Situation | CI | Kubernetes/Aegis | EEP CRM |
+|---|---|---|---|
+| authority/revocation source unavailable | no new rerun | no new governed mutation that requires that witness | no new PATCH |
+| observer unavailable after accepted effect | preserve uncertainty/provider history | preserve checkpoint/custody | preserve `POSSIBLE_EFFECT` / outcome uncertainty |
+| process restart | wakeup is not permission | recovery + current-state reconciliation + reauthorization | load durable attempt; no blind replay |
+| policy/adapter rollout | old basis not silently reused | version/hash compatibility required | old Permit not reinterpreted under new semantics |
+| boot change | n/a | old boot-bound runtime deadline not reused | n/a |
+
+## 7. Obligation-to-owner table
 
 | K01 obligation | Owning implementation / contract |
 |---|---|
@@ -663,10 +1012,10 @@ The first row is intentionally a **semantic relation review**, not a frozen gene
 | CRM destination/account/precondition binding | Aegis `aegis.eep/crm-http-json/v1` |
 | CRM intended-postcondition meaning | Aegis `aegis.eep/crm-postcondition/v1` |
 | effect/attempt common relations | **K02 — defined in `kernel-v1.md`; mapped here to existing domain mechanisms** |
-| resumption/time common relations | **K03 — not defined here** |
+| resumption/time common relations | **K03 — defined in `kernel-v1.md`; mapped here to explicit temporal/revalidation owners** |
 | closure/UNKNOWN common relations | **K04 — not defined here** |
 
-## 7. CE1 and CE2 seed review
+## 8. CE1 and CE2 seed review
 
 ### CE1 — vacuous profile
 
@@ -688,7 +1037,7 @@ At minimum the review covers:
 - Kubernetes: action/target/cluster context/resourceVersion/plan/evidence/policy/adapter;
 - EEP: destination/account/endpoint/customer/expected version/plan/postcondition profile.
 
-## 8. Positive-seed review
+## 9. Positive-seed review
 
 A positive seed is useful only when the required operation can still proceed under its legitimate profile:
 
@@ -698,7 +1047,7 @@ A positive seed is useful only when the required operation can still proceed und
 
 Reject-all behavior does not satisfy K01.
 
-## 9. K01/K02 limits
+## 10. K01/K02/K03 limits
 
 This map does not claim:
 
@@ -711,4 +1060,4 @@ This map does not claim:
 - automatic provider substitution;
 - a new shared runtime or repository.
 
-The next semantic item after K02 is K03, not platform extraction.
+The next semantic item after K03 is K04, not platform extraction.

@@ -1,10 +1,10 @@
-# Candidate Governed-Action Kernel v1 — K01 + K02 contract
+# Candidate Governed-Action Kernel v1 — K01 + K02 + K03 contract
 
 Status: **DRAFT / UNFROZEN**  
-Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**  
-Normative scope: **K01 + K02 only**. K03–K05 remain unresolved and must not be inferred from this document.
+Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**; **K03 — Define temporal and next-effect resumption semantics**  
+Normative scope: **K01 + K02 + K03 only**. K04–K05 remain unresolved and must not be inferred from this document.
 
-This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, then to identify and retain accountable custody of the possible effects and execution attempts that may follow. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, scheduler, workflow runtime, durable workflow service, global lock, or generic authorization token.
+This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, identify and retain accountable custody of possible effects/attempts, and determine what must be re-established before any later effect boundary. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, scheduler, workflow runtime, durable workflow service, global clock, revocation bus, global lock, or generic authorization token.
 
 ## 1. Candidate boundary
 
@@ -29,13 +29,14 @@ K01 defines the normative relations for **ActionRef** and **DecisionBasis**, plu
 
 K02 defines the normative relations for **EffectIdentity** and **ExecutionAttempt**, including effect cardinality, attempt custody, crash ambiguity, idempotency/fencing scope, and recovery ownership.
 
+K03 defines validity intervals, clock domains, dependency-specific revalidation and the rule that continuation/wakeup carries no automatic authorization for a new effect.
+
 Still unresolved:
 
-- temporal continuation semantics are reserved for **K03**;
 - ClosureObligation knowledge/disposition semantics are reserved for **K04**;
 - accepted/rejected normative vectors and frozen change control are reserved for **K05/K06**.
 
-No implementation may claim K03–K05 semantics merely because it conforms to K01/K02.
+No implementation may claim K04–K05 semantics merely because it conforms to K01/K02/K03.
 
 ## 2. Governing invariant slice
 
@@ -49,7 +50,11 @@ K02 makes the effect-cardinality part of I3 explicit and establishes the custody
 
 - **I5 — No unowned possible effect:** a consequential effect that may survive its executing process has reconstructable identity and accountable custody before it can escape.
 
-K01/K02 establish references that K03 must later revalidate for I4 and that K04 must later use for truthful closure under I6. They do not themselves define I4 or I6.
+K03 establishes:
+
+- **I4 — Continuation carries no automatic authorization:** at the next effect boundary, every profile-required current witness is still valid or explicitly re-established. Wakeup, callback, retry, recovery ownership or a still-running process is not permission.
+
+K01/K02/K03 establish the identities and observations K04 must later use for truthful closure under I6. K03 does not itself define closure/disposition.
 
 ## 3. ActionRef
 
@@ -535,7 +540,297 @@ K02 fails if the specification permits:
 
 Rollback/containment is to stop further conflicting dispatch, preserve all attempt/effect evidence, and observe/reconcile under the existing bounded authority.
 
-## 13. Six-concept / five-family review
+## 13. K03 temporal and next-effect resumption contract
+
+### 13.1 Time is typed, not one universal timestamp
+
+K03 does not define one global time source.
+
+A profile may depend on several distinct clock/epoch domains:
+
+| Domain | Meaning | K03 rule |
+|---|---|---|
+| **wall-clock validity** | signed/declared `not_before`, `expires_at`, `valid_until`, evidence freshness | evaluate against an explicit trusted/current instant at the enforcing boundary |
+| **boot-bound monotonic time** | local runtime lease deadline that must not be extended by wall-clock rollback | compare only within the same boot identity and the declared monotonic clock domain |
+| **state / revision epoch** | run attempt, resourceVersion, generation, lifecycle epoch, policy hash/version | exact equality/current-state validation; wall-clock freshness cannot substitute for revision identity |
+| **provider deadline / acceptance window** | a remote service's own deadline or acceptance rule | the provider-enforced rule remains authoritative; a local pre-dispatch check does not prove remote acceptance before that deadline |
+| **observation horizon** | how long outcome/continuation observation remains meaningful | profile-specific; observation permission is distinct from authority to create a new effect |
+
+These domains must not be silently converted into one timestamp or one integer epoch.
+
+### 13.2 Half-open wall-clock validity
+
+Where a dependency uses finite wall-clock validity, the default K03 interval is:
+
+```text
+not_before <= now < expires_at
+```
+
+or, for a single upper bound:
+
+```text
+now < valid_until
+```
+
+Exact-expiry reuse fails closed.
+
+Equivalent timezone offsets that denote the same instant may normalize to the same time when the owning temporal profile explicitly supports that normalization.
+
+Malformed, naive, wrong-type or otherwise unsupported timestamps cannot degrade into structural success.
+
+K03 preserves the existing `eba.temporal/v1` rule that an absent/null expiry is profile-specific, not a universal permanent lease. A finite supporting dependency cannot be erased by projecting it into a non-expiring child.
+
+### 13.3 Dependency-specific revalidation
+
+At a next effect boundary, the profile determines which dependencies must be current and how.
+
+| Dependency class | Revalidation rule before a new effect |
+|---|---|
+| immutable content digest / immutable signed artifact | may be reused when identity/signature remains valid and no profile rule requires reacquisition |
+| finite evidence / assumption | re-check current time and any required current subject/state binding |
+| AuthorityGrant / approval / permit | re-check expiry, revision/scope binding and the revocation view promised by the profile |
+| StateBinding / target revision | re-read or otherwise establish the exact current state required by the domain |
+| destination hard precondition | establish at the actual destination acceptance/mutation boundary; a stale observation cannot replace it |
+| evidence-composition predicate | re-evaluate when any declared material source/dependency or required assurance has changed/expired |
+| policy / consequence / capability semantics | verify the exact bound version/hash still governs the effect |
+| adapter/effect semantics | verify the executing adapter/profile version is the one admitted; a hidden default change invalidates reuse |
+| runtime trust lease | validate current generation/lease epoch/deadline and its enforcing boundary; an old process lifetime is not authority |
+| provider operation already accepted | observation/reconciliation may continue if the profile permits, but acceptance does not mint authority for another effect |
+
+Revalidation is scoped. K03 does **not** require reacquiring unchanged immutable evidence merely because a worker woke up.
+
+### 13.4 Wakeup and continuation
+
+The governing rule is:
+
+> continuation is a control-flow fact, not an authorization fact.
+
+The following events confer no new authority by themselves:
+
+- process wakeup;
+- retry timer firing;
+- callback arrival;
+- worker restart;
+- recovery ownership transfer;
+- lease/watchdog thread continuing to run;
+- receipt of a duplicate webhook/callback;
+- presence of an old ALLOW/permit in durable storage.
+
+Before the next consequential effect, the executor must identify:
+
+1. the exact next EffectIdentity / effect slot;
+2. the current ActionRef revision;
+3. the profile-required current witnesses;
+4. the effect boundary where each witness is actually enforced;
+5. whether the current operation is a **new effect** or only **observation/reconciliation** of an already-started bounded external operation.
+
+If any mandatory current predicate cannot be established at the claimed boundary, the automatic mutation path stops.
+
+### 13.5 Start authority versus continuation of an already accepted bounded job
+
+A finite authority may authorize **starting one bounded external job**.
+
+If the provider accepts that job while start authority is valid, expiry of the start grant does not necessarily prove that the already accepted external operation stopped.
+
+A profile may permit continued **observation/reconciliation** after start-grant expiry when all of these hold:
+
+- the external job/effect identity was fixed before expiry;
+- no new effect is created;
+- observation itself remains authorized;
+- the profile explicitly declares that the provider operation may continue independently once accepted;
+- custody remains accountable under K02.
+
+This does **not** allow:
+
+- starting another job;
+- retrying the mutation;
+- broadening resource scope;
+- issuing a second callback-driven effect;
+- renewing authority merely because the old job still exists.
+
+A new consequential effect requires current authorization at that new boundary.
+
+### 13.6 Dispatch time is not destination acceptance time
+
+K03 distinguishes:
+
+```text
+local dispatch decision time
+local request-send time
+provider/destination acceptance time
+provider operation execution time
+observation time
+```
+
+A local check made before a provider-enforced deadline does not prove the provider accepted the request before that deadline.
+
+If a profile claims acceptance-time enforcement, the destination/provider must expose evidence or a protocol guarantee sufficient for that claim.
+
+If the provider only exposes a send-time API call and acceptance timing can cross the deadline, the stronger acceptance-time guarantee is unsupported and must not be advertised.
+
+### 13.7 Revocation-view semantics
+
+Revocation is only as strong as the view and enforcement boundary the profile actually has.
+
+Each profile must state:
+
+- what revocation source/view is checked;
+- at what boundary it is checked;
+- whether the check can be stale under partition;
+- whether local enforcement can revoke future effects;
+- whether already accepted remote work can continue.
+
+K03 does not claim instant global revocation.
+
+When the required revocation view is unavailable or too stale for the profile's claim, a new effect must stop.
+
+A local revocation/fence can block later local/kernel-mediated effects without implying that a remote provider job already accepted is cancelled.
+
+### 13.8 Runtime trust: wall-clock lease plus boot-bound monotonic enforcement
+
+Aegis Runtime Trust Lease semantics remain owned by the existing runtime implementation.
+
+K03 recognizes two distinct time relations:
+
+1. the signed lease carries a wall-clock `expires_at`, bounded by attestation freshness;
+2. when applied on Linux, the lease is installed as a boot-bound monotonic deadline using the current boot identity.
+
+The monotonic deadline protects the active local lease from wall-clock rollback.
+
+Required rules include:
+
+- lease expiry cannot exceed the remote-attestation freshness boundary;
+- renewal requires strictly newer remote evidence;
+- lease epoch must advance monotonically;
+- lease/generation/lifecycle lineage must match current state;
+- policy supersession revokes the old lease semantics;
+- the watchdog does not revoke before the monotonic deadline;
+- at the deadline it advances the current kernel fence before producing expiry evidence;
+- a boot change invalidates reuse of the old boot-bound deadline;
+- renewal after the current monotonic deadline has already elapsed is rejected.
+
+This runtime lease is not a universal clock service and does not automatically cancel remote external operations outside its enforced action class.
+
+### 13.9 Policy and adapter version changes
+
+An old decision cannot be silently reinterpreted under new semantics.
+
+If any of these materially change:
+
+- admission profile;
+- policy/consequence/capability version or hash;
+- adapter/effect semantics;
+- postcondition profile;
+- validator version whose meaning affects valid traces;
+
+then reuse of an old DecisionBasis requires an explicit compatibility rule owned by the trusted profile.
+
+Absent such a rule, the old basis cannot authorize a new effect under the new semantics.
+
+A code rollout is therefore not merely a process restart when it changes action meaning.
+
+### 13.10 Duplicate callbacks
+
+A callback may trigger:
+
+- observation of an existing EffectIdentity;
+- reconciliation;
+- a new effect.
+
+The profile must classify which one it is.
+
+A duplicate callback that only repeats an idempotent observation may be harmless.
+
+A duplicate callback that could create a new consequential effect requires the same current-witness checks as any other new effect and must also respect K02 effect cardinality/idempotency rules.
+
+"Callback received" is never sufficient authorization.
+
+### 13.11 Wrong revision and stale state
+
+A continuation for ActionRevision A cannot mutate ActionRevision B.
+
+Before the next effect, material changes such as:
+
+- run attempt/head SHA/workflow/job identity;
+- Kubernetes resourceVersion/Pod UID/plan digest;
+- CRM destination/account/customer/ETag/plan;
+- policy/adapter/postcondition version;
+- runtime generation/lifecycle/lease epoch;
+
+must be re-established under the current profile.
+
+If the correct current revision cannot be established, the new effect is blocked/escalated rather than performed under stale authority.
+
+### 13.12 Temporal failure examples
+
+**Approval then revocation during partition**
+
+If the profile requires a current revocation view and the executor cannot establish it because of partition, it cannot create a new effect. K03 does not pretend the old cached ALLOW remains current.
+
+**Stale policy after wakeup**
+
+A wakeup under a superseded policy hash cannot reuse the old basis to create a new effect unless the trusted profile explicitly declares compatibility.
+
+**Process-local clock reset**
+
+A process-local monotonic counter that resets on restart cannot be compared to a pre-restart value unless the profile binds it to a persistent/boot identity that makes the comparison meaningful.
+
+**Provider-enforced deadline**
+
+A request locally emitted before the deadline but accepted after it satisfies the deadline only if the provider contract says so. Local send time alone is insufficient.
+
+**Next mutation after authority expiry**
+
+Observation/reconciliation may remain permitted under its own authority, but a new mutation requires current authority.
+
+**Old adapter semantics after rollout**
+
+An old permit/basis cannot be applied to a materially changed adapter default/version without an explicit compatibility decision.
+
+### 13.13 Required positive examples
+
+**Reuse still-valid bound evidence**
+
+An immutable signed artifact may be reused without reacquisition when its identity/signature remains valid and all current-state/temporal dependencies required by the profile still pass.
+
+**Refresh expired dependency**
+
+If an assumption/evidence/authority dependency has expired, the system may obtain a fresh replacement and construct a new current DecisionBasis for the same ActionIdentity only if the current ActionRevision and all required bindings are re-established.
+
+**Reject wrong revision**
+
+A fresh authority artifact does not rescue a stale ActionRevision. Revision and authority are separate predicates.
+
+**Continue observation after start-grant expiry**
+
+When one bounded external job was accepted while start authority was valid, its provider status may still be observed after that authority expires if the profile permits observation and no new effect is created.
+
+### 13.14 K03 completion rule
+
+K03 is complete only when every continuation path identifies:
+
+- the next effect boundary, if any;
+- the relevant clock/epoch domains;
+- each dependency that must still be current;
+- the exact revalidation owner/mechanism;
+- the revocation view and its partition/staleness limits;
+- the policy/adapter version interpretation;
+- whether an accepted external operation may continue independently;
+- the distinction between observation and a new effect.
+
+K03 fails if the specification permits:
+
+- wakeup/callback/restart to imply permission;
+- exact-expiry reuse;
+- stale authority to create a new effect;
+- a hard destination precondition to be replaced by an old observation;
+- acceptance-time guarantees inferred only from local send time;
+- a superseded policy/adapter to reinterpret an old decision silently;
+- process-local clock reset to extend prior authority.
+
+Rollback/containment is to retain read/observation/reconciliation behavior where authorized while suspending new effects until required current witnesses can be established.
+
+## 14. Six-concept / five-family review
 
 | Concept / family | K01 status | Seed review obligation |
 |---|---|---|
@@ -548,7 +843,7 @@ Rollback/containment is to stop further conflicting dispatch, preserve all attem
 
 The domain mapping is recorded in [domain-profiles-v1.md](domain-profiles-v1.md).
 
-## 14. CE1 / CE2 adversarial obligations owned by K01
+## 15. CE1 / CE2 adversarial obligations owned by K01
 
 ### CE1 — Vacuous profile
 
@@ -576,7 +871,7 @@ Material drift includes, where applicable:
 - adapter/effect/postcondition semantics;
 - required profile or validator version.
 
-## 15. Seed references
+## 16. Seed references
 
 K01 composes existing versioned contracts rather than replacing them:
 
@@ -593,7 +888,7 @@ K01 composes existing versioned contracts rather than replacing them:
 
 Their domain meaning and current owners remain intact.
 
-## 16. K01 completion rule
+## 17. K01 completion rule
 
 K01 is complete only when every design seed has:
 
@@ -613,4 +908,4 @@ K01 fails if completion requires:
 - a caller-selectable weak profile;
 - a new core discriminator beyond the fixed candidate concepts.
 
-This document remains **unfrozen** until K03–K05 complete and K06 records the freeze.
+This document remains **unfrozen** until K04–K05 complete and K06 records the freeze.
