@@ -1,10 +1,10 @@
-# Candidate Governed-Action Kernel v1 — K01 + K02 + K03 contract
+# Candidate Governed-Action Kernel v1 — K01 + K02 + K03 + K04 contract
 
 Status: **DRAFT / UNFROZEN**  
-Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**; **K03 — Define temporal and next-effect resumption semantics**  
-Normative scope: **K01 + K02 + K03 only**. K04–K05 remain unresolved and must not be inferred from this document.
+Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**; **K03 — Define temporal and next-effect resumption semantics**; **K04 — Define truthful closure and UNKNOWN disposition**  
+Normative scope: **K01 + K02 + K03 + K04 only**. K05 remains unresolved and must not be inferred from this document.
 
-This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, identify and retain accountable custody of possible effects/attempts, and determine what must be re-established before any later effect boundary. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, scheduler, workflow runtime, durable workflow service, global clock, revocation bus, global lock, or generic authorization token.
+This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, identify and retain accountable custody of possible effects/attempts, determine what must be re-established before any later effect boundary, and truthfully dispose of the resulting closure obligation without manufacturing certainty. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, universal outcome service, scheduler, workflow runtime, durable workflow service, global clock, revocation bus, global lock, or generic authorization token.
 
 ## 1. Candidate boundary
 
@@ -31,12 +31,13 @@ K02 defines the normative relations for **EffectIdentity** and **ExecutionAttemp
 
 K03 defines validity intervals, clock domains, dependency-specific revalidation and the rule that continuation/wakeup carries no automatic authorization for a new effect.
 
+K04 defines **ClosureObligation** as the accountable relation between effect/attempt history, typed observations/postconditions, evidence horizon, residual uncertainty, custody and administrative disposition.
+
 Still unresolved:
 
-- ClosureObligation knowledge/disposition semantics are reserved for **K04**;
 - accepted/rejected normative vectors and frozen change control are reserved for **K05/K06**.
 
-No implementation may claim K04–K05 semantics merely because it conforms to K01/K02/K03.
+No implementation may claim K05 semantics merely because it conforms to K01/K02/K03/K04.
 
 ## 2. Governing invariant slice
 
@@ -54,7 +55,11 @@ K03 establishes:
 
 - **I4 — Continuation carries no automatic authorization:** at the next effect boundary, every profile-required current witness is still valid or explicitly re-established. Wakeup, callback, retry, recovery ownership or a still-running process is not permission.
 
-K01/K02/K03 establish the identities and observations K04 must later use for truthful closure under I6. K03 does not itself define closure/disposition.
+K04 establishes:
+
+- **I6 — Truthful disposition:** provider acceptance, observation, verified postcondition, residual uncertainty and administrative retirement remain distinct. UNKNOWN is never converted into success or proof that replay is safe.
+
+K01–K04 therefore define the candidate relations, while K05 still owns the frozen accepted/rejected normative examples.
 
 ## 3. ActionRef
 
@@ -830,7 +835,461 @@ K03 fails if the specification permits:
 
 Rollback/containment is to retain read/observation/reconciliation behavior where authorized while suspending new effects until required current witnesses can be established.
 
-## 14. Six-concept / five-family review
+## 14. K04 truthful closure and UNKNOWN disposition contract
+
+### 14.1 ClosureObligation
+
+A **ClosureObligation** answers:
+
+> What outcome knowledge must still be acquired, retained or explicitly dispositioned for this ActionRef / EffectIdentity before the responsible owner may stop active investigation?
+
+A ClosureObligation references, where applicable:
+
+- exact ActionRef revision;
+- one or more EffectIdentity values and their ExecutionAttempts;
+- DecisionBasis / permit / policy references needed to interpret the effect;
+- destination/provider/account/tenant scope;
+- trusted versioned Closure Profile;
+- typed OutcomeObservation / postcondition records;
+- evidence-acquisition horizon and stop conditions;
+- current custody owner;
+- disposition authority;
+- minimum retained evidence needed to support the final claim;
+- any continuing external work or residual exposure.
+
+The serialization remains domain-owned.
+
+ClosureObligation is a relation over existing domain facts. It is **not** a universal outcome object or shared closure service.
+
+### 14.2 Knowledge and administrative disposition are different axes
+
+K04 preserves at least these distinctions:
+
+```text
+request/provider acceptance
+!=
+observation obtained
+!=
+intended postcondition verified
+!=
+causal attribution
+!=
+administrative retirement
+```
+
+A domain may represent them with its own types and richer facts.
+
+Examples:
+
+- a provider may have accepted a request while the intended postcondition remains UNKNOWN;
+- the intended postcondition may be VERIFIED while the uncertain request's causal contribution remains unknown;
+- a case may be administratively retired as terminal UNKNOWN without becoming success;
+- a compensation may complete while the original effect remains historically real;
+- an ordinary verified success may discharge automatically without a manual case.
+
+A receipt is a **derived view** of underlying admission/attempt/observation records. Its existence cannot strengthen the knowledge those records support.
+
+### 14.3 Closure Profiles
+
+A **Closure Profile** is trusted, versioned domain policy that defines:
+
+- what observations/postconditions are sufficient for routine discharge;
+- which evidence sources/observers may be used;
+- the bounded acquisition horizon;
+- what counts as partial, contradictory or unavailable evidence;
+- whether continuing external work is allowed at retirement;
+- who may authorize terminal UNKNOWN;
+- retention/access requirements after disposition;
+- late-evidence handling;
+- consequence-specific escalation requirements.
+
+The requester cannot choose a weaker Closure Profile merely to retire its own uncertainty.
+
+For higher-consequence actions, the same actor that requested or executed the effect cannot be treated as sufficient residual-risk authority unless the trusted profile explicitly assigns that authority.
+
+### 14.4 Typed outcome knowledge remains domain-owned
+
+K04 does not define one common enum.
+
+It requires domain facts sufficient to distinguish the knowledge needed by the selected Closure Profile.
+
+Possible dimensions include:
+
+- dispatch / acceptance knowledge;
+- observer availability and identity;
+- exact target identity;
+- postcondition facts;
+- stable versus contradictory observation;
+- partial application;
+- continuing provider job state;
+- compensation facts;
+- causal-attribution limits;
+- evidence timestamp/horizon;
+- provenance/integrity of the observation.
+
+A domain result such as EEP `PARTIAL`, Kubernetes `DIVERGED`, or WFL `UNVERIFIED_RECOVERY` must not be flattened into a generic success/failure bit.
+
+### 14.5 Routine automatic discharge
+
+A ClosureObligation may discharge automatically when the trusted Closure Profile has sufficient evidence.
+
+No manual ticket is required merely because the kernel contract contains ClosureObligation.
+
+A routine discharge requires:
+
+1. the observation applies to the exact ActionRef / EffectIdentity scope;
+2. the observer/postcondition profile is the expected trusted version;
+3. the claimed result does not exceed the evidence;
+4. required evidence is still accessible/retained;
+5. no continuing external effect requires separate custody;
+6. any residual facts required by the profile are explicitly retained.
+
+Examples include:
+
+- verified already-satisfied no-op;
+- stable intended-postcondition verification;
+- a completed bounded operation whose declared postflight facts all match.
+
+Routine discharge does not imply that every real-world consequence is known.
+
+### 14.6 Accepted is not verified
+
+Provider/API acceptance proves only the profile-specific acceptance claim.
+
+It does not independently prove:
+
+- the intended postcondition;
+- downstream completion;
+- lack of partial side effects;
+- absence of later divergence;
+- causal attribution to this executor.
+
+Therefore:
+
+```text
+HTTP 2xx / provider accepted / dispatch receipt
+!=
+verified intended outcome
+```
+
+A Closure Profile that requires intended-postcondition verification cannot discharge on acceptance alone.
+
+### 14.7 Observation and verification
+
+An **OutcomeObservation** supports only the claims its observer/profile can establish.
+
+Verification requires exact scope and the domain's typed postcondition semantics.
+
+An unrelated state change cannot satisfy a requested effect.
+
+For example:
+
+- a changed whole-object digest is not evidence that the requested CRM fields match;
+- a successful rerun at the workflow level is insufficient when the profile requires the same failed step to have been genuinely re-executed;
+- a Kubernetes node report is insufficient if exact expected Pod UID effects are not observed.
+
+If the observation applies to the wrong target, wrong account, wrong revision or wrong profile version, it cannot discharge the obligation.
+
+### 14.8 Partial outcomes and residual effects
+
+Partial facts remain first-class domain facts.
+
+A partial outcome may mean:
+
+- some intended fields are satisfied and others are not;
+- some planned effects completed and others remain;
+- a recovery succeeded for some targets but not all;
+- compensation covered part of the residual exposure.
+
+K04 forbids collapsing these facts into a universal terminal state.
+
+The Closure Profile must specify:
+
+- which residual effects remain owned;
+- whether further observation is required;
+- whether new mutation authority is needed;
+- whether compensation is permitted;
+- whether terminal UNKNOWN retirement is allowed.
+
+A disposition that retires one administrative case does not erase the remaining effect history.
+
+### 14.9 Evidence horizon
+
+Every non-trivial Closure Profile defines a bounded **evidence horizon** or another explicit stop condition.
+
+The horizon answers:
+
+> How long / how many attempts / under what provider-history window is active observation required before policy may decide that stronger knowledge is no longer reasonably obtainable?
+
+The horizon is domain-specific.
+
+Examples can include:
+
+- bounded repeated reads;
+- provider operation terminality;
+- a provider-history retention window;
+- a checkpoint/recovery reconciliation cycle;
+- an explicitly authorized manual review deadline.
+
+K04 does not require infinite investigation.
+
+It also does not allow the owner to stop merely because observation became inconvenient.
+
+### 14.10 Terminal UNKNOWN
+
+**Terminal UNKNOWN** is an administrative disposition, not an epistemic upgrade.
+
+It is permitted only when the trusted Closure Profile and its authorized residual-risk owner allow it.
+
+At minimum, terminal UNKNOWN requires:
+
+1. the exact ActionRef / EffectIdentity / attempt lineage is retained;
+2. the evidence horizon or authorized stop condition has been reached;
+3. all obtainable observations and contradictions are retained without manufacturing a stronger claim;
+4. remaining external work is either:
+   - known not to be continuing, or
+   - explicitly bounded and still under named custody;
+5. no unsafe replay/right-to-repeat is inferred from the UNKNOWN disposition;
+6. required evidence/payload references remain retained for the declared policy period, or their unavailability is itself recorded;
+7. the disposition authority is identified and independent enough for the selected consequence profile;
+8. downstream consumers are told that knowledge remains UNKNOWN.
+
+Terminal UNKNOWN may end **active investigation**.
+
+It does not mean:
+
+- success;
+- failure;
+- safe retry;
+- safe budget/resource release;
+- absence of external work;
+- permission to delete effect history.
+
+### 14.11 Continuing external work at retirement
+
+A closure case may be administratively retired while a provider job continues only if the Closure Profile explicitly permits that arrangement.
+
+Required conditions include:
+
+- continuing job/effect identity is fixed;
+- its expected bounds are known;
+- custody owner is named;
+- future observation/access expectations are stated;
+- no second equivalent effect is automatically created;
+- the disposition does not claim the external work stopped.
+
+If these conditions cannot be met, retirement cannot orphan the continuing effect.
+
+### 14.12 Custody transfer
+
+Closure custody may transfer from one owner to another.
+
+Transfer must preserve:
+
+- ClosureObligation identity;
+- effect/attempt lineage;
+- current knowledge facts;
+- unresolved contradictions;
+- retained evidence references;
+- evidence horizon status;
+- continuing external work;
+- prior disposition history.
+
+The receiver accepts responsibility before the prior owner may relinquish it.
+
+Transfer cannot manufacture success or reset UNKNOWN to a blank state.
+
+### 14.13 Evidence retention and access
+
+A claim is only as durable as the evidence needed to support it.
+
+The selected Closure Profile must state the minimum retained evidence/access needed for its claims.
+
+Depending on the domain this may include:
+
+- exact action/effect/attempt identifiers;
+- provider operation/run/job identifiers;
+- checkpoint and journal records;
+- observation/postcondition payload digests;
+- enough payload or provider-access capability to re-evaluate the claimed postcondition;
+- profile/version identity;
+- timestamps/horizon metadata;
+- custody/disposition authority records.
+
+K04 does not require retaining secrets in plaintext.
+
+Redaction is allowed when the retained representation still supports the promised verification.
+
+If a required payload is deleted or provider history expires, the system must narrow future claims accordingly.
+
+Expired/missing evidence cannot be replaced by a stronger summary label.
+
+### 14.14 Provider-history expiry
+
+If the only remaining observer/provider history disappears before closure is supported:
+
+- record that the evidence source is no longer available;
+- preserve the last justified knowledge state;
+- do not convert UNKNOWN to NOT_APPLIED or success;
+- apply the Closure Profile's escalation/terminal-UNKNOWN policy;
+- retain enough identity/custody metadata to prevent blind replay.
+
+Provider-history expiry is itself a closure fact.
+
+### 14.15 Late evidence and correction
+
+Late evidence never rewrites history.
+
+The append-only semantic model is:
+
+```text
+observation/disposition at time T1
++
+late observation at T2
++
+new derived current view
+```
+
+The earlier event remains part of history.
+
+Examples:
+
+- terminal UNKNOWN at T1, then verified outcome at T2;
+- VERIFIED at T1, then later domain divergence at T2;
+- PARTIAL at T1, then compensation evidence at T2.
+
+The new evidence may update the **current knowledge projection** according to the Closure Profile.
+
+It does not erase the fact that the system previously operated under uncertainty.
+
+### 14.16 Contradictory observations
+
+Contradiction is not resolved by choosing the convenient observer.
+
+When trusted observations conflict:
+
+- retain both observations and their provenance;
+- mark the stronger claim unsupported until the domain profile resolves the contradiction;
+- continue or escalate the ClosureObligation according to policy;
+- prohibit success if success requires facts that are currently contradicted.
+
+If the evidence horizon ends while the contradiction remains unresolved, terminal UNKNOWN may be authorized under the normal K04 conditions.
+
+### 14.17 Compensation
+
+Compensation is a new domain fact/effect, not retroactive erasure.
+
+K04 requires the history to retain:
+
+- the original effect;
+- the original known/unknown outcome;
+- the compensating action/effect identity;
+- compensation observation/postcondition;
+- any residual exposure that remains.
+
+A successful compensation may satisfy a domain Closure Profile without changing history to "the original effect never happened."
+
+K04 does not require automatic compensation.
+
+### 14.18 Retired UNKNOWN downstream semantics
+
+A retired UNKNOWN remains UNKNOWN to later decision logic.
+
+In particular, retirement cannot be interpreted as:
+
+- successful completion;
+- proof that repeating the effect is safe;
+- proof that no resource/financial commitment remains;
+- proof that a provider operation stopped;
+- permission to discard idempotency/custody records.
+
+A downstream budget/resource owner must use its own policy for UNKNOWN exposure; K04 does not create a universal resource-settlement algebra.
+
+### 14.19 CE5 — permanent observation gap
+
+When observation cannot be recovered within the authorized horizon:
+
+```text
+do not manufacture success
+do not manufacture safe retry
+retain effect identity + custody + last evidence
+apply trusted UNKNOWN disposition policy
+```
+
+If residual external work cannot be bounded or owned, terminal retirement is not allowed.
+
+### 14.20 CE7 — unrelated change as success
+
+A domain oracle must evaluate the intended scoped postcondition, not merely "something changed."
+
+Examples:
+
+- unrelated CRM timestamp change cannot establish the requested patch;
+- an unrelated successful CI job cannot prove the failed operation recovered;
+- an unrelated Kubernetes object change cannot prove the planned effect.
+
+A Closure Profile that permits unrelated change to satisfy the intended effect fails K04.
+
+### 14.21 Requester self-retirement
+
+The requester/executor cannot unilaterally retire high-consequence uncertainty merely because it prefers progress.
+
+The trusted Closure Profile identifies the disposition authority.
+
+For profiles where self-disposition is acceptable, that fact must be explicit and consequence-bounded.
+
+Absent such an assignment, requester self-retirement of unresolved high-consequence effects fails closed.
+
+### 14.22 Required examples
+
+**Routine automatic discharge**
+
+Exact target + trusted profile + sufficient stable intended-postcondition evidence -> obligation discharged without manual review.
+
+**Verified scoped postcondition**
+
+Provider acceptance may be UNKNOWN while the exact intended postcondition is VERIFIED. The closure claim is the verified state claim, not causal certainty.
+
+**Partial result**
+
+Some domain postconditions hold, others do not. The obligation retains residual effects and does not emit success.
+
+**Authorized terminal UNKNOWN**
+
+Evidence horizon exhausted + no stronger knowledge + residual work bounded/custodied + authorized disposition -> active investigation may retire as UNKNOWN.
+
+**Late evidence**
+
+A later observation is appended and may change the current knowledge projection. The earlier UNKNOWN retirement remains historical fact.
+
+### 14.23 K04 completion rule
+
+K04 is complete only when each domain seed identifies:
+
+- its Closure Profile / policy owner;
+- what exact evidence supports routine discharge;
+- typed acceptance/observation/postcondition facts;
+- evidence horizon or explicit stop condition;
+- closure custody owner and transfer rule;
+- minimum evidence retention/access;
+- terminal UNKNOWN authority and conditions;
+- continuing external-work treatment;
+- late evidence/correction behavior;
+- partial/compensation semantics where applicable.
+
+K04 fails if the specification permits:
+
+- false success;
+- UNKNOWN -> safe retry;
+- orphaned continuing work;
+- unbounded and unowned investigation;
+- deletion of required evidence while preserving a stronger claim;
+- contradiction to be silently ignored;
+- a domain to erase partial facts merely to fit a shared enum.
+
+Rollback/containment is to leave the obligation active or explicitly transfer it, pause affected new effects when residual exposure exceeds policy, and preserve observation/effect history.
+
+## 15. Six-concept / five-family review
 
 | Concept / family | K01 status | Seed review obligation |
 |---|---|---|
@@ -839,11 +1298,11 @@ Rollback/containment is to retain read/observation/reconciliation behavior where
 | DecisionBasis | defined | all mandatory dependencies are typed and owned |
 | EffectIdentity | defined by K02 | seed declares domain effect cardinality and reconstructable effect identity |
 | ExecutionAttempt | defined by K02 | seed declares attempt identity, custody, crash windows, retention and destination enforcement scope |
-| ClosureObligation | reserved for K04 | seed identifies current outcome/observation owner without claiming K04 closure |
+| ClosureObligation | defined by K04 | seed declares closure profile, typed observations, evidence horizon, custody, retention and truthful disposition |
 
 The domain mapping is recorded in [domain-profiles-v1.md](domain-profiles-v1.md).
 
-## 15. CE1 / CE2 adversarial obligations owned by K01
+## 16. CE1 / CE2 adversarial obligations owned by K01
 
 ### CE1 — Vacuous profile
 
@@ -871,7 +1330,7 @@ Material drift includes, where applicable:
 - adapter/effect/postcondition semantics;
 - required profile or validator version.
 
-## 16. Seed references
+## 17. Seed references
 
 K01 composes existing versioned contracts rather than replacing them:
 
@@ -888,7 +1347,7 @@ K01 composes existing versioned contracts rather than replacing them:
 
 Their domain meaning and current owners remain intact.
 
-## 17. K01 completion rule
+## 18. K01 completion rule
 
 K01 is complete only when every design seed has:
 
@@ -908,4 +1367,4 @@ K01 fails if completion requires:
 - a caller-selectable weak profile;
 - a new core discriminator beyond the fixed candidate concepts.
 
-This document remains **unfrozen** until K04–K05 complete and K06 records the freeze.
+This document remains **unfrozen** until K05 completes and K06 records the freeze.
