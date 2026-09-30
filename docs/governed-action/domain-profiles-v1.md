@@ -1,6 +1,6 @@
 # K01 + K02 + K03 + K04 + K05 domain-profile mapping — candidate Kernel v1
 
-Status: **DRAFT / UNFROZEN**  
+Status: **FROZEN — candidate kernel contract v1 (K06 baseline)**  
 Normative owner: Aegis integration-contract steward  
 Companion contract: [kernel-v1.md](kernel-v1.md)
 
@@ -1445,4 +1445,4 @@ This map does not claim:
 - automatic provider substitution;
 - a new shared runtime or repository.
 
-The next item after K05 is K06 — the immutable freeze gate, not platform extraction.
+K06 freezes this mapping as part of candidate kernel contract v1. K07 may execute the frozen cases; platform extraction remains out of scope.
