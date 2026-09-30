@@ -1,0 +1,45 @@
+{
+  "artifact": "Astra executable governed-action kernel prototype",
+  "version": "0.1.0",
+  "environment": "isolated temporary filesystem and SQLite database",
+  "cases": [
+    {
+      "case": "bounded_file_replace",
+      "knowledge": "VERIFIED",
+      "domain_outcome": "DESIRED_CONTENT_OBSERVED"
+    },
+    {
+      "case": "delayed_expired_authority",
+      "decision": "DENY",
+      "reason": "AUTHORITY_TIME"
+    },
+    {
+      "case": "current_state_drift",
+      "decision": "DENY",
+      "reason": "STALE_STATE"
+    },
+    {
+      "case": "process_crash_preserves_custody",
+      "knowledge": "UNKNOWN",
+      "disposition": "OPEN",
+      "process_exit_code": 86
+    },
+    {
+      "case": "restart_observes_without_replay",
+      "knowledge": "VERIFIED"
+    },
+    {
+      "case": "native_sqlite_migration",
+      "knowledge": "VERIFIED",
+      "domain_outcome": "MIGRATION_AND_POSTCONDITION_OBSERVED"
+    },
+    {
+      "case": "journal_replay_verification",
+      "entries": 30,
+      "head_hash": "9c9324e83281ff729df3c111a88ed9d305453576317bb8256556de42c4ac507a",
+      "valid": true,
+      "guarantee": "local-chain-integrity; no external anti-rollback anchor"
+    }
+  ],
+  "claim": "local executable behavior only; no held-out or production generalization evidence"
+}

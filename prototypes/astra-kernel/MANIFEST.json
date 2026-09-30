@@ -1,0 +1,32 @@
+{
+  "artifact": "Astra-Governed-Kernel-Prototype",
+  "version": "0.1.0",
+  "status": "experimental executable reference implementation",
+  "files": {
+    ".gitignore": "4a1ceecebc379e1ac0c2b25dcbb2d0d6885b6da49b87261ddcb02d16beb5486a",
+    "COUNTEREXAMPLES.md": "3fa713d3f63817b508bc10e2e06d0ffd2571f5dd08b17eb691019993c3a88c52",
+    "README.md": "4203a719b026cbc5e484b1d12eaf5c9d0964cc2425042c4af99a45c1ed8d927d",
+    "astra_kernel/__init__.py": "1c82efc48621b546ce902409b12a41a9300b90b954d02ee783aaa7df571ae18c",
+    "astra_kernel/__main__.py": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d",
+    "astra_kernel/authority.py": "0de273c292ee9464822807f29db583f0bd94717ba20a3353b4e5f4f6846b8c8c",
+    "astra_kernel/boundary.py": "2b18854596fba8965151500a21f1066af15789f5d4832e87d54c23707335a8af",
+    "astra_kernel/cli.py": "e131cb2417b611778d4bd105cf829980f2b2b567612f7c44f47199a7035fade6",
+    "astra_kernel/demo.py": "0541e8c3a3bfb02e94a56d6d3f35986382f1b233fe848e73545e4f976af1b0e8",
+    "astra_kernel/kernel.py": "6e73a117f9e8893913082cc79f17a97806f9a1136db5e128acfe4326acf238be",
+    "astra_kernel/model.py": "2825704c8b7a28d931d40fd5cb962cb1ed4d04d705b25caa7c2edece56b06be2",
+    "astra_kernel/packs/__init__.py": "c635034fbb754d287b707d031381592b12c6cd4e40975882eae5cea8d3366461",
+    "astra_kernel/packs/file_replace.py": "c3f25de0e3ed0d70f5c5d4187002f4cd1e84ef577f3dc59398e62de3bb8b7a68",
+    "astra_kernel/packs/sqlite_migration.py": "44c85f6c61bca6961b851f11078ee8d6c6feaaa6109864e5681202827d9e8964",
+    "astra_kernel/store.py": "de30508272de398c84fed5a340c4dd2db6de251c396d3bf7a4432fd6700934e2",
+    "evidence/demo-trace.json": "7840fe806be9f997c1a0d118ec33a2541a374ab91924269a8f4ab2b5f0fe9169",
+    "evidence/test-output.txt": "babdb77033280ef8a22122c33f6c06eed5a348f24fda56ca504cfa3066564b71",
+    "evidence/validation.json": "adf2c591567c5b6251a2856c4d07e30c880f61ed097073bea97643c40678db74",
+    "pyproject.toml": "f2331146e5c5806a9078e1377c4f04ab002403d4c45be89cfea8adb8e26a350f",
+    "requirements.txt": "6dd92aa33cf5ab7599a9848e697031b5a58a1c3ba8e02caadea333f804056b43",
+    "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests/test_cli.py": "ce41bc8847ab05966aae2686a41823b56a06b6b890dfa117e870f511d5796f97",
+    "tests/test_crash_and_store.py": "4554e94d294a9f81a92e137483c9e5ce00b050e6faf0f5ee42592cc0c1f0f4d1",
+    "tests/test_kernel.py": "a14f20861dec86c7316092dcbeac053eb3786d5407759e342b8be985a042cd2a",
+    "verify.py": "1bc74e3a5ef13c023ffa10969860988797b189c383bd6190b9cdefcde8bd7386"
+  }
+}
