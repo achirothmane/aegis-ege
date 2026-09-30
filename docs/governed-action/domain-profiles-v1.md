@@ -1,10 +1,10 @@
-# K01 domain-profile mapping — candidate Kernel v1
+# K01 + K02 domain-profile mapping — candidate Kernel v1
 
 Status: **DRAFT / UNFROZEN**  
 Normative owner: Aegis integration-contract steward  
 Companion contract: [kernel-v1.md](kernel-v1.md)
 
-This mapping applies the K01 ActionRef / DecisionBasis rules to the three design-visible seeds already selected by the queue:
+This mapping applies the K01 ActionRef / DecisionBasis rules and the K02 EffectIdentity / ExecutionAttempt / recoverable-custody rules to the three design-visible seeds already selected by the queue:
 
 - CI rerun / Workflow Failure Lab;
 - Kubernetes node mutation / Aegis;
@@ -16,7 +16,7 @@ It does not add a new runtime profile service. Existing domain contracts remain 
 
 | Owner | Reviewed revision / identity | K01 use |
 |---|---|---|
-| Aegis-EGE | `0d94613e1a05ae467170e615633d79c31a309d36` | K01 base after C09 |
+| Aegis-EGE | `86d5b2184ee2084d206280ad3069b6da4fbdb2f5` | K02 base after merged K01 |
 | EASL | `7c4e1e28218853919d00362dc071e1eb6f61cc56` | current subject-state semantics |
 | EASL StateBinding vectors | blob `82d151531da6f98262de1e247658d89a8299c53c` | earned conformance identity |
 | Workflow Failure Lab | `d44bd4c47f8748bfca706a4c4833adf8ce940cf6` | C05-repaired CI/EBA consumer |
@@ -368,7 +368,285 @@ Admission must fail or be re-established when:
 - mandatory durable claim/journal is unavailable;
 - required destination identity or conditional-write support is missing.
 
-## 5. Obligation-to-owner table
+## 5. K02 effect/attempt/custody mappings
+
+### 5.1 CI rerun / Workflow Failure Lab
+
+#### EffectIdentity
+
+For the selective-rerun seed, the logical effect is:
+
+> request one provider rerun of the exact failed job execution bound by repository, workflow run, source run attempt, head SHA, workflow id and exact job execution identity.
+
+The trusted profile must treat aliases or display names as insufficient. The exact repository/run/job execution binding is what distinguishes the target.
+
+Two separately authorized ActionIdentity lineages may intentionally request equivalent reruns, but byte-identical payloads do not automatically merge their EffectIdentity.
+
+#### ExecutionAttempt
+
+One call to GitHub's job-rerun boundary is one ExecutionAttempt for that EffectIdentity.
+
+The current implementation proves a narrower property:
+
+- one evaluated state epoch triggers at most one selective rerun mutation;
+- binding drift before the call prevents mutation;
+- the configured attempt cap can block a further rerun.
+
+Current executable evidence:
+
+- `test_selective_epoch_performs_only_one_state_bound_mutation`
+- `test_selective_epoch_does_not_mutate_after_binding_drift`
+- `test_attempt_cap_blocks_all_candidates`
+- `test_selective_subject_binding_blocks_run_attempt_drift`
+- `test_selective_subject_binding_blocks_when_target_job_execution_changes`
+
+#### Provider fanout/cardinality
+
+GitHub may rerun dependent jobs when a job rerun is requested.
+
+The existing profile therefore blocks selective automatic rerun when that provider fanout would cross the workflow-wide side-effect guard.
+
+Evidence:
+
+- `test_workflow_wide_side_effect_guard_blocks_safe_job`
+
+K02 does not reinterpret a single POST as necessarily one downstream job execution when the provider contract says the operation can fan out.
+
+#### Custody and process loss
+
+The current WFL implementation does **not** contain a dedicated durable pre-dispatch attempt store equivalent to EEP's `FileAttemptStore`.
+
+Therefore K02 does not credit the CI seed with provider-independent exactly-once dispatch or with automatic replay after an ambiguous process loss.
+
+The conformant recovery rule is narrower:
+
+1. retain the invoking workflow-run identity, ActionRequest/Decision/receipt artifacts that exist, exact source run/attempt/head/workflow/job target, and provider history needed to reconstruct the effect;
+2. if the API call completed and the receipt was emitted, acceptance is recorded only as dispatch acceptance;
+3. if the process disappears after the effect may have escaped but before confirmation is durable, **do not automatically dispatch again**;
+4. custody moves to provider-history/operator reconciliation for the same EffectIdentity;
+5. a new automatic attempt is allowed only after the profile can establish that no prior effect exists or a provider guarantee makes the retry idempotent.
+
+If the retained GitHub history/artifacts are insufficient to reconstruct the exact target/effect, the automatic path stops. Missing retention cannot be repaired by generating a new request id.
+
+This is a deliberate limitation, not a hidden workflow-service requirement.
+
+#### Stale-worker/takeover boundary
+
+The CI profile has no K02 claim of general multi-writer fencing.
+
+A new executor must not take over an ambiguous prior dispatch merely because the prior runner is presumed dead.
+
+The current safety claim is limited to state revalidation immediately before one mutation in the active invocation. D02 must later test the real provider embedding; K02 does not promote that into destination fencing.
+
+---
+
+### 5.2 Kubernetes node mutation / Aegis
+
+#### EffectIdentity and declared effect set
+
+One node-drain ActionRef can contain several consequential effects declared by its deterministic plan, including:
+
+- the node cordon effect;
+- one eviction effect per exact Pod UID in the admitted plan.
+
+Each effect remains attached to the same ActionRef revision and plan digest but has a distinct domain effect slot.
+
+A Pod name alone is not sufficient identity when the API gives an exact UID. Recreated Pods with reused names are not silently treated as the original effect target.
+
+#### ExecutionAttempt and checkpoint custody
+
+A concrete cordon/eviction operation is an ExecutionAttempt.
+
+The existing checkpoint/recovery path retains:
+
+- ActionID;
+- plan/recovery context;
+- whether cordon completed;
+- exact completed Pod UIDs;
+- remaining work;
+- recovery state.
+
+Executable evidence:
+
+- `TestFileDrainCheckpointStoreRoundTrip`
+- `TestCheckpointedExecutionRequiresFreshAuthorizationThenResumesRemainingPod`
+- `TestInspectDrainRecoveryReconcilesEvictionThatSucceededBeforeCheckpointWrite`
+
+The last case is the critical crash window:
+
+```text
+provider/API mutation succeeded
+→ process failed before local checkpoint completion
+→ recovery re-reads live state
+→ recognizes the completed exact Pod effect
+→ does not create a second eviction merely to repair the checkpoint
+```
+
+#### Recovery and several attempts
+
+A resumed drain is not a new ActionIdentity merely because a new process executes it.
+
+Recovery must preserve the original admitted action/effect identities, reconcile completed effects, and obtain fresh authorization for remaining mutation work where the current profile requires it.
+
+A failed/pre-dispatch attempt and a later authorized retry may refer to the same EffectIdentity. Attempts remain distinct in history.
+
+#### Lease/fencing scope
+
+The Kubernetes Lease coordinates cooperating Aegis executors.
+
+It is **not** claimed as a destination fencing token against arbitrary writers.
+
+For stale Aegis workers, the adapter verifies current ownership before each mutation. Destination/API safeguards such as resourceVersion, Pod UID identity, live PDB checks and other server-enforced preconditions remain separately necessary.
+
+If an operation lacks a sufficient server-side precondition and a stale worker could create an implicit second forbidden effect, automated takeover for that operation must stop.
+
+#### Retention/custody
+
+Checkpoint and journal evidence for unresolved or partially executed drains must be retained through recovery/transfer. Resetting a checkpoint merely to restore availability is not permitted.
+
+A custody transfer to a recovery executor does not imply that already-running external work has been cancelled.
+
+---
+
+### 5.3 EEP synthetic CRM
+
+#### EffectIdentity
+
+The current CRM ActionRef permits at most one customer-update mutation effect for the exact:
+
+- intent/revision;
+- destination id;
+- account id;
+- endpoint;
+- exact customer id;
+- operation;
+- plan digest;
+- adapter/postcondition semantics.
+
+The K02 EffectIdentity is the logical customer-update effect under that bound scope.
+
+The existing deterministic:
+
+```text
+MutationAttemptID = SHA256(permit_digest || 0x00 || plan_digest)
+```
+
+is a **local attempt/custody key**. It is not represented as provider-side deduplication.
+
+#### ExecutionAttempt
+
+The current profile permits one dispatch attempt for that deterministic local attempt key.
+
+Before dispatch can escape, it requires:
+
+1. durable attempt claim;
+2. authorization journal evidence;
+3. destination/account/precondition validation;
+4. dispatch-intent journal event;
+5. durable transition to `POSSIBLE_EFFECT`;
+6. only then the PATCH.
+
+This ordering directly covers CE4.
+
+Executable evidence:
+
+- `TestExecutorBoundConditionalMutationAndDurableCompletion`
+- `TestExecutorReplayAfterRestartDoesNotDispatchAgain`
+- `TestExecutorConcurrentDuplicateAllowsOnePossibleEffect`
+- `TestExecutorAttemptStoreAndJournalOutagePreventDispatch`
+
+#### Already-satisfied no-op
+
+When the exact requested fields already hold, the profile records no external mutation:
+
+```text
+CLAIMED
+→ COMPLETED
+request_acceptance = NOT_DISPATCHED
+postcondition = ALREADY_SATISFIED
+```
+
+The profile does not fabricate provider acceptance.
+
+Evidence:
+
+- `TestExecutorAlreadySatisfiedAvoidsMutation`
+
+#### Destination CAS and idempotency scope
+
+The current CRM profile does not rely on a provider idempotency key.
+
+Its hard destination guard is the exact ETag/resource version enforced through:
+
+```text
+If-Match: <expected resource version>
+```
+
+A stale value receives the profile's definite precondition rejection.
+
+Evidence:
+
+- `TestExecutorStalePreconditionBlocksAtDestination`
+- `TestExecutorMissingDestinationPreconditionBlocksAutomaticPath`
+
+The local attempt key prevents this executor from blindly replaying the same bound attempt across restart/concurrency. It does not fence another client that ignores the local store.
+
+#### Ambiguous dispatch and recovery
+
+If the request may have committed but response acceptance is unavailable, the attempt remains `POSSIBLE_EFFECT`.
+
+No automatic second PATCH is permitted for that attempt.
+
+The existing observation path may later establish the intended postcondition without rewriting request acceptance:
+
+```text
+request_acceptance = UNKNOWN
+postcondition       = VERIFIED
+```
+
+This says the desired state is observed, not that the uncertain request is proven causal.
+
+Evidence:
+
+- `TestExecutorLostResponseAfterCommitCanVerifyPostconditionWithoutClaimingAcceptance`
+- `TestExecutorAcceptedRequestWithUnavailableObservationRemainsUnknown`
+
+This is recoverable custody: the same deterministic attempt record retains destination/account/customer, observation handle and possible-effect state across process loss.
+
+#### Retention
+
+An unresolved `POSSIBLE_EFFECT` record and its journal/observation handle must not be deleted or reset merely to permit another write.
+
+Retention continues until later K04 closure/disposition semantics authorize retirement or custody is explicitly transferred.
+
+---
+
+### 5.4 Cross-domain K02 required-test review
+
+| Queue test / adversary | Current K02 evidence / disposition |
+|---|---|
+| one intended effect with several attempts | normative relation is defined in `kernel-v1.md`; Kubernetes recovery preserves one effect identity across recovery attempts; K05 will later freeze executable cross-domain vectors rather than invent a shared runtime here |
+| two deliberately distinct identical requests | defined as distinct only through trusted ActionIdentity/domain cardinality, never by payload bytes alone |
+| already-satisfied no-op | EEP `TestExecutorAlreadySatisfiedAvoidsMutation` |
+| domain-supported idempotent retry | permitted only with declared provider/CAS scope; current EEP deliberately does **not** retry POSSIBLE_EFFECT; Kubernetes retries/resumes only after reconciliation/fresh authorization |
+| recovery after process loss | EEP restart replay test + possible-effect record; Kubernetes checkpoint/reconciliation tests |
+| CE3 cross-provider duplication | denied while prior provider acceptance is possible; none of the current seeds claims automatic cross-provider failover |
+| CE4 effect before journal | EEP requires durable claim/journal/possible-effect state before PATCH; outage test proves no dispatch |
+| CE6 stale worker after takeover | Kubernetes ownership is checked for cooperating executors and server preconditions remain required; CI/EEP do not claim unsafe automatic takeover |
+| provider-local key outside retention/account | no current seed is credited with a universal provider key; any future key must bind provider/account/operation/retention |
+| aliases to one target | Kube uses exact Pod UID; EEP binds destination/account/customer; CI binds repository/run/job execution rather than display label |
+
+The first row is intentionally a **semantic relation review**, not a frozen general conformance vector. K05 owns immutable accepted/rejected vector publication. K02 must not pre-empt K05 by creating a hidden reference runtime.
+
+### 5.5 Declared crash-window matrix
+
+| Domain | Before durable custody | After possible dispatch / before acceptance | After acceptance / before local finalization |
+|---|---|---|---|
+| CI rerun | current implementation has no dedicated attempt store; one active invocation only | no blind automatic retry; retain/reconstruct exact target and reconcile provider history/operator custody | receipt, when emitted, records dispatch acceptance only; downstream workflow outcome remains separate |
+| Kubernetes drain | checkpoint/journal mechanisms retain bounded execution context | recovery inspects live target state and reconciles completed exact effects before resume | checkpoint recovery + fresh authorization for remaining mutations; accepted external work is not cancelled by ownership change |
+| EEP CRM | durable attempt claim + journal required before PATCH | `POSSIBLE_EFFECT`; no replay; use observation handle | `ACCEPTED` or later postcondition evidence retained; K04 later owns administrative closure |
+
+## 6. Obligation-to-owner table
 
 | K01 obligation | Owning implementation / contract |
 |---|---|
@@ -384,11 +662,11 @@ Admission must fail or be re-established when:
 | Kubernetes mutation-time state/preconditions | Aegis Kubernetes adapter |
 | CRM destination/account/precondition binding | Aegis `aegis.eep/crm-http-json/v1` |
 | CRM intended-postcondition meaning | Aegis `aegis.eep/crm-postcondition/v1` |
-| effect/attempt common relations | **K02 — not defined here** |
+| effect/attempt common relations | **K02 — defined in `kernel-v1.md`; mapped here to existing domain mechanisms** |
 | resumption/time common relations | **K03 — not defined here** |
 | closure/UNKNOWN common relations | **K04 — not defined here** |
 
-## 6. CE1 and CE2 seed review
+## 7. CE1 and CE2 seed review
 
 ### CE1 — vacuous profile
 
@@ -410,7 +688,7 @@ At minimum the review covers:
 - Kubernetes: action/target/cluster context/resourceVersion/plan/evidence/policy/adapter;
 - EEP: destination/account/endpoint/customer/expected version/plan/postcondition profile.
 
-## 7. Positive-seed review
+## 8. Positive-seed review
 
 A positive seed is useful only when the required operation can still proceed under its legitimate profile:
 
@@ -420,7 +698,7 @@ A positive seed is useful only when the required operation can still proceed und
 
 Reject-all behavior does not satisfy K01.
 
-## 8. K01 limits
+## 9. K01/K02 limits
 
 This map does not claim:
 
@@ -433,4 +711,4 @@ This map does not claim:
 - automatic provider substitution;
 - a new shared runtime or repository.
 
-The next semantic item after K01 is K02, not platform extraction.
+The next semantic item after K02 is K03, not platform extraction.
