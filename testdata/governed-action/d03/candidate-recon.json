@@ -37,8 +37,16 @@
       ],
       "contribution_surface": "public repository; no repository-local CONTRIBUTING.md observed",
       "material_difference_from_design_domains": "database transaction/rollback/version state rather than CI rerun or Kubernetes node mutation",
-      "participation_status": "NOT_CONTACTED_NOT_CONFIRMED",
-      "selected": false
+      "participation_status": "CONTACTED_AWAITING_RESPONSE",
+      "selected": false,
+      "outreach": {
+        "issue_url": "https://github.com/padurean/gosmig/issues/1",
+        "issue_number": 1,
+        "issue_state": "open",
+        "created_at": "2026-09-30T06:54:31Z",
+        "comments_observed": 0,
+        "consent_confirmed": false
+      }
     },
     {
       "repository": "openmeterio/openmeter",
@@ -94,11 +102,11 @@
   "guardrails": [
     "candidate reconnaissance does not select a D03 cohort",
     "no concrete held-out oracle or adversarial schedule is recorded here",
-    "no candidate is contacted or represented as consenting by this record",
+    "contacting a candidate does not count as consent, selection, or independent participation",
     "the independent maintainer must accept participation and own cohort selection in its existing repository",
     "candidate-specific facts must not feed frozen-core redesign before held-out execution"
   ],
-  "allowed_next_action": "Obtain explicit participation from one independent maintainer; then create a separate post-freeze cohort-selection record before any D03 implementation.",
+  "allowed_next_action": "Await the independent maintainer's response on padurean/gosmig#1. Do not select a cohort unless the maintainer explicitly accepts participation; do not contact a second candidate while this request remains active unless the first is declined/closed or a separate recruitment decision is recorded.",
   "normative_change": false,
   "runtime_change": false
 }
