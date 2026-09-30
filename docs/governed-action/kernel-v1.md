@@ -1,10 +1,10 @@
-# Candidate Governed-Action Kernel v1 — K01 contract
+# Candidate Governed-Action Kernel v1 — K01 + K02 contract
 
 Status: **DRAFT / UNFROZEN**  
-Queue item: **K01 — Define revision, basis and trusted profile bindings**  
-Normative scope: **K01 only**. K02–K05 remain unresolved and must not be inferred from this document.
+Queue items: **K01 — Define revision, basis and trusted profile bindings**; **K02 — Define effect/attempt and recoverable custody relations**  
+Normative scope: **K01 + K02 only**. K03–K05 remain unresolved and must not be inferred from this document.
 
-This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, scheduler, workflow runtime, or generic authorization token.
+This document defines the smallest shared relations needed to bind an exact consequential action proposal to the typed basis used to admit it, then to identify and retain accountable custody of the possible effects and execution attempts that may follow. It does **not** create a kernel service, identity service, policy engine, action catalog, universal evidence schema, scheduler, workflow runtime, durable workflow service, global lock, or generic authorization token.
 
 ## 1. Candidate boundary
 
@@ -27,24 +27,29 @@ The five record families are:
 
 K01 defines the normative relations for **ActionRef** and **DecisionBasis**, plus trusted profile selection and their boundary bindings.
 
-K01 does not define effect/attempt custody or closure semantics:
+K02 defines the normative relations for **EffectIdentity** and **ExecutionAttempt**, including effect cardinality, attempt custody, crash ambiguity, idempotency/fencing scope, and recovery ownership.
 
-- EffectIdentity and ExecutionAttempt relations are reserved for **K02**.
-- temporal continuation semantics are reserved for **K03**.
-- ClosureObligation knowledge/disposition semantics are reserved for **K04**.
+Still unresolved:
+
+- temporal continuation semantics are reserved for **K03**;
+- ClosureObligation knowledge/disposition semantics are reserved for **K04**;
 - accepted/rejected normative vectors and frozen change control are reserved for **K05/K06**.
 
-No implementation may claim K02–K05 semantics merely because it conforms to this K01 document.
+No implementation may claim K03–K05 semantics merely because it conforms to K01/K02.
 
 ## 2. Governing invariant slice
 
-K01 directly supports these candidate-kernel invariants:
+K01 directly supports:
 
 - **I1 — Binding integrity:** admission cannot silently change action revision, subject, destination, account, or material semantics.
 - **I2 — Valid admission at the actual effect boundary:** mandatory typed predicates and scoped authority must hold at the declared enforcing boundary.
-- **I3 — No implicit authority amplification:** the admitted basis cannot silently enlarge principal, scope, destination, account, tenant, credential audience, adapter semantics, or effect cardinality.
+- **I3 — No implicit authority or effect amplification:** the admitted basis cannot silently enlarge principal, scope, destination, account, tenant, credential audience, adapter semantics, or effect cardinality.
 
-K01 also establishes the exact dependency references that K03 must later revalidate for I4. It does not by itself establish I4–I6.
+K02 makes the effect-cardinality part of I3 explicit and establishes the custody part of:
+
+- **I5 — No unowned possible effect:** a consequential effect that may survive its executing process has reconstructable identity and accountable custody before it can escape.
+
+K01/K02 establish references that K03 must later revalidate for I4 and that K04 must later use for truthful closure under I6. They do not themselves define I4 or I6.
 
 ## 3. ActionRef
 
@@ -261,20 +266,289 @@ K01 preserves these boundary contracts without turning them into mandatory servi
 
 An ExecutionPermit is not itself independent proof that every dependency remains valid. K03 owns next-effect revalidation semantics.
 
-## 12. Six-concept / five-family review
+## 12. K02 effect/attempt and recoverable-custody contract
+
+### 12.1 EffectIdentity
+
+An **EffectIdentity** answers:
+
+> Which one consequential effect, within the admitted ActionRef and its domain-declared cardinality, are these attempts trying to realize?
+
+EffectIdentity is not interchangeable with:
+
+- ActionIdentity or ActionRevision;
+- request id;
+- permit id or permit digest;
+- HTTP request id;
+- provider operation id;
+- local replay-guard key;
+- ExecutionAttempt id.
+
+One ActionRef may legitimately contain multiple effects when the domain profile declares that cardinality explicitly. For example, a bounded node-drain plan may contain a node-cordon effect plus one eviction effect per exact Pod UID.
+
+Conversely, several ExecutionAttempts may belong to one EffectIdentity when the domain supports a safe retry relation.
+
+The domain profile must make EffectIdentity reconstructable from retained facts sufficient to distinguish:
+
+- one intended effect retried several times;
+- two deliberately distinct effects whose payloads happen to be byte-identical;
+- two aliases that resolve to the same protected target;
+- one request that expands into several explicitly declared effects.
+
+A caller-provided id cannot create a distinct effect merely by changing the label while the trusted profile says the target/cardinality slot is the same.
+
+### 12.2 Effect cardinality
+
+The selected profile must declare the permitted relationship between the ActionRef and its effects.
+
+Examples of legitimate domain meanings include:
+
+- one ActionRef permits at most one external mutation effect;
+- one ActionRef permits one effect per exact item in a signed deterministic plan;
+- one ActionRef permits zero external effects when the intended postcondition is already satisfied.
+
+K02 does not introduce a universal cardinality enum. The domain meaning remains typed and owner-controlled.
+
+The cardinality rule must prevent an implicit second effect. If the system cannot tell whether the first effect may already exist, it cannot manufacture availability by assigning a new EffectIdentity and dispatching again.
+
+### 12.3 ExecutionAttempt
+
+An **ExecutionAttempt** answers:
+
+> Which concrete effort crossed, or may have crossed, the effect boundary for this EffectIdentity?
+
+Each attempt must be related to:
+
+- one EffectIdentity;
+- the exact ActionRef revision;
+- the DecisionBasis used at the relevant boundary;
+- the domain execution boundary;
+- the executing owner/generation;
+- the destination/provider/account scope;
+- the domain attempt identity and retained evidence.
+
+Attempt identity is domain-owned. It must be unique for the declared retention scope, but uniqueness alone is not destination enforcement.
+
+A deterministic local attempt id can support recovery and replay detection while still providing **zero** provider-side deduplication.
+
+### 12.4 Facts, not a false universal state machine
+
+K02 standardizes relations and knowledge boundaries, not one global lifecycle enum.
+
+A domain may expose local states, but the common facts are:
+
+**PREPARED / CUSTODIED**
+
+Enough durable information exists to reconstruct the EffectIdentity, ActionRef, basis reference, owner and destination scope before a consequential effect may escape.
+
+**POSSIBLY_DISPATCHED**
+
+The effect may have crossed the boundary. Acceptance is not established. A blind retry is forbidden unless the same effect can be retried under an explicitly proven domain idempotency/fencing rule.
+
+**ACCEPTED**
+
+The destination/provider has supplied evidence sufficient for the profile to claim request acceptance.
+
+ACCEPTED does not mean the intended postcondition is verified. K04 owns closure/disposition semantics.
+
+A domain may also record definite no-dispatch/rejection facts. Those do not imply that every other failure proves non-acceptance.
+
+### 12.5 Pre-dispatch custody ordering
+
+For an effect that may survive the executing process:
+
+```text
+reconstructable EffectIdentity
++ accountable owner
++ durable attempt/custody record
+before
+external effect may escape
+```
+
+If the implementation can perform the effect before establishing recoverable custody, the automatic path is not K02-conformant.
+
+A journal append that happens only after provider success is insufficient for I5.
+
+The record need not be a new shared service. Existing domain journals, provider-hosted durable operation records, atomic destination markers, or bounded durable local stores may satisfy the requirement when their failure model is explicit.
+
+### 12.6 Crash windows
+
+Every domain profile must state what is known in at least these windows:
+
+| Crash window | Required K02 treatment |
+|---|---|
+| before durable PREPARED custody | dispatch must not have occurred |
+| after PREPARED, before boundary entry | recover the same EffectIdentity; do not invent a new effect |
+| after boundary entry, before acceptance evidence | retain POSSIBLY_DISPATCHED and forbid blind replay |
+| after provider acceptance, before local acceptance record | reconstruct from provider/destination evidence or retain ambiguity |
+| after intended postcondition evidence, before local finalization | retain effect/attempt history; K04 later owns closure |
+
+If a domain cannot distinguish a window safely, it must keep the stronger uncertainty rather than infer non-execution.
+
+### 12.7 Idempotency, retention and provider scope
+
+An idempotency or deduplication claim is valid only within its declared scope.
+
+The profile must bind, where applicable:
+
+- provider/destination;
+- account/tenant;
+- operation;
+- target/effect scope;
+- idempotency key or conditional-write token;
+- provider retention window;
+- any generation/fencing epoch.
+
+A provider-local key reused with another provider, account, operation, or after the provider's documented retention horizon is not credited as the same enforcement domain.
+
+A local request id, permit digest or attempt id is never described as provider enforcement unless the destination actually evaluates it.
+
+### 12.8 CAS, generation and fencing
+
+When two executors could race and a duplicate would violate the declared effect cardinality, the profile must identify the mechanism that makes stale execution harmless or impossible.
+
+Acceptable mechanisms are domain-specific and can include:
+
+- destination-enforced compare-and-swap / conditional mutation;
+- provider-enforced idempotency within a bound retention scope;
+- provider generation/fencing token;
+- a proven single-writer boundary whose exclusivity actually covers the effect.
+
+A process mutex or local lease coordinates only the executors that honor it.
+
+If a stale worker can still reach the destination after takeover and the destination has no adequate CAS/idempotency/fencing rule, automatic takeover must stop.
+
+Unsupported exclusivity cannot be repaired by relabeling a POSSIBLY_DISPATCHED attempt as failed.
+
+### 12.9 Custody and transfer
+
+Every unresolved possible effect has exactly one accountable **custody owner** at a time.
+
+Custody means responsibility to retain the reconstructable EffectIdentity, attempts, provider/destination references and evidence needed for later reconciliation.
+
+Transfer requires:
+
+1. explicit identification of the effect and unresolved attempts;
+2. a durable transfer record or equivalent retained evidence;
+3. the receiving owner to accept responsibility;
+4. the prior owner to retain history sufficient to prove the transfer.
+
+Custody transfer does not cancel an already accepted or still-running external operation.
+
+A new owner cannot dispatch a replacement merely because ownership moved.
+
+### 12.10 Provider substitution and CE3
+
+A provider switch does not create permission for a second equivalent effect.
+
+If provider A may already have accepted the effect, provider B must not be dispatched for the same EffectIdentity unless the selected profile can establish one of:
+
+- provider A definitely did not accept;
+- provider A's effect is fenced/cancelled under a supported destination guarantee;
+- the domain explicitly permits more than one effect and the ActionRef cardinality says so.
+
+Otherwise the effect remains under reconciliation custody.
+
+### 12.11 CE4 — effect before journal
+
+The following ordering is forbidden:
+
+```text
+external effect
+→ later create first recoverable attempt/custody record
+```
+
+The permitted ordering is:
+
+```text
+durable recoverable custody
+→ boundary-entry / possible-effect record
+→ external dispatch
+→ acceptance/observation evidence
+```
+
+A domain may combine durable operations atomically when its substrate supports that stronger primitive.
+
+### 12.12 CE6 — stale worker after takeover
+
+Takeover is safe only when the old worker cannot create an additional forbidden effect.
+
+The new owner must not infer this from local ownership alone.
+
+The domain mapping must state whether safety comes from:
+
+- destination fencing/generation;
+- CAS/conditional mutation;
+- provider idempotency;
+- completed-state reconciliation that makes another dispatch unnecessary;
+- or a rule that forbids automated takeover while old execution remains possibly active.
+
+### 12.13 Required relation examples
+
+**One intended effect, several attempts**
+
+```text
+EffectIdentity = E
+Attempt A1 -> definite pre-dispatch rejection
+Attempt A2 -> dispatch under the same E
+```
+
+A1 and A2 remain distinct attempts. The second attempt is allowed only if the domain can establish that A1 produced no effect or if a proven idempotency/fencing rule keeps both attempts within one effect.
+
+**Two deliberately distinct identical requests**
+
+Two separately authorized ActionIdentity lineages may legitimately request the same bytes against the same target. They remain distinct effects only if the trusted domain policy permits both; payload equality alone neither merges nor duplicates their identity.
+
+**Already-satisfied no-op**
+
+The EffectIdentity may be reconstructable while the executor records that no external dispatch was required. A local prepared/custody record may close its attempt as no-dispatch; it must not invent provider acceptance.
+
+**Domain-supported idempotent retry**
+
+A retry remains attached to the same EffectIdentity, receives a distinct ExecutionAttempt identity, and reuses only the provider idempotency/CAS scope the profile actually guarantees.
+
+**Recovery after process loss**
+
+Recovery loads or reconstructs the same EffectIdentity and unresolved attempt(s), keeps the existing custody owner or records a transfer, and decides from retained/provider evidence whether observation, safe retry, or stop is permitted. It does not mint a replacement effect to recover availability.
+
+### 12.14 K02 completion rule
+
+K02 is complete only when each design-visible possible effect has:
+
+- reconstructable EffectIdentity under process loss;
+- explicit domain effect cardinality;
+- ExecutionAttempt identity and retained relation to ActionRef/basis/boundary;
+- a named custody owner;
+- declared retention/idempotency scope;
+- explicit crash-window treatment;
+- a stop rule for unsupported stale-worker exclusivity;
+- no local id misrepresented as destination enforcement.
+
+K02 fails if the specification permits:
+
+- an unowned possible effect;
+- an implicit second effect;
+- blind replay after ambiguous dispatch;
+- cross-provider duplication presented as recovery;
+- effect-before-custody ordering;
+- takeover whose safety depends only on a local ownership label.
+
+Rollback/containment is to stop further conflicting dispatch, preserve all attempt/effect evidence, and observe/reconcile under the existing bounded authority.
+
+## 13. Six-concept / five-family review
 
 | Concept / family | K01 status | Seed review obligation |
 |---|---|---|
 | ActionIdentity | defined | seed has stable logical proposal identity |
 | ActionRevision | defined | material target/account/semantic changes create or select a distinct revision |
 | DecisionBasis | defined | all mandatory dependencies are typed and owned |
-| EffectIdentity | reserved for K02 | seed identifies the domain mechanism that will later supply effect identity |
-| ExecutionAttempt | reserved for K02 | seed identifies current attempt/journal mechanism without standardizing it here |
+| EffectIdentity | defined by K02 | seed declares domain effect cardinality and reconstructable effect identity |
+| ExecutionAttempt | defined by K02 | seed declares attempt identity, custody, crash windows, retention and destination enforcement scope |
 | ClosureObligation | reserved for K04 | seed identifies current outcome/observation owner without claiming K04 closure |
 
 The domain mapping is recorded in [domain-profiles-v1.md](domain-profiles-v1.md).
 
-## 13. CE1 / CE2 adversarial obligations owned by K01
+## 14. CE1 / CE2 adversarial obligations owned by K01
 
 ### CE1 — Vacuous profile
 
@@ -302,7 +576,7 @@ Material drift includes, where applicable:
 - adapter/effect/postcondition semantics;
 - required profile or validator version.
 
-## 14. Seed references
+## 15. Seed references
 
 K01 composes existing versioned contracts rather than replacing them:
 
@@ -319,7 +593,7 @@ K01 composes existing versioned contracts rather than replacing them:
 
 Their domain meaning and current owners remain intact.
 
-## 15. K01 completion rule
+## 16. K01 completion rule
 
 K01 is complete only when every design seed has:
 
@@ -339,4 +613,4 @@ K01 fails if completion requires:
 - a caller-selectable weak profile;
 - a new core discriminator beyond the fixed candidate concepts.
 
-This document remains **unfrozen** until K02–K05 complete and K06 records the freeze.
+This document remains **unfrozen** until K03–K05 complete and K06 records the freeze.
