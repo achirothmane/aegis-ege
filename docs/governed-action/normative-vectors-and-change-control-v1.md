@@ -13,7 +13,7 @@ The K05 oracle consists of:
 - `docs/governed-action/kernel-v1.md` — concepts, invariants and relations;
 - `docs/governed-action/domain-profiles-v1.md` — design-visible CI, Kubernetes and EEP mappings;
 - `testdata/governed-action/v1/schema.json` — fixture-shape identifier;
-- `testdata/governed-action/v1/normative-cases.json` — CE1–CE8 rejected traces, paired positive counterparts and positive seed traces;
+- `testdata/governed-action/v1/normative-cases.json` — CE1–CE12 rejected traces, paired positive counterparts and positive seed traces;
 - `testdata/governed-action/v1/change-log-template.json` — mandatory record shape for trace-affecting changes;
 - `testdata/governed-action/v1/change-control-cases.json` — normative examples for change classification.
 
@@ -55,7 +55,7 @@ Publishing the same case ID with contradictory expected validity is an invalid o
 
 Changing a case's expected validity after K06 is a normative core change and requires a new normative version/freeze. It cannot be called an editorial clarification.
 
-## 4. CE1–CE8 oracle rationale
+## 4. CE1–CE12 oracle rationale
 
 | Case | Rejected trace | Positive counterpart | Primary invariant / domain rule |
 |---|---|---|---|
@@ -67,10 +67,19 @@ Changing a case's expected validity after K06 is a normative core change and req
 | CE6 — Takeover race / stale worker | local ownership transfer is treated as downstream fencing | effective destination fencing/CAS exists, or conflicting takeover remains blocked | I3 / I5 |
 | CE7 — False outcome | unrelated state change becomes VERIFIED/APPLIED | exact scoped intended postcondition is observed | I6 / domain postcondition |
 | CE8 — Current read / stale write | stale read is treated as atomic authorization without required CAS | destination atomically enforces the bound version and useful mutation proceeds | I1 / I2 |
+| CE9 — Trusted but inadequate profile | trusted profile omits a known decision-relevant distinction and still reaches ALLOW | distinction is bound/discharged or remains a critical defeater that prevents automatic ALLOW | trusted-profile adequacy / K01 |
+| CE10 — Model-relative evidence independence | required independence is UNKNOWN/violated but treated as satisfied, or a label count is promoted to absolute independence | independence is evaluated only under the declared failure/dependency model; hidden causes outside it remain assumption breaches | C09 / K01 evidence-composition semantics |
+| CE11 — Consequence-relevant state omitted | a known state distinction that can flip admissibility is invisible to DecisionBasis, or bound state is stale at effect time | relevant distinction is bound and current or K03 forces revalidation/DEFER | K01 / K03 |
+| CE12 — Enforcement assumption gap | logical admission is treated as sufficient without declared complete-mediation/enforcement-integrity assumptions | actual enforcing boundary and TCB assumptions are explicit; compromise outside them invalidates the guarantee | I2 / enforcement-boundary semantics |
 
 Every rejected case names at least one violated invariant or typed domain requirement.
 
 Every CE also has a positive permitted counterpart so deny-all behavior cannot satisfy the oracle.
+
+CE9–CE12 encode the pre-freeze falsification refinement. They do not introduce I7 or a seventh record family. No case may satisfy profile adequacy through a generic boolean or scalar confidence score.
+
+For CE10, the oracle never asserts global physical independence. The accepted counterpart is scoped to the declared failure/dependency model. A hidden common cause outside that model is an assumption breach, not a fact the verifier was expected to infer from absent information.
+
 
 ## 5. Positive seed applicability
 
@@ -211,6 +220,10 @@ No invented approval is allowed.
 ## 10. Adversarial K05 rules
 
 The K05 fixture validator and semantic review must reject:
+- a trusted-but-inadequate profile that omits a known decision-relevant distinction yet claims automatic ALLOW;
+- required evidence independence that is UNKNOWN/violated under the declared failure/dependency model;
+- omitted consequence-relevant state that leaves opposite-admissibility modeled states indistinguishable to DecisionBasis;
+- an I2 claim with no declared complete-mediation/enforcement-integrity assumptions;
 
 - unknown case-set/schema version;
 - contradictory expected verdicts for one case ID;
