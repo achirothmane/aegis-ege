@@ -33,7 +33,7 @@ K03 defines validity intervals, clock domains, dependency-specific revalidation 
 
 K04 defines **ClosureObligation** as the accountable relation between effect/attempt history, typed observations/postconditions, evidence horizon, residual uncertainty, custody and administrative disposition.
 
-K05 publishes versioned accepted/rejected examples for CE1–CE8, paired positive counterparts, positive seed traces and the change-control rule that separates implementation fixes from normative changes.
+K05 publishes versioned accepted/rejected examples for CE1–CE12, paired positive counterparts, positive seed traces and the change-control rule that separates implementation fixes from normative changes.
 
 Still unresolved:
 
@@ -126,6 +126,29 @@ A DecisionBasis is valid for admission only when all of the following are true:
 9. no caller-controlled optional field can select a weaker interpretation of the same profile.
 
 A generic boolean such as `approved=true`, `safe=true`, or `valid=true` is not a DecisionBasis.
+
+
+### 4.1 Profile-relative admissibility and decision-basis distinguishability
+
+Admission is always relative to a declared claim scope and trusted profile. Profile trust alone is not evidence that the profile contains every distinction relevant to the claim.
+
+For each automatic-ALLOW claim scope, every **known decision-relevant distinction** must be handled in exactly one of these ways:
+
+1. bound in the DecisionBasis / StateBinding and revalidated when K03 requires it;
+2. discharged by a typed validator or a hard destination guard whose semantics are bound at the effect boundary; or
+3. retained as an explicit unresolved assumption / critical defeater that prevents automatic ALLOW until it is resolved.
+
+A useful bounded adequacy test is:
+
+> under the declared claim scope and assumptions, two modeled states that are observationally identical to DecisionBasis must not require opposite admissibility decisions for a known decision-relevant distinction.
+
+If such a pair exists, the automatic result is DEFER / DENY until additional distinguishing state/evidence is bound or a destination guard discharges the distinction.
+
+This is a relation over the existing DecisionBasis, StateBinding and profile contracts. It is **not** a seventh core primitive, a scalar confidence score, or a generic `profile_adequate=true` flag.
+
+Evidence-independence requirements are likewise scoped to the profile's declared failure/dependency model. `UNKNOWN` or `DEPENDENT` / otherwise violated required independence cannot satisfy the obligation. A hidden common cause outside the declared model is an assumption breach; it is not retroactive proof that absolute independence was ever knowable.
+
+I2 also depends on explicit enforcement assumptions. The profile must identify the actual enforcing boundary and the complete-mediation / enforcement-integrity assumptions required for the claim. If those assumptions are missing, automatic ALLOW is unsupported. If the TCB/enforcer is actually compromised despite a declared assumption, the logical guarantee no longer applies; another record family would not solve recursive trust.
 
 ## 5. Mandatory predicate coverage
 
@@ -1310,7 +1333,7 @@ status = DRAFT_UNFROZEN
 
 It contains:
 
-- rejected CE1–CE8 traces;
+- rejected CE1–CE12 traces;
 - one useful positive counterpart for each CE case;
 - positive CI, Kubernetes and EEP seed traces;
 - explicit source assumptions;
@@ -1344,7 +1367,7 @@ K07, not K05, owns full executable cross-adapter conformance. The K05 validator 
 
 The domain mapping is recorded in [domain-profiles-v1.md](domain-profiles-v1.md).
 
-## 17. CE1 / CE2 adversarial obligations owned by K01
+## 17. CE1 / CE2 / CE9–CE12 adversarial obligations owned by K01
 
 ### CE1 — Vacuous profile
 
@@ -1371,6 +1394,23 @@ Material drift includes, where applicable:
 - evidence reference;
 - adapter/effect/postcondition semantics;
 - required profile or validator version.
+
+
+### CE9 — Trusted but inadequate profile
+
+A profile can be trusted, correctly selected and internally satisfied yet still omit a known decision-relevant distinction. Such a trace is not automatically admissible merely because every listed predicate passed. If the omission leaves two modeled states indistinguishable to DecisionBasis while they require opposite admissibility decisions, automatic ALLOW is invalid until the distinction is bound, discharged by a typed guard/validator, or retained as an unresolved critical defeater.
+
+### CE10 — Model-relative evidence independence
+
+Evidence independence is evaluated only relative to the declared failure/dependency model and material dependency coverage of the selected profile. A label count is never independence. Required independence that is UNKNOWN or violated cannot satisfy admission. A genuinely hidden common cause outside the declared model is an assumption breach outside the logical guarantee, not evidence that the kernel had access to absent information.
+
+### CE11 — Consequence-relevant state omitted or stale
+
+When a known state distinction can change admissibility, omitting it from DecisionBasis/StateBinding reduces to CE9. When it is bound but stale, K03 requires it to be re-established at the next effect boundary. I3 is not expanded merely to restate those K01/K03 duties.
+
+### CE12 — Enforcement assumptions and TCB boundary
+
+A correct DecisionBasis is insufficient if the claimed enforcing boundary is not actually mediated under the declared enforcement-integrity assumptions. Missing complete-mediation or enforcement-integrity assumptions make automatic ALLOW unsupported. An actual compromise of the TCB/enforcer after those assumptions were declared is outside the logical guarantee rather than evidence for a seventh recursive-trust primitive.
 
 ## 18. Seed references
 
