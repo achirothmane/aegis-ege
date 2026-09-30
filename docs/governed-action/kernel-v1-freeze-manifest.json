@@ -46,6 +46,10 @@
     {
       "path": "internal/governedactionnormative/normative_test.go",
       "git_blob_sha": "d82a8844f5e8d1f070ed84dd1593b2394d37be82"
+    },
+    {
+      "path": "internal/governedactionnormative/freeze_test.go",
+      "git_blob_sha": "5c23bd04bd0299654a8b85a9541bdaaa82a0f0d8"
     }
   ],
   "external_corpora": [
@@ -469,5 +473,17 @@
     "rule": "any change to accepted/rejected trace meaning or core relation is a normative core change and requires a new version/freeze",
     "old_artifacts_gain_stronger_assurance": false,
     "overwrite_existing_freeze": false
-  }
+  },
+  "freeze_record_path": "docs/governed-action/kernel-v1-freeze.md",
+  "issue_to_evidence_checklist_path": "docs/governed-action/kernel-v1-freeze-checklist.md",
+  "record_artifacts": [
+    {
+      "path": "docs/governed-action/kernel-v1-freeze.md",
+      "git_blob_sha": "dcbd716b049be0a42f6ddbefbc7a9080e3aaec9b"
+    },
+    {
+      "path": "docs/governed-action/kernel-v1-freeze-checklist.md",
+      "git_blob_sha": "5d5d917e8eca915c3806e9588a4f2f2fb908d3b2"
+    }
+  ]
 }
