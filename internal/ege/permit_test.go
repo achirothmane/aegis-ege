@@ -128,6 +128,115 @@ func TestEvidenceManifestDigestIsStableAcrossSourceOrder(t *testing.T) {
 }
 
 
+func TestEvidenceManifestDigestCanonicalizesIndependenceDeclarations(t *testing.T) {
+	observedAt := time.Date(2026, 9, 29, 21, 0, 0, 0, time.UTC)
+	left := EvidenceManifest{
+		APIVersion:      EvidenceManifestVersion,
+		IntentID:        "intent-c09-digest",
+		Kind:            "test.mutate",
+		Target:          Target{Type: "test.resource", Name: "r-1"},
+		ResourceVersion: "7",
+		EvidenceDigest:  "sha256:primary",
+		PlanDigest:      "sha256:plan",
+		ObservedAt:      observedAt,
+		EvidenceClasses: []string{"telemetry", "state"},
+		Sources: []EvidenceSource{
+			{
+				Name:        "primary",
+				TrustDomain: "control",
+				Digest:      "sha256:primary",
+				ObservedAt:  observedAt,
+				Classes:     []string{"state"},
+				Declaration: &EvidenceSourceDeclaration{
+					ProducerID:         "producer:primary",
+					Subject:            "test.resource/r-1",
+					ObservationPath:    "path:primary",
+					DependencyCoverage: []string{"upstream", "credential"},
+					Dependencies: []EvidenceDependency{
+						{Kind: "upstream", ID: "u-primary", Material: true},
+						{Kind: "credential", ID: "c-primary", Material: true},
+					},
+					Assurance:         EvidenceDeclarationAsserted,
+					CorroborationRefs: []string{"ref:b", "ref:a"},
+				},
+			},
+			{
+				Name:        "telemetry",
+				TrustDomain: "telemetry",
+				Digest:      "sha256:telemetry",
+				ObservedAt:  observedAt.Add(-time.Second),
+				Classes:     []string{"telemetry"},
+				Declaration: &EvidenceSourceDeclaration{
+					ProducerID:         "producer:telemetry",
+					Subject:            "test.resource/r-1",
+					ObservationPath:    "path:telemetry",
+					DependencyCoverage: []string{"credential", "upstream"},
+					Dependencies: []EvidenceDependency{
+						{Kind: "credential", ID: "c-telemetry", Material: true},
+						{Kind: "upstream", ID: "u-telemetry", Material: true},
+					},
+					Assurance: EvidenceDeclarationAsserted,
+				},
+			},
+		},
+		Composition: &EvidenceCompositionAssessment{
+			ProfileVersion:         EvidenceCompositionProfileVersion,
+			RequiredIndependence:   EvidenceIndependenceAsserted,
+			IndependentSourceCount: 2,
+			OverallIndependence:    EvidenceIndependenceAsserted,
+			PairAssessments: []EvidencePairAssessment{
+				{
+					LeftSource:  "primary",
+					RightSource: "telemetry",
+					Status:      EvidenceIndependenceAsserted,
+					ReasonCodes: []string{"z", "a"},
+				},
+			},
+		},
+	}
+	right := left
+	right.Sources = []EvidenceSource{left.Sources[1], left.Sources[0]}
+	right.Sources[1].Declaration = &EvidenceSourceDeclaration{
+		ProducerID:         "producer:primary",
+		Subject:            "test.resource/r-1",
+		ObservationPath:    "path:primary",
+		DependencyCoverage: []string{"credential", "upstream"},
+		Dependencies: []EvidenceDependency{
+			{Kind: "credential", ID: "c-primary", Material: true},
+			{Kind: "upstream", ID: "u-primary", Material: true},
+		},
+		Assurance:         EvidenceDeclarationAsserted,
+		CorroborationRefs: []string{"ref:a", "ref:b"},
+	}
+	right.EvidenceClasses = []string{"state", "telemetry"}
+	right.Composition = &EvidenceCompositionAssessment{
+		ProfileVersion:         EvidenceCompositionProfileVersion,
+		RequiredIndependence:   EvidenceIndependenceAsserted,
+		IndependentSourceCount: 2,
+		OverallIndependence:    EvidenceIndependenceAsserted,
+		PairAssessments: []EvidencePairAssessment{
+			{
+				LeftSource:  "primary",
+				RightSource: "telemetry",
+				Status:      EvidenceIndependenceAsserted,
+				ReasonCodes: []string{"a", "z"},
+			},
+		},
+	}
+
+	leftDigest, err := DigestEvidenceManifest(left)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightDigest, err := DigestEvidenceManifest(right)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if leftDigest != rightDigest {
+		t.Fatalf("manifest digest changed with declaration ordering: %s != %s", leftDigest, rightDigest)
+	}
+}
+
 func TestSignedPermitRejectsCapabilityFenceTampering(t *testing.T) {
 	authority, err := NewEphemeralEd25519Authority()
 	if err != nil {

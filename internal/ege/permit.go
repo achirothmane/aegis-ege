@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	EvidenceManifestVersion = "aegis.ege/evidence/v0alpha2"
-	PermitVersion           = "aegis.ege/permit/v0alpha1"
+	EvidenceManifestVersion            = "aegis.ege/evidence/v0alpha2"
+	EvidenceCompositionProfileVersion  = "aegis.ege/evidence-composition/v1"
+	PermitVersion                      = "aegis.ege/permit/v0alpha1"
 )
 
 type Target struct {
@@ -24,25 +25,76 @@ type Target struct {
 	Name string `json:"name"`
 }
 
+type EvidenceDeclarationAssurance string
+
+const (
+	EvidenceDeclarationUnknown      EvidenceDeclarationAssurance = "UNKNOWN"
+	EvidenceDeclarationAsserted     EvidenceDeclarationAssurance = "ASSERTED"
+	EvidenceDeclarationCorroborated EvidenceDeclarationAssurance = "CORROBORATED"
+)
+
+type EvidenceIndependenceStatus string
+
+const (
+	EvidenceIndependenceUnknown      EvidenceIndependenceStatus = "UNKNOWN"
+	EvidenceIndependenceDependent    EvidenceIndependenceStatus = "DEPENDENT"
+	EvidenceIndependenceAsserted     EvidenceIndependenceStatus = "ASSERTED"
+	EvidenceIndependenceCorroborated EvidenceIndependenceStatus = "CORROBORATED"
+)
+
+type EvidenceDependency struct {
+	Kind     string `json:"kind"`
+	ID       string `json:"id"`
+	Material bool   `json:"material"`
+}
+
+type EvidenceSourceDeclaration struct {
+	ProducerID          string                       `json:"producer_id"`
+	Subject             string                       `json:"subject"`
+	ObservationPath     string                       `json:"observation_path"`
+	DependencyCoverage  []string                     `json:"dependency_coverage,omitempty"`
+	Dependencies        []EvidenceDependency         `json:"dependencies,omitempty"`
+	Assurance           EvidenceDeclarationAssurance `json:"assurance"`
+	CorroborationRefs   []string                     `json:"corroboration_refs,omitempty"`
+}
+
 type EvidenceSource struct {
-	Name        string    `json:"name"`
-	TrustDomain string    `json:"trust_domain"`
-	Digest      string    `json:"digest"`
-	ObservedAt  time.Time `json:"observed_at"`
-	Classes     []string  `json:"classes"`
+	Name        string                     `json:"name"`
+	TrustDomain string                     `json:"trust_domain"`
+	Digest      string                     `json:"digest"`
+	ObservedAt  time.Time                  `json:"observed_at"`
+	Classes     []string                   `json:"classes"`
+	Declaration *EvidenceSourceDeclaration `json:"declaration,omitempty"`
+}
+
+type EvidencePairAssessment struct {
+	LeftSource         string                     `json:"left_source"`
+	RightSource        string                     `json:"right_source"`
+	Status             EvidenceIndependenceStatus `json:"status"`
+	SharedDependencies []EvidenceDependency       `json:"shared_dependencies,omitempty"`
+	ReasonCodes        []string                   `json:"reason_codes,omitempty"`
+}
+
+type EvidenceCompositionAssessment struct {
+	ProfileVersion          string                     `json:"profile_version"`
+	RequiredIndependence    EvidenceIndependenceStatus `json:"required_independence"`
+	IndependentSourceCount  int                        `json:"independent_source_count"`
+	OverallIndependence     EvidenceIndependenceStatus `json:"overall_independence"`
+	PairAssessments         []EvidencePairAssessment   `json:"pair_assessments,omitempty"`
 }
 
 type EvidenceManifest struct {
-	APIVersion      string           `json:"api_version"`
-	IntentID        string           `json:"intent_id"`
-	Kind            string           `json:"kind"`
-	Target          Target           `json:"target"`
-	ResourceVersion string           `json:"resource_version"`
-	EvidenceDigest  string           `json:"evidence_digest"`
-	PlanDigest      string           `json:"plan_digest"`
-	ObservedAt      time.Time        `json:"observed_at"`
-	EvidenceClasses []string         `json:"evidence_classes"`
-	Sources         []EvidenceSource `json:"sources,omitempty"`
+	APIVersion      string                         `json:"api_version"`
+	IntentID        string                         `json:"intent_id"`
+	Kind            string                         `json:"kind"`
+	Target          Target                         `json:"target"`
+	ResourceVersion string                         `json:"resource_version"`
+	EvidenceDigest  string                         `json:"evidence_digest"`
+	PlanDigest      string                         `json:"plan_digest"`
+	ObservedAt      time.Time                      `json:"observed_at"`
+	EvidenceClasses []string                       `json:"evidence_classes"`
+	Sources         []EvidenceSource               `json:"sources,omitempty"`
+	Composition     *EvidenceCompositionAssessment `json:"composition,omitempty"`
 }
 
 type ExecutionBindingClaims struct {
@@ -140,6 +192,24 @@ func DigestEvidenceManifest(manifest EvidenceManifest) (string, error) {
 		normalized.Sources[i].ObservedAt = normalized.Sources[i].ObservedAt.UTC()
 		normalized.Sources[i].Classes = append([]string(nil), normalized.Sources[i].Classes...)
 		sort.Strings(normalized.Sources[i].Classes)
+		if normalized.Sources[i].Declaration != nil {
+			declaration := *normalized.Sources[i].Declaration
+			declaration.DependencyCoverage = append([]string(nil), declaration.DependencyCoverage...)
+			sort.Strings(declaration.DependencyCoverage)
+			declaration.Dependencies = append([]EvidenceDependency(nil), declaration.Dependencies...)
+			sort.Slice(declaration.Dependencies, func(a, b int) bool {
+				if declaration.Dependencies[a].Kind != declaration.Dependencies[b].Kind {
+					return declaration.Dependencies[a].Kind < declaration.Dependencies[b].Kind
+				}
+				if declaration.Dependencies[a].ID != declaration.Dependencies[b].ID {
+					return declaration.Dependencies[a].ID < declaration.Dependencies[b].ID
+				}
+				return !declaration.Dependencies[a].Material && declaration.Dependencies[b].Material
+			})
+			declaration.CorroborationRefs = append([]string(nil), declaration.CorroborationRefs...)
+			sort.Strings(declaration.CorroborationRefs)
+			normalized.Sources[i].Declaration = &declaration
+		}
 	}
 	sort.Slice(normalized.Sources, func(i, j int) bool {
 		if normalized.Sources[i].Name != normalized.Sources[j].Name {
@@ -150,6 +220,34 @@ func DigestEvidenceManifest(manifest EvidenceManifest) (string, error) {
 		}
 		return normalized.Sources[i].Digest < normalized.Sources[j].Digest
 	})
+	if normalized.Composition != nil {
+		composition := *normalized.Composition
+		composition.PairAssessments = append([]EvidencePairAssessment(nil), composition.PairAssessments...)
+		for i := range composition.PairAssessments {
+			composition.PairAssessments[i].SharedDependencies = append(
+				[]EvidenceDependency(nil),
+				composition.PairAssessments[i].SharedDependencies...,
+			)
+			sort.Slice(composition.PairAssessments[i].SharedDependencies, func(a, b int) bool {
+				if composition.PairAssessments[i].SharedDependencies[a].Kind != composition.PairAssessments[i].SharedDependencies[b].Kind {
+					return composition.PairAssessments[i].SharedDependencies[a].Kind < composition.PairAssessments[i].SharedDependencies[b].Kind
+				}
+				return composition.PairAssessments[i].SharedDependencies[a].ID < composition.PairAssessments[i].SharedDependencies[b].ID
+			})
+			composition.PairAssessments[i].ReasonCodes = append(
+				[]string(nil),
+				composition.PairAssessments[i].ReasonCodes...,
+			)
+			sort.Strings(composition.PairAssessments[i].ReasonCodes)
+		}
+		sort.Slice(composition.PairAssessments, func(i, j int) bool {
+			if composition.PairAssessments[i].LeftSource != composition.PairAssessments[j].LeftSource {
+				return composition.PairAssessments[i].LeftSource < composition.PairAssessments[j].LeftSource
+			}
+			return composition.PairAssessments[i].RightSource < composition.PairAssessments[j].RightSource
+		})
+		normalized.Composition = &composition
+	}
 	payload, err := json.Marshal(normalized)
 	if err != nil {
 		return "", fmt.Errorf("marshal evidence manifest: %w", err)

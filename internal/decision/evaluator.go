@@ -6,7 +6,7 @@ package decision
 //  1. required evidence must still be fresh;
 //  2. fresh observations of the same claim must not contradict;
 //  3. action blast radius must stay within the configured hard limit;
-//  4. the configured number of distinct evidence sources must be present;
+//  4. the configured number of distinct evidence source labels must be present;
 //  5. ALLOW requires enough state-binding data to mint a short-lived authorization.
 func Evaluate(req Request) Result {
 	if req.EpistemicSnapshot != nil {
@@ -83,3 +83,7 @@ func Evaluate(req Request) Result {
 		Authorization: auth,
 	}
 }
+
+// RequiredSourceCount is a source-diversity gate only. It does not establish
+// independent failure domains; stronger independence claims belong to the
+// versioned EGE evidence-composition profile.

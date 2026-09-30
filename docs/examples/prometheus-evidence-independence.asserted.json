@@ -1,0 +1,65 @@
+{
+  "required_independence": "ASSERTED",
+  "min_independent_sources": 2,
+  "required_dependency_kinds": [
+    "administrative",
+    "credential",
+    "upstream"
+  ],
+  "source_declarations": {
+    "statelatch.kubernetes.node_drain": {
+      "producer_id": "producer:kubernetes-node-drain",
+      "observation_path": "path:kubernetes-api-live",
+      "dependency_coverage": [
+        "administrative",
+        "credential",
+        "upstream"
+      ],
+      "dependencies": [
+        {
+          "kind": "administrative",
+          "id": "replace-with-kubernetes-administrative-domain",
+          "material": true
+        },
+        {
+          "kind": "credential",
+          "id": "replace-with-kubernetes-reader-credential-domain",
+          "material": true
+        },
+        {
+          "kind": "upstream",
+          "id": "replace-with-kubernetes-api-upstream",
+          "material": true
+        }
+      ],
+      "assurance": "ASSERTED"
+    },
+    "prometheus.node_health": {
+      "producer_id": "producer:prometheus-node-health",
+      "observation_path": "path:prometheus-query",
+      "dependency_coverage": [
+        "administrative",
+        "credential",
+        "upstream"
+      ],
+      "dependencies": [
+        {
+          "kind": "administrative",
+          "id": "replace-with-observability-administrative-domain",
+          "material": true
+        },
+        {
+          "kind": "credential",
+          "id": "replace-with-prometheus-reader-credential-domain",
+          "material": true
+        },
+        {
+          "kind": "upstream",
+          "id": "replace-with-prometheus-data-upstream",
+          "material": true
+        }
+      ],
+      "assurance": "ASSERTED"
+    }
+  }
+}

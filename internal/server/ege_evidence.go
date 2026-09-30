@@ -20,15 +20,16 @@ type egePermitBinding struct {
 }
 
 type egeEvidenceProduction struct {
-	Decision        decision.Decision
-	ReasonCodes     []decision.ReasonCode
-	PlanDigest      string
-	ObservedAt      time.Time
-	EvidenceClasses []string
-	EvidenceSources []egeproto.EvidenceSource
-	PermitBinding   *egePermitBinding
-	Snapshot        *snapshotDTO
-	Plan            *planDTO
+	Decision            decision.Decision
+	ReasonCodes         []decision.ReasonCode
+	PlanDigest          string
+	ObservedAt          time.Time
+	EvidenceClasses     []string
+	EvidenceSources     []egeproto.EvidenceSource
+	EvidenceComposition *egeproto.EvidenceCompositionAssessment
+	PermitBinding       *egePermitBinding
+	Snapshot            *snapshotDTO
+	Plan                *planDTO
 }
 
 type egeEvidenceProducer interface {

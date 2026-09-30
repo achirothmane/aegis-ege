@@ -38,8 +38,9 @@ func main() {
 		stateNamespace  = flag.String("state-namespace", "kube-system", "namespace for shared Kubernetes state")
 		enableMutations = flag.Bool("enable-mutations", false, "enable authenticated real node-drain execution")
 		insecureReadOnly = flag.Bool("insecure-read-only", false, "allow HTTP without mTLS; mutations are forbidden")
-		prometheusNodeHealthURL = flag.String("prometheus-node-health-url", "", "optional Prometheus base URL for independent node-health evidence")
-		prometheusTrustDomain = flag.String("prometheus-trust-domain", "", "trust-domain name for Prometheus evidence; required with prometheus-node-health-url and must differ from kubernetes-control-plane")
+		prometheusNodeHealthURL = flag.String("prometheus-node-health-url", "", "optional Prometheus base URL for additional node-health evidence")
+		prometheusTrustDomain = flag.String("prometheus-trust-domain", "", "descriptive trust-domain label for Prometheus evidence; required with prometheus-node-health-url but not proof of independence")
+		prometheusIndependenceProfileFile = flag.String("prometheus-independence-profile", "", "optional JSON evidence-composition profile declaring producer/path/dependencies required for an independence claim")
 		requireEBAConformance = flag.Bool("require-eba-conformance", false, "require the full EBA bundle before real EGE mutations")
 		ebaApprovalPublicKeyFile = flag.String("eba-approval-public-key-file", "", "PEM Ed25519 public key used to verify signed EBA approval attestations")
 		ebaExecutionPrincipal = flag.String("eba-execution-principal", "aegis-ege", "principal id expected in EBA AuthorityGrant artifacts")
@@ -51,6 +52,11 @@ func main() {
 		genesisRequiredConformance = flag.String("genesis-required-conformance", "C3", "minimum Genesis implementation conformance: C0..C4")
 	)
 	flag.Parse()
+
+	prometheusIndependenceProfile, err := loadEvidenceIndependenceProfile(*prometheusIndependenceProfileFile)
+	if err != nil {
+		fatal("load Prometheus evidence independence profile", err)
+	}
 
 	if *insecureReadOnly && *enableMutations {
 		fatal("invalid configuration", fmt.Errorf("insecure-read-only cannot be combined with enable-mutations"))
@@ -198,9 +204,10 @@ func main() {
 		EBAApprovalAuthority:  approvalVerifier,
 		EBAExecutionPrincipal: *ebaExecutionPrincipal,
 		AuditSink:                         server.SlogAuditSink{},
-		EGEPrometheusNodeHealthURL:         *prometheusNodeHealthURL,
-		EGEPrometheusNodeHealthTrustDomain: *prometheusTrustDomain,
-		EnableN8NEEPAdapter:                 *enableN8NEEPAdapter,
+		EGEPrometheusNodeHealthURL:          *prometheusNodeHealthURL,
+		EGEPrometheusNodeHealthTrustDomain:  *prometheusTrustDomain,
+		EGEPrometheusIndependenceProfile:    prometheusIndependenceProfile,
+		EnableN8NEEPAdapter:                  *enableN8NEEPAdapter,
 		EASLRuntime:                          easlRuntime,
 	})
 	if err != nil {

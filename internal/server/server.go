@@ -42,9 +42,10 @@ type Config struct {
 	CapabilityFenceAuthority   CapabilityFenceAuthority
 	EGEConsequencePolicy       *egeproto.ConsequencePolicy
 	EGEPermitAuthority                egeproto.PermitAuthority
-	EGEPrometheusNodeHealthURL         string
-	EGEPrometheusNodeHealthTrustDomain string
-	EGEPrometheusHTTPClient            *http.Client
+	EGEPrometheusNodeHealthURL          string
+	EGEPrometheusNodeHealthTrustDomain  string
+	EGEPrometheusHTTPClient             *http.Client
+	EGEPrometheusIndependenceProfile    *EvidenceIndependenceProfileConfig
 	EnableN8NEEPAdapter                 bool
 	EASLRuntime                          *easl.Runtime
 }
@@ -177,6 +178,9 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 	if prometheusURL == "" && prometheusTrustDomain != "" {
 		return nil, fmt.Errorf("Prometheus evidence trust domain requires a Prometheus node-health URL")
 	}
+	if prometheusURL == "" && config.EGEPrometheusIndependenceProfile != nil {
+		return nil, fmt.Errorf("Prometheus independence profile requires a Prometheus node-health URL")
+	}
 	if prometheusURL != "" {
 		contributor, err := newPrometheusNodeHealthEvidenceContributor(
 			prometheusURL,
@@ -196,6 +200,25 @@ func New(controller NodeDrainController, store kubeadapter.DrainCheckpointStore,
 				egeNodeDrainEvidenceSource,
 				egePrometheusNodeHealthEvidenceSource,
 			},
+		}
+
+		if profile := config.EGEPrometheusIndependenceProfile; profile != nil {
+			if profile.MinIndependentSources < 2 {
+				return nil, fmt.Errorf("Prometheus independence profile requires at least two independent sources")
+			}
+			compositionPolicy.MinIndependentSources = profile.MinIndependentSources
+			compositionPolicy.RequiredIndependence = profile.RequiredIndependence
+			compositionPolicy.RequiredDependencyKinds = append(
+				[]string(nil),
+				profile.RequiredDependencyKinds...,
+			)
+			compositionPolicy.SourceDeclarations = make(
+				map[string]EvidenceSourceDeclarationConfig,
+				len(profile.SourceDeclarations),
+			)
+			for name, declaration := range profile.SourceDeclarations {
+				compositionPolicy.SourceDeclarations[name] = declaration
+			}
 		}
 	}
 
