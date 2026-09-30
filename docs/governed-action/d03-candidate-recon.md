@@ -32,7 +32,7 @@ post-selection control.
 | Repository | Category | Existing native/test surface | Current status |
 |---|---|---|---|
 | `maragudk/migrate` | database migration | Go `database/sql`, transactional rollback, CI | not contacted / not confirmed |
-| `padurean/gosmig` | database migration | Go + PostgreSQL integration tests, transaction/version-conflict semantics | not contacted / not confirmed |
+| `padurean/gosmig` | database migration | Go + PostgreSQL integration tests, transaction/version-conflict semantics | **contacted — awaiting response** ([issue #1](https://github.com/padurean/gosmig/issues/1)) |
 | `openmeterio/openmeter` | usage metering/billing | self-hosted Docker evaluation stack, CI, contribution guide | not contacted / not confirmed |
 | `hatchet-dev/hatchet` | durable workflows | self-hosted durable engine, unit + Docker integration testing | not contacted / not confirmed |
 | `Infisical/infisical` | secrets/credential lifecycle | self-hosted Docker path and public contribution process | not contacted / not confirmed |
@@ -45,12 +45,22 @@ held-out cohorts.
 D03 requires the independent maintainer to actually participate and to own the
 held-out cohort selection in that maintainer's existing repository.
 
-Therefore every candidate remains:
+One candidate has now been contacted, but contact is not participation:
 
 ```text
-participation = NOT_CONFIRMED
-selected = false
+padurean/gosmig:
+  participation = CONTACTED_AWAITING_RESPONSE
+  consent_confirmed = false
+  selected = false
+
+all other candidates:
+  participation = NOT_CONTACTED_NOT_CONFIRMED
+  selected = false
 ```
+
+The outreach evidence is public issue `padurean/gosmig#1`, created
+`2026-09-30T06:54:31Z`. At the time this record was written it was open with
+zero maintainer comments.
 
 No same-owner implementation, unsolicited fork, or locally invented adapter can
 convert this list into independent evidence.
@@ -75,8 +85,7 @@ frozen core.
 
 ## Next permitted action
 
-Obtain explicit participation from one listed or equivalently qualified
-independent maintainer.
+Await the maintainer response on `padurean/gosmig#1`. Explicit acceptance is required before cohort selection. Until that happens, no second outreach is needed and no held-out implementation begins.
 
 Until then:
 
