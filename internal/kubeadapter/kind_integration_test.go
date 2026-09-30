@@ -1006,3 +1006,221 @@ func waitForPDBStatus(
 	}
 }
 
+
+
+func TestKindD02CrashTakeoverAndClosureExercise(t *testing.T) {
+	env := newKindUnmanagedIntegrationEnv(t, "d02")
+	ctx := context.Background()
+	policy := integrationExecutionPolicy()
+	policy.ExecutionLockNamespace = env.namespace
+	policy.ExecutionLockDuration = 10 * time.Second
+
+	zero := int64(0)
+	secondPod, err := env.client.CoreV1().Pods(env.namespace).Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "workload-d02-second",
+			Namespace: env.namespace,
+			Labels:    map[string]string{"app": "state-latch-real-it"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:                      env.nodeName,
+			ServiceAccountName:            "default",
+			TerminationGracePeriodSeconds: &zero,
+			Containers: []corev1.Container{
+				{Name: "hold", Image: "registry.k8s.io/pause:3.10"},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create second D02 pod: %v", err)
+	}
+	_ = markPodRunningAndReady(t, env.client, *secondPod)
+
+	store, err := NewKubernetesDrainCheckpointStore(env.client, env.namespace)
+	if err != nil {
+		t.Fatalf("NewKubernetesDrainCheckpointStore returned error: %v", err)
+	}
+
+	firstReader := NewClientGoReader(env.client)
+	failAfterAccepted := &failAfterAcceptedEvictionExecutor{
+		delegate: firstReader,
+		client:   env.client,
+	}
+	crashingWorker := NewWithExperimentalMutations(firstReader, failAfterAccepted)
+
+	preparation, first := executeCheckpointedKindDrainPastPreMutationDrift(
+		t,
+		crashingWorker,
+		"act-kind-d02",
+		env.nodeName,
+		policy,
+		store,
+	)
+	if first.Decision != decision.Escalate {
+		t.Fatalf("expected injected post-acceptance interruption, got %s reasons=%v", first.Decision, first.ReasonCodes)
+	}
+	if hasReason(first.ReasonCodes, decision.ResourceVersionChanged) {
+		t.Fatalf("D02 did not reach the post-acceptance crash boundary: %v", first.ReasonCodes)
+	}
+
+	checkpoint, err := store.Load(ctx, "act-kind-d02")
+	if err != nil {
+		t.Fatalf("load shared checkpoint after crash: %v", err)
+	}
+	if checkpoint.Status != DrainExecutionPaused {
+		t.Fatalf("checkpoint status after crash = %s, want PAUSED", checkpoint.Status)
+	}
+	if len(checkpoint.CompletedPodUIDs) != 0 {
+		t.Fatalf("crash should occur before completion checkpoint, got %v", checkpoint.CompletedPodUIDs)
+	}
+
+	waitForPodNotFound(t, env.client, env.namespace, env.podName)
+
+	// Simulate a new process taking recovery custody from the shared Kubernetes
+	// checkpoint. This new adapter has no in-memory state from crashingWorker.
+	recoveryReader := NewClientGoReader(env.client)
+	recoveryWorker := NewWithExperimentalMutations(recoveryReader, recoveryReader)
+	assessment, err := recoveryWorker.InspectDrainRecovery(
+		ctx,
+		"act-kind-d02",
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("InspectDrainRecovery returned error: %v", err)
+	}
+	if assessment.State != DrainRecoveryReauthorizationNeeded {
+		t.Fatalf("recovery state = %s, want REAUTHORIZATION_REQUIRED reasons=%v", assessment.State, assessment.ReasonCodes)
+	}
+	if len(assessment.ReconciledPodUIDs) != 1 {
+		t.Fatalf("accepted pre-crash eviction was not reconciled: %v", assessment.ReconciledPodUIDs)
+	}
+	if len(assessment.RemainingPods) != 1 ||
+		assessment.RemainingPods[0].Name != "workload-d02-second" {
+		t.Fatalf("unexpected D02 remainder: %+v", assessment.RemainingPods)
+	}
+
+	// Manual takeover owns the real Kubernetes Lease. A stale worker carrying
+	// the old authorization cannot create another effect while that fence is held.
+	takeoverLease, err := recoveryReader.AcquireExecutionLock(
+		ctx,
+		policy.ExecutionLockNamespace,
+		"node/"+env.nodeName,
+		"d02-manual-takeover-owner",
+		policy.ExecutionLockDuration,
+	)
+	if err != nil {
+		t.Fatalf("AcquireExecutionLock for takeover: %v", err)
+	}
+
+	staleWhileFenced, err := crashingWorker.ResumeAuthorizedNodeDrain(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("stale ResumeAuthorizedNodeDrain returned error: %v", err)
+	}
+	if staleWhileFenced.Decision != decision.Escalate ||
+		!hasReason(staleWhileFenced.ReasonCodes, ReasonExecutionLockHeld) {
+		t.Fatalf("stale worker was not fenced: decision=%s reasons=%v", staleWhileFenced.Decision, staleWhileFenced.ReasonCodes)
+	}
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(
+		ctx,
+		"workload-d02-second",
+		metav1.GetOptions{},
+	); err != nil {
+		t.Fatalf("fenced stale worker changed remaining target: %v", err)
+	}
+
+	if err := recoveryReader.ReleaseExecutionLock(ctx, takeoverLease); err != nil {
+		t.Fatalf("ReleaseExecutionLock after takeover: %v", err)
+	}
+
+	// Losing the takeover fence does not make stale authority current again.
+	oldAuthorization, err := crashingWorker.ResumeAuthorizedNodeDrain(
+		ctx,
+		*preparation.Authorization,
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("old authorization resume returned error: %v", err)
+	}
+	if oldAuthorization.Decision == decision.Allow {
+		t.Fatal("old pre-crash authorization unexpectedly resumed the changed remainder")
+	}
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(
+		ctx,
+		"workload-d02-second",
+		metav1.GetOptions{},
+	); err != nil {
+		t.Fatalf("old authorization changed remaining target: %v", err)
+	}
+
+	fresh := prepareKindDrainWithFreshAuthorization(
+		t,
+		recoveryWorker,
+		"act-kind-d02",
+		env.nodeName,
+		policy,
+	)
+	resumed, err := recoveryWorker.ResumeAuthorizedNodeDrain(
+		ctx,
+		*fresh.Authorization,
+		env.nodeName,
+		policy,
+		store,
+	)
+	if err != nil {
+		t.Fatalf("fresh takeover resume returned error: %v", err)
+	}
+	if resumed.Decision != decision.Allow {
+		t.Fatalf("fresh takeover resume = %s reasons=%v", resumed.Decision, resumed.ReasonCodes)
+	}
+	if _, err := env.client.CoreV1().Pods(env.namespace).Get(
+		ctx,
+		"workload-d02-second",
+		metav1.GetOptions{},
+	); !apierrors.IsNotFound(err) {
+		t.Fatalf("remaining pod was not closed by fresh takeover: err=%v", err)
+	}
+
+	checkpoint, err = store.Load(ctx, "act-kind-d02")
+	if err != nil {
+		t.Fatalf("load completed shared checkpoint: %v", err)
+	}
+	if checkpoint.Status != DrainExecutionCompleted ||
+		len(checkpoint.CompletedPodUIDs) != 2 {
+		t.Fatalf("completed checkpoint = %+v", checkpoint)
+	}
+
+	// Prove the checkpoint store's claimed CAS boundary is the Kubernetes
+	// resourceVersion, not a local observation.
+	casBase, err := store.SaveVersioned(ctx, DrainExecutionCheckpoint{
+		ActionID:     "act-kind-d02-cas",
+		NodeName:     env.nodeName,
+		NodeUID:      "d02-cas-node",
+		NodeHealth:   "healthy",
+		Status:       DrainExecutionPaused,
+		LastDecision: decision.Escalate,
+		UpdatedAt:    time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("create CAS checkpoint: %v", err)
+	}
+	left := casBase
+	right := casBase
+	left.LastDecision = decision.Allow
+	if _, err := store.SaveVersioned(ctx, left); err != nil {
+		t.Fatalf("first CAS update failed: %v", err)
+	}
+	right.LastDecision = decision.Block
+	if _, err := store.SaveVersioned(ctx, right); !IsDrainCheckpointConflict(err) {
+		t.Fatalf("stale CAS update error = %v, want checkpoint conflict", err)
+	}
+}
