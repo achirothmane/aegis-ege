@@ -1,0 +1,21 @@
+{
+  "schema_version": "governed-action.change-log/v1",
+  "prior_normative_version": "",
+  "proposed_normative_version": "",
+  "affected_case_ids": [],
+  "affected_profile_ids": [],
+  "motivating_trace_ref": "",
+  "old_rule": "",
+  "new_rule": "",
+  "changes_valid_trace_acceptance": false,
+  "changes_core_relation": false,
+  "flags": {
+    "implementation": false,
+    "adapter": false,
+    "policy": false,
+    "domain_pack": false
+  },
+  "adjudicated_classification": "",
+  "design_visible_consequence": "",
+  "reviewer_attribution": []
+}
