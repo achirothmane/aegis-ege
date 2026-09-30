@@ -122,12 +122,12 @@ func TestNormativeSchemaAndFixturesAreStructurallyValid(t *testing.T) {
 	}
 }
 
-func TestCE1ThroughCE8HaveRejectedAndUsefulPositiveCounterparts(t *testing.T) {
+func TestCE1ThroughCE12HaveRejectedAndUsefulPositiveCounterparts(t *testing.T) {
 	var set normativeCaseSet
 	readJSON(t, repoPath("testdata", "governed-action", "v1", "normative-cases.json"), &set)
 
-	for n := 1; n <= 8; n++ {
-		ce := "CE" + string(rune('0'+n))
+	for n := 1; n <= 12; n++ {
+		ce := fmt.Sprintf("CE%d", n)
 		rejected := 0
 		accepted := 0
 		for _, tc := range set.Cases {
@@ -179,6 +179,37 @@ func TestCE1CallerSelectedEmptyRequirementsRemainRejected(t *testing.T) {
 		}
 	}
 	t.Fatal("CE1 rejected fixture missing")
+}
+
+func TestCE9ThroughCE12PreFreezeRefinements(t *testing.T) {
+	var set normativeCaseSet
+	readJSON(t, repoPath("testdata", "governed-action", "v1", "normative-cases.json"), &set)
+
+	requiredRejected := map[string]string{
+		"CE9-R1-trusted-inadequate-profile": "trusted-profile-adequacy/v1",
+		"CE10-R1-required-independence-unknown": "evidence-independence-model/v1",
+		"CE11-R1-consequence-state-omitted": "decision-basis-distinguishability/v1",
+		"CE12-R1-undeclared-enforcement-assumptions": "I2",
+	}
+	seen := map[string]bool{}
+	for _, tc := range set.Cases {
+		requiredViolation, ok := requiredRejected[tc.ID]
+		if !ok {
+			continue
+		}
+		seen[tc.ID] = true
+		if tc.ValidTrace {
+			t.Fatalf("%s must remain rejected", tc.ID)
+		}
+		if !contains(tc.Violates, requiredViolation) {
+			t.Fatalf("%s must identify %s", tc.ID, requiredViolation)
+		}
+	}
+	for id := range requiredRejected {
+		if !seen[id] {
+			t.Fatalf("missing pre-freeze normative case %s", id)
+		}
+	}
 }
 
 func validateCaseVerdicts(cases []normativeCase) error {
