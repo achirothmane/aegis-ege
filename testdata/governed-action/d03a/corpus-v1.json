@@ -420,6 +420,46 @@
         },
         "fixed_expected": "ALLOW_BOUND_EFFECT"
       }
+    },
+    {
+      "id": "D03A-ARGO-16294",
+      "repository": "argoproj/argo-workflows",
+      "domain": "workflow-controller-reconciliation",
+      "issue": {
+        "number": 16294,
+        "url": "https://github.com/argoproj/argo-workflows/issues/16294",
+        "state": "closed",
+        "title": "Controller can recreate a workflow pod after the workflow already completed when a stale workflow version is replayed"
+      },
+      "ground_truth": {
+        "root_cause": "A stale still-Running workflow object could re-enter reconciliation after the real workflow had already completed. The controller's recent-completion/staleness bookkeeping did not reliably reject that older resourceVersion before side effects, so the stale reconcile could reach the missing-pod creation path.",
+        "consequence": "The same workflow execution could create a second pod after successful completion. The issue records two distinct pod UIDs for the same logical execution, and another reporter observed a completed workflow step run again hours later.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/argoproj/argo-workflows/pull/16357",
+          "merge_commit": "a7a7a8dfb53a35314b81616ec35b5e3f7270b250",
+          "summary": "Track last-written resourceVersions by workflow UID and compare ordered resourceVersions so stale copies older than a completed/deleted workflow are dropped before reconciliation side effects; maintainer later confirmed #15090 and #16357 should fix #16294."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "DecisionBasis",
+          "StateBinding",
+          "ExecutionAttempt",
+          "I2",
+          "I5"
+        ],
+        "rationale": "The current workflow resourceVersion and completion state are consequence-relevant state. An older Running snapshot cannot authorize a new pod effect after a newer completed state exists; the action basis must be current before effect admission.",
+        "historical_overrides": {
+          "relevant_state_current": false
+        },
+        "historical_expected": "REJECT_BEFORE_EFFECT",
+        "historical_valid_trace": false,
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
     }
   ],
   "stop_rule": "If any incident requires changing the frozen oracle, evaluator ordering, or semantic meaning to obtain the expected safety disposition, record D03-A as a falsification failure. Do not edit candidate-kernel-contract-v1 in place.",
