@@ -4,6 +4,7 @@ package kubeadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -673,13 +674,18 @@ func executeCheckpointedKindDrainPastPreMutationDrift(
 
 	for attempt := 0; attempt < 12; attempt++ {
 		preparation := prepareKindDrainWithFreshAuthorization(t, adapter, actionID, nodeName, policy)
-		report, err := adapter.ExecuteAuthorizedNodeDrainWithCheckpointStore(
-			context.Background(),
-			*preparation.Authorization,
-			nodeName,
-			policy,
-			store,
-		)
+		// A denied pre-mutation attempt can already have retained a native
+		// checkpoint. Fresh authorization must reopen that original custody
+		// with its CAS version; it cannot create an empty replacement record.
+		var report GuardedDrainExecutionReport
+		var err error
+		if _, loadErr := store.Load(context.Background(), actionID); loadErr == nil {
+			report, err = adapter.ResumeAuthorizedNodeDrain(context.Background(), *preparation.Authorization, nodeName, policy, store)
+		} else if errors.Is(loadErr, ErrDrainCheckpointNotFound) {
+			report, err = adapter.ExecuteAuthorizedNodeDrainWithCheckpointStore(context.Background(), *preparation.Authorization, nodeName, policy, store)
+		} else {
+			t.Fatalf("load original checkpoint before fresh authorization: %v", loadErr)
+		}
 		if err != nil {
 			t.Fatalf("ExecuteAuthorizedNodeDrainWithCheckpointStore returned error: %v", err)
 		}

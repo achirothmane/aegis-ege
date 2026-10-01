@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   checkpointed-boundaries:
     runs-on: ubuntu-latest
