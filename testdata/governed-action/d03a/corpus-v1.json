@@ -381,6 +381,45 @@
         },
         "fixed_expected": "ALLOW_BOUND_EFFECT"
       }
+    },
+    {
+      "id": "D03A-ESO-6640",
+      "repository": "external-secrets/external-secrets",
+      "domain": "credential-lifecycle",
+      "issue": {
+        "number": 6640,
+        "url": "https://github.com/external-secrets/external-secrets/issues/6640",
+        "state": "closed",
+        "title": "refreshPolicy: CreatedOnce regenerates an already-existing target Secret if the ExternalSecret object itself is recreated"
+      },
+      "ground_truth": {
+        "root_cause": "refreshPolicy=CreatedOnce keyed its one-time sync decision to the ExternalSecret object's own status. Deleting and recreating that object reset the status even when the target Secret already existed; with the stateless Password generator this minted a new value and the controller could overwrite the existing Secret.",
+        "consequence": "In the reported production case, the Kubernetes Secret changed from the original Keycloak bootstrap password to a newly generated password while Keycloak's actual admin credential remained unchanged, silently diverging the stored credential from the real authority and breaking consumers.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/external-secrets/external-secrets/pull/6641",
+          "merge_commit": "40b04db4543fe3a6e6bab90447cb018a5871c25d",
+          "summary": "Add the CreateOrMerge creation policy, clarify CreatedOnce lifecycle semantics, and add tested generate-once/freeze behavior using explicit target immutability so target existence/lifecycle is not silently inferred from recreated controller status."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "DecisionBasis",
+          "StateBinding",
+          "ActionRef",
+          "I2"
+        ],
+        "rationale": "Whether a credential target already exists and whether its current value remains the authority accepted by downstream consumers are consequence-relevant state. Recreated controller status is not a sufficient substitute for binding that state before a credential mutation.",
+        "historical_overrides": {
+          "relevant_state_bound": false
+        },
+        "historical_expected": "DEFER_MISSING_RELEVANT_STATE",
+        "historical_valid_trace": false,
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
     }
   ],
   "stop_rule": "If any incident requires changing the frozen oracle, evaluator ordering, or semantic meaning to obtain the expected safety disposition, record D03-A as a falsification failure. Do not edit candidate-kernel-contract-v1 in place.",
