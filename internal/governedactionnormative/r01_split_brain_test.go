@@ -61,6 +61,7 @@ func evaluateR01(w r01World) r01Decision {
 		if w.replayE2 {
 			d.replayBlocked = false
 			d.disposition = "REJECT_SECOND_EFFECT"
+			return d
 		}
 	}
 	if !w.authorityCurrent || !w.takeoverExclusive {
