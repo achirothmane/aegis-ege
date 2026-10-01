@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'experiments/gosmig-simulation/**'
+      - 'governedaction/**'
       - 'internal/governedactionnormative/**'
       - 'testdata/governed-action/**'
       - 'docs/governed-action/gosmig-owner-simulation.md'
@@ -12,6 +13,7 @@ on:
     branches: [main]
     paths:
       - 'experiments/gosmig-simulation/**'
+      - 'governedaction/**'
       - 'internal/governedactionnormative/**'
       - 'testdata/governed-action/**'
       - '.github/workflows/gosmig-simulation.yml'
@@ -93,3 +95,4 @@ jobs:
             experiments/gosmig-simulation/simulation_test.go
             internal/governedactionnormative/gosmig_simulation_test.go
             testdata/governed-action/gosmig-simulation/registration-v1.json
+            governedaction/

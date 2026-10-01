@@ -1,0 +1,22 @@
+{
+  "schema_version": "governed-action.d04-extraction/v1",
+  "status": "PROVISIONAL_EXTRACTION",
+  "base_commit": "37d9e403c367077990dffb335ddfeabdefa4f991",
+  "development_assumption": "Owner authorized D04 on assumed D03 completion; independent D03 remains unproven",
+  "frozen_contract_changed": false,
+  "library": "github.com/achirothmane/aegis-ege/governedaction",
+  "extracted_relations": ["K01 exact native binding", "K03 finite boundary validity", "K02 custody before effect with K03 post-write revalidation"],
+  "runtime_consumers": ["CRM EEP conditional PATCH", "gosmig transactional PostgreSQL wrapper", "decision authorization used by Kubernetes"],
+  "unextracted": ["typed K04 closure", "CI Python retry-gate runtime", "domain-specific trust, policy, evidence and native enforcement"],
+  "new_crm_faults": [
+    {"schedule": "expiry-during-read", "patch_requests": 0, "durable_state": "CLAIMED"},
+    {"schedule": "expiry-during-custody", "patch_requests": 0, "durable_state": "POSSIBLE_EFFECT"},
+    {"schedule": "custody-write-fails", "patch_requests": 0, "durable_state": "CLAIMED"},
+    {"schedule": "plan-changes-during-custody", "patch_requests": 0, "durable_state": "POSSIBLE_EFFECT"},
+    {"schedule": "cancel-during-custody", "patch_requests": 0, "durable_state": "POSSIBLE_EFFECT"}
+  ],
+  "supplemental_bridge": ["CE2-R1-revision-substitution", "CE2-A1-exact-scope-reuse", "CE4-R1-effect-before-custody", "CE4-A1-custody-before-dispatch"],
+  "unchanged_regressions": {"frozen_k07_vectors": 28, "native_gosmig_cases": 13, "native_gosmig_k07_mappings": 11},
+  "positive_control": "Existing CRM one-PATCH completion and PostgreSQL G01/G05/G06/G08 useful effects must still pass",
+  "independent_generalization_claimed": false
+}

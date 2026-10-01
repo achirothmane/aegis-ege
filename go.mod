@@ -3,6 +3,7 @@ module github.com/achirothmane/aegis-ege
 go 1.25.0
 
 require (
+	github.com/achirothmane/aegis-ege/governedaction v0.0.0
 	github.com/achirothmane/easl v0.0.0-20260928052341-f7e3b79c6892
 	github.com/cilium/ebpf v0.22.0
 	github.com/google/go-attestation v0.6.4
@@ -13,6 +14,8 @@ require (
 	k8s.io/apimachinery v0.35.8
 	k8s.io/client-go v0.35.8
 )
+
+replace github.com/achirothmane/aegis-ege/governedaction => ./governedaction
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

@@ -19,6 +19,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/padurean/gosmig"
+	"github.com/achirothmane/aegis-ege/governedaction"
 )
 
 const (
@@ -72,6 +73,12 @@ func actionRef(p permit, migrationSQL string) string {
 	data, _ := json.Marshal(material)
 	h := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+func nativeBinding(database, schema, revision, profileRef string) governedaction.Binding {
+	data, _ := json.Marshal([]string{database, schema})
+	h := sha256.Sum256(data)
+	return governedaction.Binding{ActionRevision: revision, Target: "sha256:" + hex.EncodeToString(h[:]), Profile: profileRef}
 }
 
 type event struct {
@@ -212,21 +219,25 @@ func (g *guardDB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*guardTx, e
 	if !g.governed {
 		return t, nil
 	}
-	if err := t.checkBoundary(true); err != nil {
-		_ = tx.Rollback()
-		return nil, err
-	}
-	data, _ := json.Marshal(g.p)
-	// Independent autocommit connection: survives rollback or worker exit.
-	var persistedAt time.Time
-	err = g.db.QueryRowContext(ctx,
-		`INSERT INTO custody (effect_id, attempt_id, permit) VALUES ($1, $2, $3::jsonb) RETURNING created_at`,
-		g.p.EffectID, g.p.AttemptID, string(data)).Scan(&persistedAt)
+	_, err = governedaction.PrepareEffect(ctx,
+		func(context.Context) error { return t.checkBoundary(true) },
+		func(ctx context.Context) error {
+			data, err := json.Marshal(g.p)
+			if err != nil {
+				return err
+			}
+			// Independent autocommit connection: survives rollback or worker exit.
+			var persistedAt time.Time
+			err = g.db.QueryRowContext(ctx,
+				`INSERT INTO custody (effect_id, attempt_id, permit) VALUES ($1, $2, $3::jsonb) RETURNING created_at`,
+				g.p.EffectID, g.p.AttemptID, string(data)).Scan(&persistedAt)
+			if err != nil {
+				return fmt.Errorf("GS_REJECT_CUSTODY_INSERT: %w", err)
+			}
+			return appendEvent(event{Stage: "custody-durable", At: persistedAt})
+		},
+	)
 	if err != nil {
-		_ = tx.Rollback()
-		return nil, fmt.Errorf("GS_REJECT_CUSTODY_INSERT: %w", err)
-	}
-	if err := appendEvent(event{Stage: "custody-durable", At: persistedAt}); err != nil {
 		_ = tx.Rollback()
 		return nil, err
 	}
@@ -243,7 +254,7 @@ func (t *guardTx) checkBoundary(checkVersion bool) error {
 		return err
 	}
 	switch {
-	case !e.At.Before(p.ExpiresAt):
+	case governedaction.CheckValidity(p.ExpiresAt, e.At) != nil:
 		e.Reason = "EXPIRED"
 	case e.PolicyEpoch != p.PolicyEpoch || e.StateEpoch != p.StateEpoch:
 		e.Reason = "STATE"
@@ -358,15 +369,19 @@ func runMigration(p permit) error {
 		if !p.validSignature() || p.Profile != profile {
 			return reject("SIGNATURE_OR_PROFILE")
 		}
-		if p.ActionRef != actionRef(p, migrationSQL) {
-			return reject("REVISION")
-		}
 		var database, schema string
 		if err := db.QueryRow(`SELECT current_database(), current_schema()`).Scan(&database, &schema); err != nil {
 			_ = db.Close()
 			return nil, err
 		}
-		if database != p.Database || schema != p.Schema {
+		if err := governedaction.CheckBinding(
+			nativeBinding(p.Database, p.Schema, p.ActionRef, p.Profile),
+			nativeBinding(database, schema, actionRef(p, migrationSQL), profile),
+		); err != nil {
+			var mismatch *governedaction.BindingError
+			if errors.As(err, &mismatch) && mismatch.Field == governedaction.ActionRevisionField {
+				return reject("REVISION")
+			}
 			return reject("TARGET")
 		}
 		var exists bool
