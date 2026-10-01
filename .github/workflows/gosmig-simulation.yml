@@ -1,0 +1,90 @@
+name: gosmig PostgreSQL owner simulation
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/gosmig-simulation/**'
+      - 'internal/governedactionnormative/**'
+      - 'testdata/governed-action/**'
+      - 'docs/governed-action/gosmig-owner-simulation.md'
+      - '.github/workflows/gosmig-simulation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/gosmig-simulation/**'
+      - 'internal/governedactionnormative/**'
+      - 'testdata/governed-action/**'
+      - '.github/workflows/gosmig-simulation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-postgresql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: gosmig_fixture
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U postgres -d gosmig_fixture'
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GOSMIG_SIM_ADMIN_DSN: postgres://postgres:fixture-only@localhost:5432/gosmig_fixture?sslmode=disable
+      GS_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      GOSMIG_SIM_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/native-evidence.json
+      GOSMIG_SIM_ORACLE_RESULT: ${{ github.workspace }}/gosmig-evidence/k07-result.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - name: Resolve pinned dependency and format implementation
+        working-directory: experiments/gosmig-simulation
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/gosmig-evidence"
+          gofmt -w guard.go simulation_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go
+          go mod tidy
+          go mod verify
+          go list -m -json github.com/padurean/gosmig > "$GITHUB_WORKSPACE/gosmig-evidence/upstream-module.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ['GITHUB_WORKSPACE']) / 'gosmig-evidence/upstream-module.json'
+          m = json.loads(p.read_text())
+          assert m['Version'] == 'v0.0.0-20251102200842-f2cc69c685d6', m
+          assert not m.get('Replace'), m
+          PY
+      - name: Execute all preregistered native schedules
+        working-directory: experiments/gosmig-simulation
+        run: go test -count=1 -v ./... | tee "$GITHUB_WORKSPACE/gosmig-evidence/native-test.log"
+      - name: Verify frozen contract and unchanged K07 dispositions
+        run: |
+          test -s "$GOSMIG_SIM_EVIDENCE"
+          go test -count=1 -v ./internal/governedactionnormative | tee gosmig-evidence/frozen-k07-test.log
+          test -s "$GOSMIG_SIM_ORACLE_RESULT"
+      - name: Preserve native observations and resolved source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosmig-native-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            gosmig-evidence/
+            experiments/gosmig-simulation/go.mod
+            experiments/gosmig-simulation/go.sum
+            experiments/gosmig-simulation/guard.go
+            experiments/gosmig-simulation/simulation_test.go
+            internal/governedactionnormative/gosmig_simulation_test.go
+            testdata/governed-action/gosmig-simulation/registration-v1.json
