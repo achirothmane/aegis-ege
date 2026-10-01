@@ -24,8 +24,8 @@ jobs:
         with:
           go-version: '1.25.3'
           cache: false
-      - name: Resolve formatting for initial review
-        run: gofmt -w internal/kubeadapter/shared_boundary*.go internal/kubeadapter/real_execution.go
+      - name: Verify committed formatting
+        run: test -z "$(gofmt -l internal/kubeadapter/shared_boundary*.go internal/kubeadapter/real_execution.go)"
       - name: Verify dependencies and shared library identity
         run: |
           mkdir -p shared-boundary-evidence
@@ -33,6 +33,7 @@ jobs:
           go mod verify
           sha256sum governedaction/go.mod governedaction/boundary.go governedaction/boundary_test.go > shared-boundary-evidence/library-sha256.txt
           git diff --exit-code -- go.mod go.sum
+          git diff --quiet
       - name: Test unit adapters with race detector
         run: go test -mod=readonly -race -count=1 -json ./internal/kubeadapter ./internal/eepcrm ./internal/decision ./internal/governedactionnormative | tee shared-boundary-evidence/unit.jsonl
       - name: Test standalone library
@@ -46,6 +47,17 @@ jobs:
           echo "KUBECONFIG=$RUNNER_TEMP/shared-kubeconfig" >> "$GITHUB_ENV"
       - name: Test all native Kubernetes effects and recovery
         run: go test -mod=readonly -tags=integration -count=1 -run '^TestKind' -json ./internal/kubeadapter ./internal/server ./internal/journal | tee shared-boundary-evidence/native-kind.jsonl
+      - name: Record exact source and unchanged library
+        if: always()
+        run: |
+          mkdir -p shared-boundary-evidence
+          python3 - <<'PYCODE'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          paths=['governedaction/go.mod','governedaction/boundary.go','governedaction/boundary_test.go','internal/kubeadapter/real_execution.go','internal/kubeadapter/shared_boundary.go','internal/kubeadapter/shared_boundary_test.go','internal/kubeadapter/shared_boundary_kind_test.go','testdata/governed-action/shared-boundaries/registration-v1.json']
+          value={'schema':'shared-native-boundaries.source/v1','head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],'working_tree_clean':subprocess.call(['git','diff','--quiet'])==0,'sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}}
+          Path('shared-boundary-evidence/provenance.json').write_text(json.dumps(value,indent=2)+'\n')
+          PYCODE
       - name: Preserve native evidence and resolved sources
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,0 +1,19 @@
+{
+  "schema": "shared-native-boundaries.kubernetes-registration/v1",
+  "classification": "PROVISIONAL_OWNER_EXPERIMENT",
+  "official_D05_registration": false,
+  "D03_PASS": false,
+  "independent_participation": false,
+  "library_commit": "a902f1dddf8f234955d0797a2b62b8cfa647be78",
+  "library_boundary_sha256": "73f6c5626f3c72f6eeff5e7a95ab770364211cbcd4a67bd96bb3295042e7147a",
+  "oracle_changes_permitted": false,
+  "scope": "Existing checkpointed node-drain and fresh-authorization recovery only",
+  "effect_boundaries": ["native Node cordon with resourceVersion precondition", "native eviction of exact authorized Pod UID"],
+  "unit_schedules": ["cordon/expiry", "cordon/state-change", "cordon/lease-loss", "cordon/custody-ack-loss", "eviction/expiry", "eviction/state-change", "eviction/lease-loss", "eviction/custody-ack-loss"],
+  "native_schedules": ["expiry during native ConfigMap retention before cordon", "expiry during native ConfigMap retention before eviction", "existing useful checkpointed drain", "existing crash-after-accepted-eviction, read-only reconciliation and fresh-scope resume", "existing native stale checkpoint CAS rejection"],
+  "native_success_requires": ["no native effect after invalidation", "original node and authorized Pod UID custody survives reopening", "useful positive execution still succeeds", "accepted prior eviction is reconciled without duplicate UID effect", "unchanged shared library and frozen K07 oracle", "all existing native PostgreSQL schedules still pass"],
+  "TCB": ["trusted adapter callbacks and API observations", "durable checkpoint store under its declared failure model", "cooperative executor lease", "native node resourceVersion and Pod UID preconditions"],
+  "known_limits": ["legacy no-checkpoint path is not extracted", "lease renewal does not establish target-enforced generation fencing", "no claim of universal complete mediation or independent D03 PASS"],
+  "exploratory_bootstrap_run": 36808256348,
+  "bootstrap_qualifies_as_final_immutable_validation": false
+}

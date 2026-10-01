@@ -71,7 +71,7 @@ func (a *Adapter) dispatchDrainMutation(
 			return &drainBoundaryDenial{
 				decision: decision.Escalate,
 				reasons:  []decision.ReasonCode{ReasonExecutionCheckpointUnavailable},
-				cause:   err,
+				cause:    err,
 			}
 		}
 		return nil
@@ -86,7 +86,7 @@ func (a *Adapter) checkDrainLeaseAndTime(ctx context.Context, guard *executionLe
 		return &drainBoundaryDenial{
 			decision: decision.Escalate,
 			reasons:  []decision.ReasonCode{ReasonExecutionLockLost},
-			cause:   err,
+			cause:    err,
 		}
 	}
 	// Check again after native reads/lease renewal; those calls can consume the
@@ -95,7 +95,7 @@ func (a *Adapter) checkDrainLeaseAndTime(ctx context.Context, guard *executionLe
 		return &drainBoundaryDenial{
 			decision: decision.Escalate,
 			reasons:  []decision.ReasonCode{decision.AuthorizationExpired},
-			cause:   err,
+			cause:    err,
 		}
 	}
 	return nil
