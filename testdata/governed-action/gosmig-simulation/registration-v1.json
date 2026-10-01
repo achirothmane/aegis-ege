@@ -1,0 +1,254 @@
+{
+  "schema_version": "governed-action.gosmig-simulation-registration/v1",
+  "experiment_id": "gosmig-postgresql-owner-simulation-v1",
+  "classification": "SAME_OWNER_SUPPLEMENTAL_FALSIFICATION",
+  "upstream": {
+    "repository": "padurean/gosmig",
+    "commit": "f2cc69c685d654990d01582cb68b2c5b097cb36d",
+    "module_version": "v0.0.0-20251102200842-f2cc69c685d6"
+  },
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "claims": {
+    "independent_participation": false,
+    "d03_pass": false,
+    "d04_library_extraction": false,
+    "full_platform_kernel": false
+  },
+  "criteria": [
+    "Run unmodified pinned gosmig against a real isolated PostgreSQL service, not an in-memory SQL imitation.",
+    "The permitted native and governed paths each commit exactly one useful migration; deny-all fails.",
+    "Reject stale state, expired authority, and altered migration bytes without a committed target effect.",
+    "Persist signed original effect/attempt custody durably before the migration can commit; never overwrite it.",
+    "Lost receipt and process loss preserve an unknown dispatch receipt. Exact read-only postcondition may close the obligation; absence or mismatch stays UNKNOWN/OPEN.",
+    "No recovery invocation may re-run a possibly committed migration. Read-only observation must leave native tables, timestamps, and custody bytes unchanged.",
+    "Advance the native destination fence before releasing the stale worker, prove it is blocked while native version is still zero, then execute once with a fresh owner permit.",
+    "Use unchanged evaluateK07 and frozen oracle bytes for the registered supplemental dispositions; these do not redefine D03."
+  ],
+  "cases": [
+    {
+      "case_id": "N01",
+      "schedule": "native normal migration",
+      "faults": [
+        "none"
+      ],
+      "expected": {
+        "worker_exits": [
+          0
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 0,
+        "observation": "NOT_RUN",
+        "k07_disposition": "CONTROL_ONLY"
+      }
+    },
+    {
+      "case_id": "N02",
+      "schedule": "native migration after policy/state epoch change",
+      "faults": [
+        "state-drift"
+      ],
+      "expected": {
+        "worker_exits": [
+          0
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 0,
+        "observation": "NOT_RUN",
+        "k07_disposition": "CONTROL_ONLY"
+      }
+    },
+    {
+      "case_id": "G01",
+      "schedule": "governed normal migration",
+      "faults": [
+        "none"
+      ],
+      "expected": {
+        "worker_exits": [
+          0
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 1,
+        "observation": "VERIFIED/CLOSED",
+        "k07_disposition": "ALLOW_BOUND_EFFECT"
+      }
+    },
+    {
+      "case_id": "G02",
+      "schedule": "policy and relevant-state epochs change after issuance",
+      "faults": [
+        "state-drift"
+      ],
+      "expected": {
+        "worker_exits": [
+          5
+        ],
+        "effects": 0,
+        "versions": 0,
+        "custody": 0,
+        "observation": "NOT_RUN",
+        "k07_disposition": "REJECT_BEFORE_EFFECT"
+      }
+    },
+    {
+      "case_id": "G03",
+      "schedule": "permit expires before transaction entry",
+      "faults": [
+        "expired-before-tx"
+      ],
+      "expected": {
+        "worker_exits": [
+          5
+        ],
+        "effects": 0,
+        "versions": 0,
+        "custody": 0,
+        "observation": "NOT_RUN",
+        "k07_disposition": "REJECT_BEFORE_EFFECT"
+      }
+    },
+    {
+      "case_id": "G04",
+      "schedule": "migration SQL differs from signed ActionRef",
+      "faults": [
+        "wrong-revision"
+      ],
+      "expected": {
+        "worker_exits": [
+          2
+        ],
+        "effects": 0,
+        "versions": 0,
+        "custody": 0,
+        "observation": "NOT_RUN",
+        "k07_disposition": "REJECT_BEFORE_EFFECT"
+      }
+    },
+    {
+      "case_id": "G05",
+      "schedule": "real PostgreSQL COMMIT succeeds; Commit returns injected error",
+      "faults": [
+        "lost-response"
+      ],
+      "expected": {
+        "worker_exits": [
+          5
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 1,
+        "observation": "VERIFIED/CLOSED",
+        "k07_disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION"
+      }
+    },
+    {
+      "case_id": "G06",
+      "schedule": "worker exits immediately after real COMMIT; new read-only observer after expiry",
+      "faults": [
+        "crash-after-commit"
+      ],
+      "expected": {
+        "worker_exits": [
+          93
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 1,
+        "observation": "VERIFIED/CLOSED",
+        "k07_disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION"
+      }
+    },
+    {
+      "case_id": "G07",
+      "schedule": "worker exits after migration SQL but before COMMIT",
+      "faults": [
+        "crash-before-commit"
+      ],
+      "expected": {
+        "worker_exits": [
+          94
+        ],
+        "effects": 0,
+        "versions": 0,
+        "custody": 1,
+        "observation": "UNKNOWN/OPEN",
+        "k07_disposition": "RETAIN_POSSIBLE_EFFECT"
+      }
+    },
+    {
+      "case_id": "G08",
+      "schedule": "old worker pauses before transaction; destination fence advances; old rejected before new worker executes",
+      "faults": [
+        "pause-before-tx",
+        "none"
+      ],
+      "expected": {
+        "worker_exits": [
+          5,
+          0
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 1,
+        "observation": "VERIFIED/CLOSED",
+        "k07_disposition": "ALLOW_SAFE_RECOVERY_OR_BLOCK"
+      }
+    },
+    {
+      "case_id": "G09",
+      "schedule": "permit expires after migration SQL but before COMMIT boundary check",
+      "faults": [
+        "pause-before-commit"
+      ],
+      "expected": {
+        "worker_exits": [
+          5
+        ],
+        "effects": 0,
+        "versions": 0,
+        "custody": 1,
+        "observation": "UNKNOWN/OPEN",
+        "k07_disposition": "REJECT_BEFORE_EFFECT"
+      }
+    },
+    {
+      "case_id": "G10",
+      "schedule": "committed marker is changed to an unrelated revision before observation",
+      "faults": [
+        "none"
+      ],
+      "expected": {
+        "worker_exits": [
+          0
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 1,
+        "observation": "UNKNOWN/OPEN",
+        "k07_disposition": "RETAIN_POSSIBLE_EFFECT"
+      }
+    },
+    {
+      "case_id": "G11",
+      "schedule": "lost response followed by a blind replay with a fresh permit",
+      "faults": [
+        "lost-response",
+        "none"
+      ],
+      "expected": {
+        "worker_exits": [
+          5,
+          2
+        ],
+        "effects": 1,
+        "versions": 1,
+        "custody": 1,
+        "observation": "VERIFIED/CLOSED",
+        "k07_disposition": "REJECT_SECOND_EFFECT"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1428 @@
+{
+  "schema_version": "governed-action.gosmig-native-evidence/v1",
+  "experiment_id": "gosmig-postgresql-owner-simulation-v1",
+  "classification": "SAME_OWNER_SUPPLEMENTAL_FALSIFICATION",
+  "source_head": "a43dd51e487301fb7900d5346ad471469182be8a",
+  "registration_commit": "efdffa811a272128248476b273392feb3d369814",
+  "registration_blob": "1942ec24e31f849e07177d14bb244003ccd8b51e",
+  "upstream_commit": "f2cc69c685d654990d01582cb68b2c5b097cb36d",
+  "upstream_version": "v0.0.0-20251102200842-f2cc69c685d6",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "postgresql_version": "PostgreSQL 16.6 (Debian 16.6-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit",
+  "independent_participation": false,
+  "d03_pass": false,
+  "passed": false,
+  "cases": [
+    {
+      "case_id": "N01",
+      "schedule": "native normal migration",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_n01",
+        "effect_id": "effect.N01",
+        "attempt_id": "attempt.N01.a",
+        "action_ref": "sha256:4fd978a7e4f1fe407ead32f064f938aa2e182d46ca2fe5486deee2d410170b11",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:48.320642Z",
+        "signature": "c4ba20d7daa928722d3500a6ba93b899ceb9dfb6be3efcb7d7c6a4a172279b87"
+      },
+      "workers": [
+        {
+          "fault": "none",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false
+    },
+    {
+      "case_id": "N02",
+      "schedule": "native migration after policy/state epoch change",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_n02",
+        "effect_id": "effect.N02",
+        "attempt_id": "attempt.N02.a",
+        "action_ref": "sha256:07d49ca0370dae09417ee6180632aa6890ba7f05eabc6f1704a0a08532ee5c32",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:48.357214Z",
+        "signature": "8752260c8ef2e5618f5c8f26ad8d2846bd8e2a293507af119b79c5b6831d5ca8"
+      },
+      "workers": [
+        {
+          "fault": "state-drift",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 2,
+              "policy_epoch": 2
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 2,
+              "policy_epoch": 2
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 2,
+          "policy_epoch": 2
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false
+    },
+    {
+      "case_id": "G01",
+      "schedule": "governed normal migration",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g01",
+        "effect_id": "effect.G01",
+        "attempt_id": "attempt.G01.a",
+        "action_ref": "sha256:e0a55ac0e2fc76af673cfd8875ec781087e4900ad04c452d0a602e2797d97ce7",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:48.390958Z",
+        "signature": "eea04f74bc7bacdd58a77d9a6d7c163dd54b5b22f540198a6c418b8b48f6935f"
+      },
+      "workers": [
+        {
+          "fault": "none",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": true,
+      "trace": {
+        "action_ref": "sha256:e0a55ac0e2fc76af673cfd8875ec781087e4900ad04c452d0a602e2797d97ce7",
+        "attempt_id": "attempt.G01.a",
+        "case_id": "G01",
+        "effect_id": "effect.G01",
+        "fault_schedule": "governed normal migration",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G01"
+      }
+    },
+    {
+      "case_id": "G02",
+      "schedule": "policy and relevant-state epochs change after issuance",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g02",
+        "effect_id": "effect.G02",
+        "attempt_id": "attempt.G02.a",
+        "action_ref": "sha256:a1a6ed7a528052d18228486fb478bb202335a94927d369b90850d958d8b2c9c6",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:48.437316Z",
+        "signature": "486d35f13c5535aa0aea9bb08f7c52a16c77e35a8ee773311990d45b8a58bce1"
+      },
+      "workers": [
+        {
+          "fault": "state-drift",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 2,
+              "policy_epoch": 2
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 2,
+              "policy_epoch": 2
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 2,
+          "policy_epoch": 2
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false,
+      "trace": {
+        "action_ref": "sha256:a1a6ed7a528052d18228486fb478bb202335a94927d369b90850d958d8b2c9c6",
+        "attempt_id": "attempt.G02.a",
+        "case_id": "G02",
+        "effect_id": "effect.G02",
+        "fault_schedule": "policy and relevant-state epochs change after issuance",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G02"
+      }
+    },
+    {
+      "case_id": "G03",
+      "schedule": "permit expires before transaction entry",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g03",
+        "effect_id": "effect.G03",
+        "attempt_id": "attempt.G03.a",
+        "action_ref": "sha256:5644db9ebc9cfc39522f89af8a4b3023f07176e148ae96bc339a17540be84034",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:17.471488Z",
+        "signature": "ad823c86a73d5e0bef8f4e721e7b05de489a761e38f66255ba52b8367c477bb0"
+      },
+      "workers": [
+        {
+          "fault": "expired-before-tx",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false,
+      "trace": {
+        "action_ref": "sha256:5644db9ebc9cfc39522f89af8a4b3023f07176e148ae96bc339a17540be84034",
+        "attempt_id": "attempt.G03.a",
+        "case_id": "G03",
+        "effect_id": "effect.G03",
+        "fault_schedule": "permit expires before transaction entry",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G03"
+      }
+    },
+    {
+      "case_id": "G04",
+      "schedule": "migration SQL differs from signed ActionRef",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g04",
+        "effect_id": "effect.G04",
+        "attempt_id": "attempt.G04.a",
+        "action_ref": "sha256:f2d838ff11449fafa4efbc52e180f1475089f943f7641f62fee7334250755f10",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:48.505093Z",
+        "signature": "322f237ae87fb96a88bac256eddb2c2372280c55f8981ca8b39304b73eaa4e46"
+      },
+      "workers": [
+        {
+          "fault": "wrong-revision",
+          "exit_code": 2,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nGS_REJECT_REVISION\n",
+          "events": [
+            {
+              "stage": "admission-rejected",
+              "reason": "REVISION",
+              "at": "2026-10-01T00:55:18.515769861Z"
+            }
+          ],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false,
+      "trace": {
+        "action_ref": "sha256:f2d838ff11449fafa4efbc52e180f1475089f943f7641f62fee7334250755f10",
+        "attempt_id": "attempt.G04.a",
+        "case_id": "G04",
+        "effect_id": "effect.G04",
+        "fault_schedule": "migration SQL differs from signed ActionRef",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": false,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G04"
+      }
+    },
+    {
+      "case_id": "G05",
+      "schedule": "real PostgreSQL COMMIT succeeds; Commit returns injected error",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g05",
+        "effect_id": "effect.G05",
+        "attempt_id": "attempt.G05.a",
+        "action_ref": "sha256:7dc822cee5274cd206b69699f302138fda079563fbb3a63b4d9f5f679a8d1b9f",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:48.537957Z",
+        "signature": "d223cd3b53f5c39fedd29ad760aa9647eeec05ae8783e51eb951827e7eb616c7"
+      },
+      "workers": [
+        {
+          "fault": "lost-response",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": true,
+      "trace": {
+        "action_ref": "sha256:7dc822cee5274cd206b69699f302138fda079563fbb3a63b4d9f5f679a8d1b9f",
+        "attempt_id": "attempt.G05.a",
+        "case_id": "G05",
+        "effect_id": "effect.G05",
+        "fault_schedule": "real PostgreSQL COMMIT succeeds; Commit returns injected error",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G05"
+      }
+    },
+    {
+      "case_id": "G06",
+      "schedule": "worker exits immediately after real COMMIT; new read-only observer after expiry",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g06",
+        "effect_id": "effect.G06",
+        "attempt_id": "attempt.G06.a",
+        "action_ref": "sha256:afca1de435ee66082b09bf54cd8f55293527eaaa98645f57be95a801b0edb91e",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:20.585142Z",
+        "signature": "86922643c975acabf99346cc38de5e4afd519c33fe4b72ae47aa1da088e90481"
+      },
+      "workers": [
+        {
+          "fault": "crash-after-commit",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": true,
+      "trace": {
+        "action_ref": "sha256:afca1de435ee66082b09bf54cd8f55293527eaaa98645f57be95a801b0edb91e",
+        "attempt_id": "attempt.G06.a",
+        "case_id": "G06",
+        "effect_id": "effect.G06",
+        "fault_schedule": "worker exits immediately after real COMMIT; new read-only observer after expiry",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G06"
+      }
+    },
+    {
+      "case_id": "G07",
+      "schedule": "worker exits after migration SQL but before COMMIT",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g07",
+        "effect_id": "effect.G07",
+        "attempt_id": "attempt.G07.a",
+        "action_ref": "sha256:1b575e9555ab6fb4a29567f4b2f7c286a08e3c84750f6082dcd4385d1bec1b96",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:50.625327Z",
+        "signature": "5091495038c34772235d594e2dc5f98bfb43e454b222ce466d4e13789c85c48c"
+      },
+      "workers": [
+        {
+          "fault": "crash-before-commit",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": true,
+      "trace": {
+        "action_ref": "sha256:1b575e9555ab6fb4a29567f4b2f7c286a08e3c84750f6082dcd4385d1bec1b96",
+        "attempt_id": "attempt.G07.a",
+        "case_id": "G07",
+        "effect_id": "effect.G07",
+        "fault_schedule": "worker exits after migration SQL but before COMMIT",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G07"
+      }
+    },
+    {
+      "case_id": "G08",
+      "schedule": "old worker pauses before transaction; destination fence advances; old rejected before new worker executes",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g08",
+        "effect_id": "effect.G08",
+        "attempt_id": "attempt.G08.a",
+        "action_ref": "sha256:13be19da4b0c022eff5facd758f2bf6416e0507cadaaf4b3d674ac4a7e95914f",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:50.674015Z",
+        "signature": "ca19f3bd874f03fe81da7285d885fa91e52b31ab75f3e8e647a18a848c49d8d3"
+      },
+      "workers": [],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false,
+      "trace": {
+        "action_ref": "sha256:13be19da4b0c022eff5facd758f2bf6416e0507cadaaf4b3d674ac4a7e95914f",
+        "attempt_id": "attempt.G08.a",
+        "case_id": "G08",
+        "effect_id": "effect.G08",
+        "fault_schedule": "old worker pauses before transaction; destination fence advances; old rejected before new worker executes",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": true,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G08"
+      }
+    },
+    {
+      "case_id": "G09",
+      "schedule": "permit expires after migration SQL but before COMMIT boundary check",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g09",
+        "effect_id": "effect.G09",
+        "attempt_id": "attempt.G09.a",
+        "action_ref": "sha256:8a93b132f28314e02f961b1466f2b01f29af056a886333e2733df880cc71bb9b",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:55:32.706354Z",
+        "signature": "2b1a471c7379ecb85d3fab089bae905deef3fea5b20f2dad1eb594415de31b15"
+      },
+      "workers": [],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false,
+      "trace": {
+        "action_ref": "sha256:8a93b132f28314e02f961b1466f2b01f29af056a886333e2733df880cc71bb9b",
+        "attempt_id": "attempt.G09.a",
+        "case_id": "G09",
+        "effect_id": "effect.G09",
+        "fault_schedule": "permit expires after migration SQL but before COMMIT boundary check",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G09"
+      }
+    },
+    {
+      "case_id": "G10",
+      "schedule": "committed marker is changed to an unrelated revision before observation",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g10",
+        "effect_id": "effect.G10",
+        "attempt_id": "attempt.G10.a",
+        "action_ref": "sha256:b3f0521a1e26a8c58c663253535548401f4943ee69a25b2a2ba8be297b0f0c3b",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:56:10.736842Z",
+        "signature": "e82fee2d5023d94b14a5f7a92f6cc4cc53a8a6dee0b4e24cd5b4d5b378963a24"
+      },
+      "workers": [
+        {
+          "fault": "none",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": false,
+      "trace": {
+        "action_ref": "sha256:b3f0521a1e26a8c58c663253535548401f4943ee69a25b2a2ba8be297b0f0c3b",
+        "attempt_id": "attempt.G10.a",
+        "case_id": "G10",
+        "effect_id": "effect.G10",
+        "fault_schedule": "committed marker is changed to an unrelated revision before observation",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": false,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G10"
+      }
+    },
+    {
+      "case_id": "G11",
+      "schedule": "lost response followed by a blind replay with a fresh permit",
+      "original_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g11",
+        "effect_id": "effect.G11",
+        "attempt_id": "attempt.G11.a",
+        "action_ref": "sha256:bda88ad835eeb51717b226e16e6b08a64fc9fee9c437ea908ee6dba2df2cfdc1",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:56:10.769768Z",
+        "signature": "df5a92d7ca7c1f072f2ba84f5f2b0a2e1d767e2248ca4503feab7ee70514614b"
+      },
+      "requested_permit": {
+        "profile": "gosmig.fixed-transactional-migration/owner-simulation-v1",
+        "database": "gosmig_fixture",
+        "schema": "gs_g11",
+        "effect_id": "effect.G11",
+        "attempt_id": "attempt.G11.b",
+        "action_ref": "sha256:2c61862e8721bb475147a22df9182de43531aed0581a0b659e7dda306fd69b15",
+        "owner": "worker-a",
+        "policy_epoch": 1,
+        "state_epoch": 1,
+        "fence": 1,
+        "expected_version": 0,
+        "expires_at": "2026-10-01T00:56:10.78319Z",
+        "signature": "ec170fd8385ce0d2cdb1c4cde564ff7828d603cc666c928bb435ca2d526e2361"
+      },
+      "workers": [
+        {
+          "fault": "lost-response",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        },
+        {
+          "fault": "none",
+          "exit_code": 4,
+          "output": "Usage: gosmig \u003cdb_url\u003e \u003cup|up-one|down|status|version\u003e\nfailed to create migrations table if not exists: GS_REJECT_NONTRANSACTIONAL_SQL\n",
+          "events": [],
+          "before": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          },
+          "after": {
+            "authority": {
+              "fence": 1,
+              "owner": "worker-a",
+              "singleton": true,
+              "state_epoch": 1,
+              "policy_epoch": 1
+            },
+            "custody": [],
+            "metadata": [],
+            "target": null,
+            "effects": 0,
+            "versions": 0,
+            "custody_count": 0
+          }
+        }
+      ],
+      "final": {
+        "authority": {
+          "fence": 1,
+          "owner": "worker-a",
+          "singleton": true,
+          "state_epoch": 1,
+          "policy_epoch": 1
+        },
+        "custody": [],
+        "metadata": [],
+        "target": null,
+        "effects": 0,
+        "versions": 0,
+        "custody_count": 0
+      },
+      "observations": [],
+      "observation_label": "NOT_RUN",
+      "observation_unchanged": false,
+      "read_only_mutation_denied": true,
+      "trace": {
+        "action_ref": "sha256:bda88ad835eeb51717b226e16e6b08a64fc9fee9c437ea908ee6dba2df2cfdc1",
+        "attempt_id": "attempt.G11.a",
+        "case_id": "G11",
+        "effect_id": "effect.G11",
+        "fault_schedule": "lost response followed by a blind replay with a fresh permit",
+        "input": {
+          "already_satisfied": false,
+          "complete_mediation": true,
+          "current_witnesses": true,
+          "custody_before_dispatch": true,
+          "destination_cas": true,
+          "destination_fencing_effective": false,
+          "domain": "gosmig_postgresql_owner_simulation",
+          "effect_can_survive_process": true,
+          "emit_effect": false,
+          "enforcement_boundary_declared": true,
+          "hard_precondition_required": true,
+          "independence_satisfied": false,
+          "observation_gap": false,
+          "possible_effect_exists": false,
+          "postcondition_exact": false,
+          "profile_adequate": true,
+          "profile_trusted": true,
+          "relevant_state_bound": true,
+          "relevant_state_current": true,
+          "required_independence": false,
+          "residual_custody": false,
+          "revision_exact": true,
+          "safe_substitution_proven": false,
+          "seed_mode": "",
+          "stale_worker_can_act": false,
+          "substitution_requested": true,
+          "takeover_blocked": false,
+          "takeover_requested": false,
+          "terminal_unknown_authorized": false,
+          "verified_outcome_claim": false
+        },
+        "observation_ref": "native-postgresql:G11"
+      }
+    }
+  ]
+}

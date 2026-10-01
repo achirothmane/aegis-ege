@@ -1,0 +1,10 @@
+{
+	"Path": "github.com/padurean/gosmig",
+	"Version": "v0.0.0-20251102200842-f2cc69c685d6",
+	"Time": "2025-11-02T20:08:42Z",
+	"Dir": "/home/runner/go/pkg/mod/github.com/padurean/gosmig@v0.0.0-20251102200842-f2cc69c685d6",
+	"GoMod": "/home/runner/go/pkg/mod/cache/download/github.com/padurean/gosmig/@v/v0.0.0-20251102200842-f2cc69c685d6.mod",
+	"GoVersion": "1.25.3",
+	"Sum": "h1:yHbdUdCUGrbAd4Hb2zAQA9q3xtlXhUDDrVIKY+aYyvs=",
+	"GoModSum": "h1:8uK75Ki14ziipR+eF3QAdESC4D+uRPNfvjb8UrDHwJk="
+}
