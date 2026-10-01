@@ -160,20 +160,21 @@ func TestC10OpenWorkCannotCountAsMainCapability(t *testing.T) {
 		}
 	}
 
-	mergedCorrections := 0
+	targetedCorrections := 0
 	for _, correction := range record.ClaimCorrections {
-		if correction.Merged != nil {
-			if !*correction.Merged {
-				t.Fatalf("C10 claim correction remains unmerged: %+v", correction)
-			}
-			mergedCorrections++
-			if correction.PR <= 0 || len(correction.Head) != 40 || len(correction.Merge) != 40 {
-				t.Fatalf("merged correction lacks exact PR/head/merge provenance: %+v", correction)
-			}
+		if correction.PR <= 0 {
+			continue
+		}
+		targetedCorrections++
+		if correction.Merged == nil || !*correction.Merged {
+			t.Fatalf("C10 targeted claim correction remains unmerged: %+v", correction)
+		}
+		if len(correction.Head) != 40 || len(correction.Merge) != 40 {
+			t.Fatalf("merged correction lacks exact PR/head/merge provenance: %+v", correction)
 		}
 	}
-	if mergedCorrections != 3 {
-		t.Fatalf("merged C10 claim corrections = %d, want 3", mergedCorrections)
+	if targetedCorrections != 3 {
+		t.Fatalf("targeted C10 claim corrections = %d, want 3", targetedCorrections)
 	}
 	if !record.CompletionGate.AllMaterialClaimsSupportedOrCorrected {
 		t.Fatal("C10 completion gate must be true after all material corrections merge")
