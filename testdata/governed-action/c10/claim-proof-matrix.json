@@ -1,0 +1,458 @@
+{
+  "schema_version": "governed-action.c10-claim-proof-provenance/v1",
+  "status": "IN_PROGRESS",
+  "audited_at": "2026-10-01",
+  "purpose": "Reconcile material portfolio claims with merged implementation/test/release evidence and explicitly separate process claims from enforced repository controls.",
+  "scope": {
+    "completed_correctness_items": [
+      "C01",
+      "C02",
+      "C03",
+      "C04",
+      "C05",
+      "C06",
+      "C07",
+      "C08",
+      "C09"
+    ],
+    "no_architecture_change": true,
+    "no_repository_settings_change": true,
+    "no_distribution_claim": true
+  },
+  "current_heads": {
+    "achirothmane/aegis-ege": "4064daa961115520c819b86ee81c99e1beaca230",
+    "achirothmane/workflow-failure-lab": "a1b64f077fa55a0cc787cbde78a4fd84a39ae2ca",
+    "achirothmane/easl": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
+    "achirothmane/agent-action-guard": "5276336cec396a0ac0b77d45eb5b981b01d7d7ea",
+    "achirothmane/assumption-gate-": "435bc970c10dda83b786677ce9cc98ab9eac3799",
+    "achirothmane/token-governance-protocol": "7b38fc9af5cf9934fec5842b8e195b9a2d3c2d4f",
+    "achirothmane/private-code-modernization-factory": "48310eaa8ccae31da4a32e38c1f75172c0f76733"
+  },
+  "repairs": [
+    {
+      "id": "C01",
+      "claim": "Aegis governed node-drain mutation paths no longer rely on the weaker legacy governance route covered by the repair.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 68,
+          "merge": "a4fb223caea1e03eea1939a2e0ad4974850653f3",
+          "title": "C01: close legacy node-drain governance bypass"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C02",
+      "claim": "ModFactory verification binds the actual candidate bytes/oracle identity; accidental no-op/partial/unexpected materialization cannot silently PASS, and an intentional no-op is an explicit REVIEW-only path.",
+      "evidence": [
+        {
+          "repo": "achirothmane/private-code-modernization-factory",
+          "pr": 26,
+          "merge": "35db43094299fe722979f154d701d0841267be2d",
+          "title": "C02: verify the actual ModFactory candidate"
+        },
+        {
+          "repo": "achirothmane/private-code-modernization-factory",
+          "pr": 27,
+          "merge": "48310eaa8ccae31da4a32e38c1f75172c0f76733",
+          "title": "C02: represent intentional no-op candidates explicitly"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C03",
+      "claim": "Temporal admissibility/validity is explicit across the EBA consumers that participate in this repair scope.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 69,
+          "merge": "718ce08c414f731912041121b57041ce7223aa4e"
+        },
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 110,
+          "merge": "f454804ac31e0eed8ee4789003e53b5a3350e122"
+        },
+        {
+          "repo": "achirothmane/easl",
+          "pr": 13,
+          "merge": "764ec4debbebd5f9b2baa69fe9458da30157262c"
+        },
+        {
+          "repo": "achirothmane/agent-action-guard",
+          "pr": 11,
+          "merge": "9cd2957291529515bae49379baa323846e201c8b"
+        },
+        {
+          "repo": "achirothmane/assumption-gate-",
+          "pr": 2,
+          "merge": "3d7bf0782039e2d7746185b150258996f8109e3b"
+        },
+        {
+          "repo": "achirothmane/token-governance-protocol",
+          "pr": 3,
+          "merge": "038e3f028aaa71fae8d94d597d623a8f1219f6d9"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C04",
+      "claim": "Authorizing EBA artifacts are bound to explicit trusted context rather than caller-chosen context strings in the repaired paths.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 70,
+          "merge": "3e591ec4ccf284e798b5f1668863831f3866167a"
+        },
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 111,
+          "merge": "d96ebe91d8d83ae96c90df87faac9c7b02fc8c36"
+        },
+        {
+          "repo": "achirothmane/agent-action-guard",
+          "pr": 12,
+          "merge": "81a4225611c983125ebc4cdc1d382c86008eece6"
+        },
+        {
+          "repo": "achirothmane/assumption-gate-",
+          "pr": 3,
+          "merge": "e0e3d3ea82de2331c62b3bbb0c6ba37f26218883"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C05",
+      "claim": "The repaired EBA artifacts use the agreed canonical representation rather than implementation-specific byte interpretations.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 71,
+          "merge": "f73524136514a3f93f37eab79ccf13476f782bcc"
+        },
+        {
+          "repo": "achirothmane/workflow-failure-lab",
+          "pr": 112,
+          "merge": "d44bd4c47f8748bfca706a4c4833adf8ce940cf6"
+        },
+        {
+          "repo": "achirothmane/agent-action-guard",
+          "pr": 13,
+          "merge": "5276336cec396a0ac0b77d45eb5b981b01d7d7ea"
+        },
+        {
+          "repo": "achirothmane/assumption-gate-",
+          "pr": 4,
+          "merge": "435bc970c10dda83b786677ce9cc98ab9eac3799"
+        },
+        {
+          "repo": "achirothmane/token-governance-protocol",
+          "pr": 4,
+          "merge": "7b38fc9af5cf9934fec5842b8e195b9a2d3c2d4f"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C06",
+      "claim": "EEP mutation attempts are bound/accounted in the repaired Aegis executor path; unsupported hard-precondition guarantees are not upgraded by documentation.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 72,
+          "merge": "177a7a56ee8e572cb69e9c0e7a8e0d6e03c72234"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C07",
+      "claim": "EEP outcome claims use the requested typed CRM postcondition rather than treating any digest change as APPLIED/VERIFIED.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 73,
+          "merge": "b49e89ad17a62d0d81d6d3f34cab51f09e9332af"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C08",
+      "claim": "Genesis assurance claims are bounded to supported semantic provenance/current-subject checks; stronger unsupported proof/hardware claims are not inferred.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 74,
+          "merge": "339af9d1ce4b07640fecfea059115e7b4bbdf99d"
+        },
+        {
+          "repo": "achirothmane/easl",
+          "pr": 14,
+          "merge": "7c4e1e28218853919d00362dc071e1eb6f61cc56"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    },
+    {
+      "id": "C09",
+      "claim": "Evidence independence in the repaired profile depends on declared material failure domains, not source-label count.",
+      "evidence": [
+        {
+          "repo": "achirothmane/aegis-ege",
+          "pr": 75,
+          "merge": "0d94613e1a05ae467170e615633d79c31a309d36"
+        }
+      ],
+      "status": "MERGED_EVIDENCE"
+    }
+  ],
+  "main_contains_repair_history": [
+    {
+      "repo": "achirothmane/aegis-ege",
+      "earliest_checked": "a4fb223caea1e03eea1939a2e0ad4974850653f3",
+      "current_head": "4064daa961115520c819b86ee81c99e1beaca230",
+      "compare": "ahead",
+      "behind_by": 0
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "earliest_checked": "f454804ac31e0eed8ee4789003e53b5a3350e122",
+      "current_head": "a1b64f077fa55a0cc787cbde78a4fd84a39ae2ca",
+      "compare": "ahead",
+      "behind_by": 0
+    },
+    {
+      "repo": "achirothmane/easl",
+      "earliest_checked": "764ec4debbebd5f9b2baa69fe9458da30157262c",
+      "current_head": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
+      "compare": "ahead",
+      "behind_by": 0
+    },
+    {
+      "repo": "achirothmane/agent-action-guard",
+      "earliest_checked": "9cd2957291529515bae49379baa323846e201c8b",
+      "current_head": "5276336cec396a0ac0b77d45eb5b981b01d7d7ea",
+      "compare": "ahead",
+      "behind_by": 0
+    },
+    {
+      "repo": "achirothmane/assumption-gate-",
+      "earliest_checked": "3d7bf0782039e2d7746185b150258996f8109e3b",
+      "current_head": "435bc970c10dda83b786677ce9cc98ab9eac3799",
+      "compare": "ahead",
+      "behind_by": 0
+    },
+    {
+      "repo": "achirothmane/token-governance-protocol",
+      "earliest_checked": "038e3f028aaa71fae8d94d597d623a8f1219f6d9",
+      "current_head": "7b38fc9af5cf9934fec5842b8e195b9a2d3c2d4f",
+      "compare": "ahead",
+      "behind_by": 0
+    },
+    {
+      "repo": "achirothmane/private-code-modernization-factory",
+      "earliest_checked": "35db43094299fe722979f154d701d0841267be2d",
+      "current_head": "48310eaa8ccae31da4a32e38c1f75172c0f76733",
+      "compare": "ahead",
+      "behind_by": 0
+    }
+  ],
+  "branch_control_audit": {
+    "method": "GitHub branch objects plus repository rulesets endpoint; direct branch-protection detail endpoint is not readable by the current GitHub App connection.",
+    "repositories": [
+      {
+        "repo": "achirothmane/aegis-ege",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/workflow-failure-lab",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/workflow-failure-lab",
+        "branch": "v1",
+        "protected": false,
+        "rulesets_count": 0,
+        "sha": "f9bc919f3dfd8c1f705fb7bf2f4c064c37962abb"
+      },
+      {
+        "repo": "achirothmane/private-code-modernization-factory",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/easl",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/agent-action-guard",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/assumption-gate-",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/token-governance-protocol",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/ai-deployer",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/atlassian-revenue-integrity",
+        "branch": "main",
+        "protected": false,
+        "rulesets_count": 0
+      },
+      {
+        "repo": "achirothmane/atlassian-revenue-integrity",
+        "branch": "v1",
+        "protected": false,
+        "rulesets_count": 0,
+        "sha": "6d863e4e7a697c7c3746a92282a2e2fbd723aa31"
+      }
+    ],
+    "conclusion": "No audited branch may be described as protected/mandatory by GitHub enforcement from this evidence. Workflow success and maintainer release process are distinct from branch protection."
+  },
+  "release_provenance": {
+    "workflow_failure_lab": {
+      "latest_release": "v1.2.0",
+      "tag_commit": "f9bc919f3dfd8c1f705fb7bf2f4c064c37962abb",
+      "v1_branch_commit": "f9bc919f3dfd8c1f705fb7bf2f4c064c37962abb",
+      "immutable_dependency_advice": "Pin v1.2.0 or an exact commit; @v1 is a movable branch."
+    },
+    "runner_fleet_doctor": {
+      "releases_observed": 0,
+      "v1_branch_commit": "6d863e4e7a697c7c3746a92282a2e2fbd723aa31",
+      "immutable_dependency_advice": "Pin the exact commit until an immutable release/tag is created."
+    }
+  },
+  "credential_recovery_boundaries": [
+    {
+      "component": "Aegis-EGE",
+      "boundary": "Experimental governed execution. D02 exercised Kubernetes Lease/ConfigMap fencing and truthful UNKNOWN custody; external CRM CAS and production failover were explicitly not proven."
+    },
+    {
+      "component": "CI Retry Gate",
+      "boundary": "Read/report paths use read permissions; rerun mutation requires explicit actions:write. UNKNOWN never grants rerun authority. Release branch process is not currently GitHub-enforced branch protection."
+    },
+    {
+      "component": "ModFactory",
+      "boundary": "Local verifier; project code execution is explicit opt-in, deployment_admissible remains false, and PASS is not deployment authorization."
+    },
+    {
+      "component": "AAG / assumption-gate",
+      "boundary": "trusted_in_process artifacts use self-hash integrity; self-hash is not external issuer authentication."
+    },
+    {
+      "component": "TGP",
+      "boundary": "Reference reservation evaluator is not an atomic distributed production control plane."
+    },
+    {
+      "component": "EASL",
+      "boundary": "Does not execute actions or decide policy; deployment-specific external assurance must fail closed when required semantics cannot be established."
+    }
+  ],
+  "claim_corrections": [
+    {
+      "target": "achirothmane/ai-deployer",
+      "problem": "README claimed Production-ready despite placeholder image, hard-coded example credentials, legacy installer, no release/CI/security/recovery proof.",
+      "pr": 2,
+      "head": "39ba3c934ffe4bd7ffe14789a36ea370071b035d",
+      "merged": false,
+      "desired_state": "Legacy non-production placeholder with explicit limitations."
+    },
+    {
+      "target": "achirothmane/atlassian-revenue-integrity",
+      "problem": "Runner Fleet Doctor used stale GitHub author/reference and did not distinguish movable v1 branch from immutable/protected release.",
+      "pr": 1,
+      "head": "4265c955a8d08982a61c3e4d22c953af664d2e7a",
+      "merged": false,
+      "desired_state": "Keep Runner Fleet Doctor name; accurate read-only scope and provenance."
+    },
+    {
+      "target": "achirothmane/workflow-failure-lab",
+      "problem": "README described v1 advancement as a release process without explicitly separating it from absent GitHub branch enforcement.",
+      "pr": 123,
+      "head": "605b14689514ac319821e11c9a6f1de75e9a6401",
+      "merged": false,
+      "desired_state": "Movable @v1 process claim separated from immutable tag/commit and branch-control enforcement."
+    },
+    {
+      "target": "achirothmane/private-code-modernization-factory",
+      "problem": "Historical public/local-code ambiguity from the baseline review.",
+      "resolution": "Current public main README gives a public clone/install path, describes local temporary-copy verification, explicit project-code opt-in, and deployment_admissible=false.",
+      "evidence_commit": "48310eaa8ccae31da4a32e38c1f75172c0f76733",
+      "merged": true
+    }
+  ],
+  "open_pr_exclusions": [
+    {
+      "repo": "achirothmane/aegis-ege",
+      "prs": [
+        64,
+        65,
+        91
+      ],
+      "counted_as_main_capability": false
+    },
+    {
+      "repo": "achirothmane/workflow-failure-lab",
+      "prs": [
+        63,
+        108,
+        109,
+        116,
+        123
+      ],
+      "counted_as_main_capability": false
+    },
+    {
+      "repo": "achirothmane/ai-deployer",
+      "prs": [
+        2
+      ],
+      "counted_as_main_capability": false
+    },
+    {
+      "repo": "achirothmane/atlassian-revenue-integrity",
+      "prs": [
+        1
+      ],
+      "counted_as_main_capability": false
+    }
+  ],
+  "completion_gate": {
+    "all_material_claims_supported_or_corrected": false,
+    "pending_claim_prs": [
+      "achirothmane/ai-deployer#2",
+      "achirothmane/atlassian-revenue-integrity#1",
+      "achirothmane/workflow-failure-lab#123"
+    ],
+    "next_action": "Merge only after each pending PR's repository-appropriate checks pass; then update this record to exact merge commits and COMPLETE."
+  },
+  "normative_change": false,
+  "runtime_change": false
+}
