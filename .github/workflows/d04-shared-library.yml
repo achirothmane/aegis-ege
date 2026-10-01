@@ -1,0 +1,96 @@
+name: D04 shared executable relations
+
+on:
+  pull_request:
+    paths:
+      - 'governedaction/**'
+      - 'internal/decision/**'
+      - 'internal/eepcrm/**'
+      - 'internal/governedactionnormative/**'
+      - 'experiments/gosmig-simulation/**'
+      - 'testdata/governed-action/d04/**'
+      - 'docs/governed-action/d04-shared-library.md'
+      - 'go.mod'
+      - '.github/workflows/d04-shared-library.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'governedaction/**'
+      - 'internal/decision/**'
+      - 'internal/eepcrm/**'
+      - 'internal/governedactionnormative/**'
+      - 'experiments/gosmig-simulation/**'
+      - 'testdata/governed-action/d04/**'
+      - 'docs/governed-action/d04-shared-library.md'
+      - 'go.mod'
+      - '.github/workflows/d04-shared-library.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  library-and-native-adapters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      D04_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - name: Verify committed formatting and pinned dependencies
+        run: |
+          mkdir -p d04-evidence
+          test -z "$(gofmt -l governedaction/*.go internal/eepcrm/d04_boundary_test.go internal/eepcrm/executor.go internal/decision/authorization.go internal/decision/d04_boundary_test.go internal/governedactionnormative/d04_library_test.go experiments/gosmig-simulation/guard.go)"
+          (cd governedaction && go mod download && go mod verify)
+          (cd experiments/gosmig-simulation && go mod download && go mod verify)
+          git diff --exit-code -- go.mod go.sum governedaction/go.mod governedaction/go.sum experiments/gosmig-simulation/go.mod experiments/gosmig-simulation/go.sum
+      - name: Test standalone library with race detector
+        working-directory: governedaction
+        run: go test -mod=readonly -race -count=1 -json ./... | tee ../d04-evidence/library-tests.jsonl
+      - name: Test native CRM and decision adapters and frozen contract
+        run: |
+          go mod download
+          go mod verify
+          go test -mod=readonly -race -count=1 -json ./internal/eepcrm ./internal/decision ./internal/governedactionnormative | tee d04-evidence/adapter-and-frozen-tests.jsonl
+          git diff --exit-code -- go.mod go.sum governedaction/go.mod governedaction/go.sum experiments/gosmig-simulation/go.mod experiments/gosmig-simulation/go.sum
+      - name: Record resolved source provenance
+        if: always()
+        run: |
+          mkdir -p d04-evidence
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          paths = ['governedaction/go.mod', 'governedaction/boundary.go', 'governedaction/boundary_test.go', 'internal/eepcrm/executor.go', 'internal/eepcrm/d04_boundary_test.go', 'internal/decision/authorization.go', 'internal/decision/d04_boundary_test.go', 'internal/governedactionnormative/d04_library_test.go', 'go.mod', 'go.sum', 'experiments/gosmig-simulation/go.mod', 'experiments/gosmig-simulation/go.sum', 'experiments/gosmig-simulation/guard.go', 'testdata/governed-action/d04/registration-v1.json', '.github/workflows/d04-shared-library.yml']
+          result = {'schema_version': 'governed-action.d04-source/v1', 'source_head': os.environ['D04_SOURCE_HEAD'], 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'working_tree_clean': subprocess.call(['git', 'diff', '--quiet']) == 0, 'sha256': {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}}
+          Path('d04-evidence/source-provenance.json').write_text(json.dumps(result, indent=2) + '\n')
+          PY
+      - name: Preserve tests and resolved sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d04-shared-library-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            d04-evidence/
+            governedaction/
+            internal/eepcrm/executor.go
+            internal/eepcrm/d04_boundary_test.go
+            internal/decision/authorization.go
+            internal/decision/d04_boundary_test.go
+            internal/governedactionnormative/d04_library_test.go
+            go.mod
+            go.sum
+            experiments/gosmig-simulation/go.mod
+            experiments/gosmig-simulation/go.sum
+            experiments/gosmig-simulation/guard.go
+            testdata/governed-action/d04/registration-v1.json

@@ -375,6 +375,7 @@ That feedback is the gate for major product expansion.
 - [Adoption gate](ADOPTION.md)
 - [Kubernetes node-drain adapter](docs/kubernetes-node-drain.md)
 - [Guarded experimental execution](docs/guarded-real-execution.md)
+- [D04 executable shared relations and native adapter scope](docs/governed-action/d04-shared-library.md)
 - [Execution locking](docs/execution-locking.md)
 - [Consequence admissibility](docs/consequence-admissibility.md)
 - [Partial failure and recovery](docs/partial-failure-recovery.md)

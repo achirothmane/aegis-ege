@@ -1,0 +1,58 @@
+{
+  "base_commit": "37d9e403c367077990dffb335ddfeabdefa4f991",
+  "validated_source_head": "2ca871652eabab06392ec91665a57392bbd7a6c6",
+  "validated_source_tree": "a0f6bdd0fb9fabfe2ae414374212512ac1aa40a9",
+  "pull_request": "https://github.com/achirothmane/aegis-ege/pull/100",
+  "runs": [
+    {
+      "id": 36803946462,
+      "name": "D04 shared executable relations",
+      "job_ids": [
+        110184096056
+      ],
+      "conclusion": "success",
+      "artifact_id": 11137185515,
+      "artifact_sha256": "21882532efdedca209057b2bf225ae9eedc0c98cac6464a7ec9619a63ff23a16"
+    },
+    {
+      "id": 36803946466,
+      "name": "gosmig PostgreSQL owner simulation",
+      "job_ids": [
+        110184096109
+      ],
+      "conclusion": "success",
+      "artifact_id": 11137310250,
+      "artifact_sha256": "719bdf4aee92eb1c561639b63eccb347b83193545296c8f66e30057ebe9cfa0f"
+    },
+    {
+      "id": 36803946447,
+      "name": "CI",
+      "job_ids": [
+        110184095857,
+        110184469201
+      ],
+      "conclusion": "success"
+    }
+  ],
+  "bootstrap_attempts": [
+    {
+      "head": "17443fad2cfbea38b3698d4dd8ad01b8c8d14c04",
+      "library_run": 36803443095,
+      "library_job": 110182602570,
+      "library_result": "success_on_formatted_worktree_not_final_source_validation",
+      "native_run": 36803443063,
+      "native_job": 110182602352,
+      "native_result": "blocked_before_native_tests_by_committed_format_check",
+      "resolution": "commit exact Go-formatted bytes and resolved module constraints"
+    },
+    {
+      "head": "f57fb5b2259dcf5c575fa818c6d2e774a4212c3a",
+      "library_run": 36803740629,
+      "library_job": 110183490591,
+      "library_result": "tests_passed_but_immutable_check_rejected_root_go_sum_drift",
+      "native_run": 36803740627,
+      "native_result": "success",
+      "resolution": "commit canonical checksum order and existing graph testify v1.6.1/go.mod checksum; change no expected results"
+    }
+  ]
+}
