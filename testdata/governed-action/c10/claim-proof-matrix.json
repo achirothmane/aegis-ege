@@ -1,6 +1,6 @@
 {
   "schema_version": "governed-action.c10-claim-proof-provenance/v1",
-  "status": "IN_PROGRESS",
+  "status": "COMPLETE",
   "audited_at": "2026-10-01",
   "purpose": "Reconcile material portfolio claims with merged implementation/test/release evidence and explicitly separate process claims from enforced repository controls.",
   "scope": {
@@ -21,12 +21,14 @@
   },
   "current_heads": {
     "achirothmane/aegis-ege": "4064daa961115520c819b86ee81c99e1beaca230",
-    "achirothmane/workflow-failure-lab": "a1b64f077fa55a0cc787cbde78a4fd84a39ae2ca",
+    "achirothmane/workflow-failure-lab": "696ce5347de986b19abc4fd88fa36d2f94c723fb",
     "achirothmane/easl": "7c4e1e28218853919d00362dc071e1eb6f61cc56",
     "achirothmane/agent-action-guard": "5276336cec396a0ac0b77d45eb5b981b01d7d7ea",
     "achirothmane/assumption-gate-": "435bc970c10dda83b786677ce9cc98ab9eac3799",
     "achirothmane/token-governance-protocol": "7b38fc9af5cf9934fec5842b8e195b9a2d3c2d4f",
-    "achirothmane/private-code-modernization-factory": "48310eaa8ccae31da4a32e38c1f75172c0f76733"
+    "achirothmane/private-code-modernization-factory": "48310eaa8ccae31da4a32e38c1f75172c0f76733",
+    "achirothmane/ai-deployer": "e315c95c598aecacfcc4825bfcb8a99835b14838",
+    "achirothmane/atlassian-revenue-integrity": "90de0cc49c8c9b7a18eb254b961c51a114dce46d"
   },
   "repairs": [
     {
@@ -222,7 +224,7 @@
     {
       "repo": "achirothmane/workflow-failure-lab",
       "earliest_checked": "f454804ac31e0eed8ee4789003e53b5a3350e122",
-      "current_head": "a1b64f077fa55a0cc787cbde78a4fd84a39ae2ca",
+      "current_head": "696ce5347de986b19abc4fd88fa36d2f94c723fb",
       "compare": "ahead",
       "behind_by": 0
     },
@@ -381,24 +383,30 @@
       "problem": "README claimed Production-ready despite placeholder image, hard-coded example credentials, legacy installer, no release/CI/security/recovery proof.",
       "pr": 2,
       "head": "39ba3c934ffe4bd7ffe14789a36ea370071b035d",
-      "merged": false,
-      "desired_state": "Legacy non-production placeholder with explicit limitations."
+      "merged": true,
+      "desired_state": "Legacy non-production placeholder with explicit limitations.",
+      "merge": "e315c95c598aecacfcc4825bfcb8a99835b14838",
+      "repository_checks": "No GitHub Actions workflow exists in this legacy placeholder repository; the documentation-only PR was mergeable at the audited head."
     },
     {
       "target": "achirothmane/atlassian-revenue-integrity",
       "problem": "Runner Fleet Doctor used stale GitHub author/reference and did not distinguish movable v1 branch from immutable/protected release.",
       "pr": 1,
       "head": "4265c955a8d08982a61c3e4d22c953af664d2e7a",
-      "merged": false,
-      "desired_state": "Keep Runner Fleet Doctor name; accurate read-only scope and provenance."
+      "merged": true,
+      "desired_state": "Keep Runner Fleet Doctor name; accurate read-only scope and provenance.",
+      "merge": "90de0cc49c8c9b7a18eb254b961c51a114dce46d",
+      "repository_checks": "Test Runner Fleet Doctor: success"
     },
     {
       "target": "achirothmane/workflow-failure-lab",
       "problem": "README described v1 advancement as a release process without explicitly separating it from absent GitHub branch enforcement.",
       "pr": 123,
       "head": "605b14689514ac319821e11c9a6f1de75e9a6401",
-      "merged": false,
-      "desired_state": "Movable @v1 process claim separated from immutable tag/commit and branch-control enforcement."
+      "merged": true,
+      "desired_state": "Movable @v1 process claim separated from immutable tag/commit and branch-control enforcement.",
+      "merge": "696ce5347de986b19abc4fd88fa36d2f94c723fb",
+      "repository_checks": "CI: success; Compatibility Matrix: success; Remote v1 Consumer E2E: success"
     },
     {
       "target": "achirothmane/private-code-modernization-factory",
@@ -424,35 +432,17 @@
         63,
         108,
         109,
-        116,
-        123
-      ],
-      "counted_as_main_capability": false
-    },
-    {
-      "repo": "achirothmane/ai-deployer",
-      "prs": [
-        2
-      ],
-      "counted_as_main_capability": false
-    },
-    {
-      "repo": "achirothmane/atlassian-revenue-integrity",
-      "prs": [
-        1
+        116
       ],
       "counted_as_main_capability": false
     }
   ],
   "completion_gate": {
-    "all_material_claims_supported_or_corrected": false,
-    "pending_claim_prs": [
-      "achirothmane/ai-deployer#2",
-      "achirothmane/atlassian-revenue-integrity#1",
-      "achirothmane/workflow-failure-lab#123"
-    ],
-    "next_action": "Merge only after each pending PR's repository-appropriate checks pass; then update this record to exact merge commits and COMPLETE."
+    "all_material_claims_supported_or_corrected": true,
+    "pending_claim_prs": [],
+    "next_action": "C10 correctness closeout is complete. Proceed to the next item in the Reconciled Master Engineering Queue without widening C10 scope."
   },
   "normative_change": false,
-  "runtime_change": false
+  "runtime_change": false,
+  "completed_at": "2026-10-01"
 }
