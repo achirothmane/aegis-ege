@@ -1,6 +1,6 @@
 # C10 — Claim / proof / release provenance closeout
 
-Status: **IN PROGRESS**
+Status: **COMPLETE**
 
 This record implements the C10 correctness closeout from the Reconciled Master
 Engineering Queue. It does not add platform architecture, runtime authority,
@@ -32,8 +32,8 @@ The JSON record contains every exact merge commit.
 
 ## Claim corrections discovered in C10 preflight
 
-Three material documentation/provenance defects require correction before C10
-can be marked complete.
+Three material documentation/provenance defects were found in C10 preflight and
+were corrected before closeout.
 
 ### ai-deployer
 
@@ -42,8 +42,11 @@ a legacy installer snippet, no release, and no CI-backed deployment/security/
 recovery proof. The existing README claim `Production-ready` is unsupported.
 
 Correction PR: `achirothmane/ai-deployer#2`  
-Head: `39ba3c934ffe4bd7ffe14789a36ea370071b035d`  
-State in this record: **OPEN — NOT COUNTED AS MAIN**
+Audited head: `39ba3c934ffe4bd7ffe14789a36ea370071b035d`  
+Squash merge: `e315c95c598aecacfcc4825bfcb8a99835b14838`  
+Repository-appropriate check: no GitHub Actions workflow exists; the
+documentation-only PR was mergeable at the audited head.  
+State in this record: **MERGED CORRECTION**
 
 The corrected claim is: legacy non-production placeholder; do not deploy as-is.
 
@@ -55,8 +58,10 @@ is not being changed. The preflight found two provenance defects: stale
 the movable `v1` branch from an immutable/protected release channel.
 
 Correction PR: `achirothmane/atlassian-revenue-integrity#1`  
-Head: `4265c955a8d08982a61c3e4d22c953af664d2e7a`  
-State in this record: **OPEN — NOT COUNTED AS MAIN**
+Audited head: `4265c955a8d08982a61c3e4d22c953af664d2e7a`  
+Squash merge: `90de0cc49c8c9b7a18eb254b961c51a114dce46d`  
+Check: **Test Runner Fleet Doctor — success**.  
+State in this record: **MERGED CORRECTION**
 
 No external adoption, Marketplace listing, production fleet deployment, or paid
 usage is inferred from the repository.
@@ -68,8 +73,10 @@ WFL has real immutable releases, including `v1.2.0` at
 branch currently points at that same commit.
 
 Correction PR: `achirothmane/workflow-failure-lab#123`  
-Head: `605b14689514ac319821e11c9a6f1de75e9a6401`  
-State in this record: **OPEN — NOT COUNTED AS MAIN**
+Audited head: `605b14689514ac319821e11c9a6f1de75e9a6401`  
+Squash merge: `696ce5347de986b19abc4fd88fa36d2f94c723fb`  
+Checks: **CI — success; Compatibility Matrix — success; Remote v1 Consumer E2E — success**.  
+State in this record: **MERGED CORRECTION**
 
 The correction separates the documented maintainer release process from actual
 GitHub-enforced branch controls.
@@ -120,19 +127,23 @@ C10 preserves the narrower claims already established by the repaired systems:
 
 The matrix explicitly excludes open work from main capability claims. In
 particular Aegis #64/#65/#91 and WFL #63/#108/#109/#116 remain outside the
-merged evidence set. The three C10 correction PRs above are also excluded until
-merged.
+merged evidence set. The three C10 correction PRs above are now merged and are recorded as
+documentation/provenance corrections, not as new runtime capabilities.
 
-## Completion rule
+## Completion evidence
 
-C10 becomes **COMPLETE** only after:
+C10 is **COMPLETE** because:
 
-1. the three correction PRs pass their repository-appropriate checks and merge;
-2. this record is updated from PR heads to exact merge commits;
+1. all three targeted correction PRs passed their repository-appropriate checks
+   (or, for the legacy ai-deployer placeholder, had no Actions workflow and were
+   verified as mergeable documentation-only work);
+2. all three correction PRs were merged and this record pins their exact squash
+   merge commits;
 3. the claim matrix reports
-   `all_material_claims_supported_or_corrected=true`.
+   `all_material_claims_supported_or_corrected=true` with no pending claim PRs.
 
-Until then this file is a truthful **IN PROGRESS** evidence record.
+No new architecture, runtime authority, repository-setting claim, or
+distribution/adoption claim was introduced by this closeout.
 
 Normative change: **NO**  
 Runtime change: **NO**
