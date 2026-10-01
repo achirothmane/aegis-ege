@@ -8,6 +8,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/achirothmane/aegis-ege/governedaction"
 	"github.com/achirothmane/aegis-ege/internal/decision"
 )
 
@@ -261,7 +262,23 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
 		}
-		if err := mutator.CordonNode(ctx, cordonStep.NodeName, cordonStep.ResourceVersion); err != nil {
+		entered, mutationErr := a.dispatchDrainMutation(ctx, store, checkpoint, func(ctx context.Context) error {
+			current, err := a.RevalidateNodeDrainAuthorization(ctx, auth, nodeName, policy)
+			if err := drainAdmission(current.Decision, current.ReasonCodes, err); err != nil {
+				return err
+			}
+			return a.checkDrainLeaseAndTime(ctx, lockGuard, auth)
+		}, func(ctx context.Context) error {
+			return mutator.CordonNode(ctx, cordonStep.NodeName, cordonStep.ResourceVersion)
+		})
+		if mutationErr != nil && !entered {
+			if !drainBoundaryDisposition(&report, mutationErr) {
+				return report, mutationErr
+			}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
+		}
+		if err := mutationErr; err != nil {
 			reason := ReasonExecutionCordonRejected
 			if apierrors.IsConflict(err) {
 				reason = decision.ResourceVersionChanged
@@ -328,7 +345,23 @@ func (a *Adapter) executeAuthorizedNodeDrain(
 			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
 			return report, nil
 		}
-		if err := mutator.EvictPod(ctx, target); err != nil {
+		entered, mutationErr := a.dispatchDrainMutation(ctx, store, checkpoint, func(ctx context.Context) error {
+			currentDecision, currentReasons, err := a.revalidateRemainingDrainExecution(ctx, auth, plan, remaining, policy)
+			if err := drainAdmission(currentDecision, currentReasons, err); err != nil {
+				return err
+			}
+			return a.checkDrainLeaseAndTime(ctx, lockGuard, auth)
+		}, func(ctx context.Context) error {
+			return mutator.EvictPod(ctx, target)
+		})
+		if mutationErr != nil && !entered {
+			if !drainBoundaryDisposition(&report, mutationErr) {
+				return report, mutationErr
+			}
+			pauseCheckpointBestEffort(store, checkpoint, report.Decision, report.ReasonCodes, a.now().UTC())
+			return report, nil
+		}
+		if err := mutationErr; err != nil {
 			mutationDecision := decision.Escalate
 			reason := ReasonExecutionEvictionRejected
 			switch {
@@ -431,7 +464,7 @@ func (a *Adapter) revalidateRemainingDrainExecution(
 	policy NodeDrainPolicy,
 ) (decision.Decision, []decision.ReasonCode, error) {
 	now := a.now().UTC()
-	if !now.Before(auth.ValidUntil) {
+	if governedaction.CheckValidity(auth.ValidUntil, now) != nil {
 		return decision.Escalate, []decision.ReasonCode{decision.AuthorizationExpired}, nil
 	}
 	if auth.ActionID != authorizedPlan.ActionID || auth.Action != "drain" {
@@ -460,6 +493,9 @@ func (a *Adapter) revalidateRemainingDrainExecution(
 
 	if !samePodExecutionSet(preflight.EvictionCandidates, expectedRemaining) {
 		return decision.Escalate, []decision.ReasonCode{decision.ExecutionPlanChanged}, nil
+	}
+	if governedaction.CheckValidity(auth.ValidUntil, a.now().UTC()) != nil {
+		return decision.Escalate, []decision.ReasonCode{decision.AuthorizationExpired}, nil
 	}
 
 	return decision.Allow, nil, nil

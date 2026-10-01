@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'governedaction/**'
+      - 'internal/kubeadapter/**'
       - 'internal/decision/**'
       - 'internal/eepcrm/**'
       - 'internal/governedactionnormative/**'
@@ -13,9 +14,10 @@ on:
       - 'go.mod'
       - '.github/workflows/d04-shared-library.yml'
   push:
-    branches: [main]
+    branches: [main, work/shared-native-boundaries]
     paths:
       - 'governedaction/**'
+      - 'internal/kubeadapter/**'
       - 'internal/decision/**'
       - 'internal/eepcrm/**'
       - 'internal/governedactionnormative/**'
@@ -94,3 +96,4 @@ jobs:
             experiments/gosmig-simulation/go.sum
             experiments/gosmig-simulation/guard.go
             testdata/governed-action/d04/registration-v1.json
+

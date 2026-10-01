@@ -5,15 +5,17 @@ on:
     paths:
       - 'experiments/gosmig-simulation/**'
       - 'governedaction/**'
+      - 'internal/kubeadapter/**'
       - 'internal/governedactionnormative/**'
       - 'testdata/governed-action/**'
       - 'docs/governed-action/gosmig-owner-simulation.md'
       - '.github/workflows/gosmig-simulation.yml'
   push:
-    branches: [main]
+    branches: [main, work/shared-native-boundaries]
     paths:
       - 'experiments/gosmig-simulation/**'
       - 'governedaction/**'
+      - 'internal/kubeadapter/**'
       - 'internal/governedactionnormative/**'
       - 'testdata/governed-action/**'
       - '.github/workflows/gosmig-simulation.yml'
@@ -96,3 +98,4 @@ jobs:
             internal/governedactionnormative/gosmig_simulation_test.go
             testdata/governed-action/gosmig-simulation/registration-v1.json
             governedaction/
+

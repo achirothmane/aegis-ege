@@ -1,0 +1,59 @@
+name: Shared native effect boundaries
+
+on:
+  push:
+    branches: [work/shared-native-boundaries]
+  pull_request:
+    paths:
+      - 'internal/kubeadapter/**'
+      - '.github/workflows/shared-native-boundaries.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkpointed-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - name: Resolve formatting for initial review
+        run: gofmt -w internal/kubeadapter/shared_boundary*.go internal/kubeadapter/real_execution.go
+      - name: Verify dependencies and shared library identity
+        run: |
+          mkdir -p shared-boundary-evidence
+          go mod download
+          go mod verify
+          sha256sum governedaction/go.mod governedaction/boundary.go governedaction/boundary_test.go > shared-boundary-evidence/library-sha256.txt
+          git diff --exit-code -- go.mod go.sum
+      - name: Test unit adapters with race detector
+        run: go test -mod=readonly -race -count=1 -json ./internal/kubeadapter ./internal/eepcrm ./internal/decision ./internal/governedactionnormative | tee shared-boundary-evidence/unit.jsonl
+      - name: Test standalone library
+        working-directory: governedaction
+        run: go test -mod=readonly -race -count=1 -json ./... | tee ../shared-boundary-evidence/library.jsonl
+      - name: Install and create native KinD
+        run: |
+          go install sigs.k8s.io/kind@v0.33.0
+          "$(go env GOPATH)/bin/kind" create cluster --name shared-boundary --image 'kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95'
+          "$(go env GOPATH)/bin/kind" get kubeconfig --name shared-boundary > "$RUNNER_TEMP/shared-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/shared-kubeconfig" >> "$GITHUB_ENV"
+      - name: Test all native Kubernetes effects and recovery
+        run: go test -mod=readonly -tags=integration -count=1 -run '^TestKind' -json ./internal/kubeadapter ./internal/server ./internal/journal | tee shared-boundary-evidence/native-kind.jsonl
+      - name: Preserve native evidence and resolved sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-boundary-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: |
+            shared-boundary-evidence/
+            internal/kubeadapter/shared_boundary*.go
+            internal/kubeadapter/real_execution.go
+            governedaction/
