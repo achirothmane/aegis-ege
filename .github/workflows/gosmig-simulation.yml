@@ -54,13 +54,14 @@ jobs:
         with:
           go-version: '1.25.3'
           cache: false
-      - name: Resolve pinned dependency and format implementation
+      - name: Verify formatting and pinned dependencies
         working-directory: experiments/gosmig-simulation
         run: |
           mkdir -p "$GITHUB_WORKSPACE/gosmig-evidence"
-          gofmt -w guard.go simulation_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go
-          go mod tidy
+          test -z "$(gofmt -l guard.go simulation_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go)"
+          go mod download
           go mod verify
+          git diff --exit-code -- go.mod go.sum
           go list -m -json github.com/padurean/gosmig > "$GITHUB_WORKSPACE/gosmig-evidence/upstream-module.json"
           python3 - <<'PY'
           import json, os
@@ -72,11 +73,11 @@ jobs:
           PY
       - name: Execute all preregistered native schedules
         working-directory: experiments/gosmig-simulation
-        run: go test -count=1 -v ./... | tee "$GITHUB_WORKSPACE/gosmig-evidence/native-test.log"
+        run: go test -mod=readonly -count=1 -v ./... | tee "$GITHUB_WORKSPACE/gosmig-evidence/native-test.log"
       - name: Verify frozen contract and unchanged K07 dispositions
         run: |
           test -s "$GOSMIG_SIM_EVIDENCE"
-          go test -count=1 -v ./internal/governedactionnormative | tee gosmig-evidence/frozen-k07-test.log
+          go test -mod=readonly -count=1 -v ./internal/governedactionnormative | tee gosmig-evidence/frozen-k07-test.log
           test -s "$GOSMIG_SIM_ORACLE_RESULT"
       - name: Preserve native observations and resolved source
         if: always()

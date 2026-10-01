@@ -15,12 +15,18 @@ entry point. `os.Exit(93)` cuts the worker immediately after native commit;
 and expiry interleavings; SQL snapshots and a separate SELECT-only role verify
 the outcome without reissuing the migration.
 
-To reproduce, provide `GOSMIG_SIM_ADMIN_DSN` for a **new disposable database**
-and run `go test -count=1 -v ./...` in this directory. The harness creates fixture
+To reproduce, provide `GOSMIG_SIM_ADMIN_DSN` for a **new disposable database**,
+set `GS_SOURCE_HEAD` to the tested commit, and run
+`go test -mod=readonly -count=1 -v ./...` in this directory. The harness creates fixture
 roles with the public test password `fixture-only` and thirteen isolated schemas.
 It deliberately fails without PostgreSQL. Use the generated JSON with the root
 `TestGosmigNativeEvidenceUsesUnchangedK07Evaluator` test to verify the supplemental
 dispositions with the existing evaluator.
+
+`evidence/` preserves the native JSON and unchanged K07 result from the first
+fully successful run, the earlier failed native report, and their provenance.
+The workflow now verifies committed formatting and lockfiles without rewriting
+source or dependency selection before testing.
 
 The fixture key and roles provide cooperative test authorization. They do not
 model hostile code, malicious database administrators, production key custody,

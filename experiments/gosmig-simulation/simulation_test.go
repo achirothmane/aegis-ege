@@ -83,7 +83,7 @@ type caseResult struct {
 	ObservationLabel       string         `json:"observation_label"`
 	ObservationUnchanged   bool           `json:"observation_unchanged"`
 	ReadOnlyMutationDenied bool           `json:"read_only_mutation_denied"`
-	DestinationLockBlocked bool          `json:"destination_lock_blocked"`
+	DestinationLockBlocked bool           `json:"destination_lock_blocked"`
 	Trace                  map[string]any `json:"trace,omitempty"`
 }
 
@@ -124,7 +124,10 @@ func TestHelperProcess(t *testing.T) {
 			err = runMigration(p)
 		}
 	case "observe":
-		if os.Getenv("GOSMIG_SIM_ADMIN_DSN")!="" { fmt.Fprintln(os.Stderr,"observer inherited administrator credentials"); os.Exit(40) }
+		if os.Getenv("GOSMIG_SIM_ADMIN_DSN") != "" {
+			fmt.Fprintln(os.Stderr, "observer inherited administrator credentials")
+			os.Exit(40)
+		}
 		var o observation
 		o, err = observe(os.Getenv("GS_EFFECT"))
 		if err == nil {
@@ -258,7 +261,9 @@ func childCommand(t *testing.T, env map[string]string) (*exec.Cmd, *bytes.Buffer
 	// Child workers and observers receive only their own PostgreSQL credential.
 	// In particular, never pass the harness administrator DSN to recovery.
 	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e,"GS_") && !strings.HasPrefix(e,"GOSMIG_SIM_") { cmd.Env=append(cmd.Env,e) }
+		if !strings.HasPrefix(e, "GS_") && !strings.HasPrefix(e, "GOSMIG_SIM_") {
+			cmd.Env = append(cmd.Env, e)
+		}
 	}
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -285,7 +290,7 @@ func startWorker(t *testing.T, db *sql.DB, p permit, fault string, governed, tam
 		env["GS_TAMPER_SQL"] = "1"
 	}
 	cmd, output := childCommand(t, env)
-	w := &runningWorker{cmd: cmd, output: output, eventsPath: env["GS_EVENTS"], barrierPath: env["GS_BARRIER"], before: capture(t, db), fault: fault, permit:p}
+	w := &runningWorker{cmd: cmd, output: output, eventsPath: env["GS_EVENTS"], barrierPath: env["GS_BARRIER"], before: capture(t, db), fault: fault, permit: p}
 	must(t, cmd.Start())
 	t.Cleanup(func() {
 		if cmd.ProcessState == nil {
@@ -307,7 +312,7 @@ func waitWorker(t *testing.T, db *sql.DB, w *runningWorker) workerResult {
 		}
 		exitCode = ee.ExitCode()
 	}
-	r := workerResult{Permit:w.permit, Fault: w.fault, ExitCode: exitCode, Output: w.output.String(), Before: w.before, After: capture(t, db), Events: []event{}}
+	r := workerResult{Permit: w.permit, Fault: w.fault, ExitCode: exitCode, Output: w.output.String(), Before: w.before, After: capture(t, db), Events: []event{}}
 	data, err := os.ReadFile(w.eventsPath)
 	if err == nil {
 		for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
@@ -476,7 +481,9 @@ func checkResult(t *testing.T, c registeredCase, r caseResult) {
 	if c.CaseID == "G11" && !reflect.DeepEqual(r.Workers[1].Before, r.Workers[1].After) {
 		t.Fatal("blind replay changed original destination state or custody")
 	}
-	if c.CaseID=="G09" && !r.DestinationLockBlocked { t.Fatal("native destination lock did not block the competing writer") }
+	if c.CaseID == "G09" && !r.DestinationLockBlocked {
+		t.Fatal("native destination lock did not block the competing writer")
+	}
 	if c.CaseID == "G05" || c.CaseID == "G06" || c.CaseID == "G11" {
 		for _, e := range r.Workers[0].Events {
 			if e.Stage == "commit-receipt" {
@@ -562,7 +569,7 @@ func TestNativeSimulation(t *testing.T) {
 				// lock. Cancellation leaves authority unchanged.
 				ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 				_, err := db.ExecContext(ctx, `UPDATE authority SET fence=fence+1 WHERE singleton`)
-				r.DestinationLockBlocked = err!=nil && errors.Is(ctx.Err(),context.DeadlineExceeded)
+				r.DestinationLockBlocked = err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
 				cancel()
 				if !r.DestinationLockBlocked {
 					t.Fatal("destination lock allowed a concurrent authority change")

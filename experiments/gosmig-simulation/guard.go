@@ -28,10 +28,10 @@ const (
 		version INTEGER PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`
-	selectVersion  = "SELECT COALESCE(MAX(version), 0) FROM gosmig"
-	insertVersion  = "INSERT INTO gosmig (version) VALUES ($1)"
-	createTarget   = `CREATE TABLE migrated_items (effect_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, action_ref TEXT NOT NULL, payload TEXT NOT NULL CHECK (payload = 'fixture'), created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())`
-	insertTarget   = `INSERT INTO migrated_items (effect_id, attempt_id, action_ref, payload) VALUES ($1, $2, $3, 'fixture')`
+	selectVersion = "SELECT COALESCE(MAX(version), 0) FROM gosmig"
+	insertVersion = "INSERT INTO gosmig (version) VALUES ($1)"
+	createTarget  = `CREATE TABLE migrated_items (effect_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, action_ref TEXT NOT NULL, payload TEXT NOT NULL CHECK (payload = 'fixture'), created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())`
+	insertTarget  = `INSERT INTO migrated_items (effect_id, attempt_id, action_ref, payload) VALUES ($1, $2, $3, 'fixture')`
 )
 
 type permit struct {
@@ -477,7 +477,9 @@ func observe(effectID string) (observation, error) {
 	if err := tx.QueryRowContext(ctx, `SELECT
 		(SELECT count(*) FROM pg_constraint WHERE conrelid='migrated_items'::regclass AND contype='p' AND pg_get_constraintdef(oid)='PRIMARY KEY (effect_id)'),
 		(SELECT count(*) FROM pg_constraint WHERE conrelid='migrated_items'::regclass AND contype='c' AND pg_get_expr(conbin,conrelid)='(payload = ''fixture''::text)'),
-		(SELECT count(*) FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum WHERE d.adrelid='migrated_items'::regclass AND a.attname='created_at' AND pg_get_expr(d.adbin,d.adrelid)='clock_timestamp()')`).Scan(&primaryKeys,&payloadChecks,&clockDefaults); err != nil { return o, err }
+		(SELECT count(*) FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum WHERE d.adrelid='migrated_items'::regclass AND a.attname='created_at' AND pg_get_expr(d.adbin,d.adrelid)='clock_timestamp()')`).Scan(&primaryKeys, &payloadChecks, &clockDefaults); err != nil {
+		return o, err
+	}
 	var effects, matching, versions, maxVersion int
 	var effectAt sql.NullTime
 	if err := tx.QueryRowContext(ctx, `SELECT count(*), count(*) FILTER (WHERE effect_id=$1 AND attempt_id=$2 AND action_ref=$3 AND payload='fixture'), min(created_at) FROM migrated_items`, p.EffectID, p.AttemptID, p.ActionRef).Scan(&effects, &matching, &effectAt); err != nil {

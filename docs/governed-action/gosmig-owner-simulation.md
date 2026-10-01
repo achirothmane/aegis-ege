@@ -57,3 +57,50 @@ The native workflow will publish per-case database snapshots, worker exits,
 boundary events, read-only observations, dependency lockfiles, source pins,
 registration hash, and the frozen K07 bridge result. These artifacts support
 owner review; they do not establish independent domain adoption.
+
+## Native result
+
+Run [36798979674](https://github.com/achirothmane/aegis-ege/actions/runs/36798979674)
+passed all thirteen fixed schedules on PostgreSQL 16.6 using source commit
+`9a8256ed5484e87e3ff2025543865c849e14a170`. All eleven governed supplemental
+traces passed the existing unchanged K07 evaluator. The two native controls
+remain controls; they are not represented as governed acceptance.
+
+| Case | Worker exits | Committed target rows | Custody rows | Observation |
+| --- | --- | ---: | ---: | --- |
+| N01 | 0 | 1 | 0 | NOT_RUN |
+| N02 | 0 | 1 | 0 | NOT_RUN |
+| G01 | 0 | 1 | 1 | VERIFIED/CLOSED |
+| G02 | 5 | 0 | 0 | NOT_RUN |
+| G03 | 5 | 0 | 0 | NOT_RUN |
+| G04 | 2 | 0 | 0 | NOT_RUN |
+| G05 | 5 | 1 | 1 | VERIFIED/CLOSED |
+| G06 | 93 | 1 | 1 | VERIFIED/CLOSED |
+| G07 | 94 | 0 | 1 | UNKNOWN/OPEN |
+| G08 | 5, 0 | 1 | 1 | VERIFIED/CLOSED |
+| G09 | 5 | 0 | 1 | UNKNOWN/OPEN |
+| G10 | 0 | 1 | 1 | UNKNOWN/OPEN |
+| G11 | 5, 2 | 1 | 1 | VERIFIED/CLOSED |
+
+N02 commits under changed policy/state epochs while G02 rejects the same
+interleaving. This is the bounded incremental value over native transactional
+version tracking, not a claim that the adapter replaces PostgreSQL locks.
+G06 observes after the original permit expires. G08 blocks the stale worker
+while native version is still zero and only then runs the fresh worker. G09
+proves a competing authority UPDATE waits behind the held destination row lock.
+G07, G09 and G10 remain UNKNOWN/OPEN; a missing or unrelated postcondition does
+not become success. G11 preserves the original custody and rejects a fresh
+permit that would blindly replay the possible effect.
+
+Raw observations, K07 output, source checksums and the earlier failed native
+report are preserved in `experiments/gosmig-simulation/evidence/`. The successful
+artifact zip SHA-256 is
+`d5045bff8aa7f5d04fad0ea07b52daccbf855fea9679df8399ff06779d3a7789`.
+The registration blob stayed byte-identical through the implementation fixes.
+The workflow now checks committed formatting and dependencies before rerunning
+the native cases; it does not rewrite them to obtain a pass.
+
+D03 remains BLOCKED_UNSTARTED: no independent maintainer, scope grant,
+cohort or independent result is supplied by this owner simulation. D04 is not
+extracted. This evidence establishes a useful native execution experiment, not
+a full platform kernel.

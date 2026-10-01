@@ -157,7 +157,9 @@ func TestGosmigNativeEvidenceUsesUnchangedK07Evaluator(t *testing.T) {
 			}
 			found = true
 			want := registered.Expected
-			if actual.CaseID=="G09" && !actual.DestinationLockBlocked { t.Fatal("native evidence did not prove destination lock contention") }
+			if actual.CaseID == "G09" && !actual.DestinationLockBlocked {
+				t.Fatal("native evidence did not prove destination lock contention")
+			}
 			if actual.Final.Effects != want.Effects || actual.Final.Versions != want.Versions || actual.Final.CustodyCount != want.Custody || actual.ObservationLabel != want.Observation || len(actual.Workers) != len(want.WorkerExits) {
 				t.Fatalf("native facts violated registration for %s", actual.CaseID)
 			}

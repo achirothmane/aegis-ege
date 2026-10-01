@@ -1,0 +1,173 @@
+{
+  "G01": {
+    "ValidTrace": true,
+    "Disposition": "ALLOW_BOUND_EFFECT",
+    "AuthorizedEffects": 1,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": true,
+    "Observations": [
+      "gosmig_postgresql_owner_simulation.effect=PERMITTED"
+    ],
+    "ActionRef": "sha256:e0a55ac0e2fc76af673cfd8875ec781087e4900ad04c452d0a602e2797d97ce7",
+    "EffectID": "effect.G01",
+    "AttemptID": "attempt.G01.a",
+    "ObservationRef": "native-postgresql:G01",
+    "FaultSchedule": "governed normal migration"
+  },
+  "G02": {
+    "ValidTrace": false,
+    "Disposition": "REJECT_BEFORE_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": false,
+    "Observations": [
+      "decision_basis.relevant_state=STALE"
+    ],
+    "ActionRef": "sha256:a1a6ed7a528052d18228486fb478bb202335a94927d369b90850d958d8b2c9c6",
+    "EffectID": "effect.G02",
+    "AttemptID": "attempt.G02.a",
+    "ObservationRef": "native-postgresql:G02",
+    "FaultSchedule": "policy and relevant-state epochs change after issuance"
+  },
+  "G03": {
+    "ValidTrace": false,
+    "Disposition": "REJECT_BEFORE_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": false,
+    "Observations": [
+      "admission.basis=STALE_OR_WRONG_REVISION"
+    ],
+    "ActionRef": "sha256:5644db9ebc9cfc39522f89af8a4b3023f07176e148ae96bc339a17540be84034",
+    "EffectID": "effect.G03",
+    "AttemptID": "attempt.G03.a",
+    "ObservationRef": "native-postgresql:G03",
+    "FaultSchedule": "permit expires before transaction entry"
+  },
+  "G04": {
+    "ValidTrace": false,
+    "Disposition": "REJECT_BEFORE_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": false,
+    "Observations": [
+      "admission.basis=STALE_OR_WRONG_REVISION"
+    ],
+    "ActionRef": "sha256:f2d838ff11449fafa4efbc52e180f1475089f943f7641f62fee7334250755f10",
+    "EffectID": "effect.G04",
+    "AttemptID": "attempt.G04.a",
+    "ObservationRef": "native-postgresql:G04",
+    "FaultSchedule": "migration SQL differs from signed ActionRef"
+  },
+  "G05": {
+    "ValidTrace": true,
+    "Disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": true,
+    "Observations": [
+      "eep.postcondition=VERIFIED"
+    ],
+    "ActionRef": "sha256:7dc822cee5274cd206b69699f302138fda079563fbb3a63b4d9f5f679a8d1b9f",
+    "EffectID": "effect.G05",
+    "AttemptID": "attempt.G05.a",
+    "ObservationRef": "native-postgresql:G05",
+    "FaultSchedule": "real PostgreSQL COMMIT succeeds; Commit returns injected error"
+  },
+  "G06": {
+    "ValidTrace": true,
+    "Disposition": "DISCHARGE_INTENDED_STATE_OBLIGATION",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": true,
+    "Observations": [
+      "eep.postcondition=VERIFIED"
+    ],
+    "ActionRef": "sha256:afca1de435ee66082b09bf54cd8f55293527eaaa98645f57be95a801b0edb91e",
+    "EffectID": "effect.G06",
+    "AttemptID": "attempt.G06.a",
+    "ObservationRef": "native-postgresql:G06",
+    "FaultSchedule": "worker exits immediately after real COMMIT; new read-only observer after expiry"
+  },
+  "G07": {
+    "ValidTrace": true,
+    "Disposition": "RETAIN_POSSIBLE_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": true,
+    "Observations": [
+      "effect.previous=POSSIBLE",
+      "effect.custody=RETAINED",
+      "effect.replay=BLOCKED"
+    ],
+    "ActionRef": "sha256:1b575e9555ab6fb4a29567f4b2f7c286a08e3c84750f6082dcd4385d1bec1b96",
+    "EffectID": "effect.G07",
+    "AttemptID": "attempt.G07.a",
+    "ObservationRef": "native-postgresql:G07",
+    "FaultSchedule": "worker exits after migration SQL but before COMMIT"
+  },
+  "G08": {
+    "ValidTrace": true,
+    "Disposition": "ALLOW_SAFE_RECOVERY_OR_BLOCK",
+    "AuthorizedEffects": 1,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": true,
+    "Observations": [
+      "takeover.exclusivity=ENFORCED_OR_BLOCKED",
+      "effect.lineage=PRESERVED"
+    ],
+    "ActionRef": "sha256:2771532231aa4972263df9b8648f9ee6d4086b1bbd48a68165067278fe58ce2c",
+    "EffectID": "effect.G08",
+    "AttemptID": "attempt.G08.b",
+    "ObservationRef": "native-postgresql:G08",
+    "FaultSchedule": "old worker pauses before transaction; destination fence advances; old rejected before new worker executes"
+  },
+  "G09": {
+    "ValidTrace": false,
+    "Disposition": "REJECT_BEFORE_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": false,
+    "Observations": [
+      "admission.basis=STALE_OR_WRONG_REVISION"
+    ],
+    "ActionRef": "sha256:8a93b132f28314e02f961b1466f2b01f29af056a886333e2733df880cc71bb9b",
+    "EffectID": "effect.G09",
+    "AttemptID": "attempt.G09.a",
+    "ObservationRef": "native-postgresql:G09",
+    "FaultSchedule": "permit expires after migration SQL but before COMMIT boundary check"
+  },
+  "G10": {
+    "ValidTrace": true,
+    "Disposition": "RETAIN_POSSIBLE_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": true,
+    "Observations": [
+      "effect.previous=POSSIBLE",
+      "effect.custody=RETAINED",
+      "effect.replay=BLOCKED"
+    ],
+    "ActionRef": "sha256:b3f0521a1e26a8c58c663253535548401f4943ee69a25b2a2ba8be297b0f0c3b",
+    "EffectID": "effect.G10",
+    "AttemptID": "attempt.G10.a",
+    "ObservationRef": "native-postgresql:G10",
+    "FaultSchedule": "committed marker is changed to an unrelated revision before observation"
+  },
+  "G11": {
+    "ValidTrace": false,
+    "Disposition": "REJECT_SECOND_EFFECT",
+    "AuthorizedEffects": 0,
+    "UnauthorizedEffects": 0,
+    "UsefulBehavior": false,
+    "Observations": [
+      "effect.previous=POSSIBLE",
+      "substitution=UNPROVEN"
+    ],
+    "ActionRef": "sha256:bda88ad835eeb51717b226e16e6b08a64fc9fee9c437ea908ee6dba2df2cfdc1",
+    "EffectID": "effect.G11",
+    "AttemptID": "attempt.G11.a",
+    "ObservationRef": "native-postgresql:G11",
+    "FaultSchedule": "lost response followed by a blind replay with a fresh permit"
+  }
+}
