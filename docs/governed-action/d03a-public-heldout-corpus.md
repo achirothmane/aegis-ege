@@ -34,14 +34,18 @@ evidence.
 
 ## v1 corpus
 
-The corpus currently contains eight reference mappings sourced from seven
-closed public issues across four external repositories:
+The corpus currently contains ten reference mappings sourced from nine
+closed public issues across six external repositories:
 
 - OpenMeter: migration-baseline completeness and concurrent billing-result
   attribution;
 - Hatchet: redelivery/idempotency, lost completion observation causing duplicate
   child work, and exact durable cancellation identity;
 - Infisical: migration rollback state ownership;
+- External Secrets Operator: credential lifecycle state binding when a recreated
+  controller object would otherwise regenerate and overwrite an existing credential;
+- Argo Workflows: stale workflow reconciliation after completion, where an older
+  resourceVersion could otherwise recreate a pod for an already-finished execution;
 - Tortoise #3442: two deliberately separated facets from one investigation:
   a **positive execution-boundary case** where the failed job acquired no runner
   and executed zero steps, and a **negative selection-integrity case** where a
@@ -109,6 +113,57 @@ was fixed. None of these incidents may be used to silently redesign
 Normative change: **NO**  
 Runtime change: **NO**
 
+
+## Reference case — External Secrets Operator #6640 / PR #6641
+
+`refreshPolicy: CreatedOnce` used the `ExternalSecret` object's own status as its
+one-time sync memory. Recreating that controller object reset the status even
+when the target Secret still existed. With the stateless Password generator,
+the next reconcile could mint a new password and overwrite the Secret.
+
+The reported production consequence was stronger than a cosmetic resync: the
+Kubernetes Secret changed while Keycloak's already-bootstrapped admin credential
+did not. The stored credential and the real downstream authority therefore
+diverged.
+
+D03-A maps this as a `StateBinding` / `DecisionBasis` failure: target existence
+and the credential value actually accepted by the downstream authority are
+consequence-relevant state. Recreated controller status cannot stand in for
+that binding.
+
+The historical mapping must therefore produce
+`DEFER_MISSING_RELEVANT_STATE`.
+
+PR #6641 merged as
+`40b04db4543fe3a6e6bab90447cb018a5871c25d`. It added `CreateOrMerge`,
+clarified the `CreatedOnce` lifecycle, and added tested generate-once/freeze
+behavior using explicit target immutability. That fixed configuration provides
+the positive useful counterpart without changing the frozen kernel evaluator.
+
+## Reference case — Argo Workflows #16294 / PR #16357
+
+Argo Workflows recorded a stale reconciliation hazard: after the real workflow
+had completed successfully, an older still-Running workflow object could be
+processed again and reach the missing-pod creation path. The issue records two
+distinct pod UIDs for the same logical workflow execution; another reporter
+observed an already-completed step run again hours later.
+
+The related bookkeeping defect was isolated in #16305: completed workflow state
+was not reliably compared with stale informer copies before reconciliation.
+PR #16357 replaced the older caches with UID-keyed `lastWrittenVersions` and
+ordered Kubernetes `resourceVersion` comparison. Stale copies older than a
+completed/deleted state are dropped before effectful reconciliation. The PR
+merged as `a7a7a8dfb53a35314b81616ec35b5e3f7270b250`; a maintainer later
+confirmed that #15090 and #16357 should fix #16294.
+
+D03-A maps the historical trace to `StateBinding` / `DecisionBasis`: the current
+workflow completion state is consequence-relevant. An older Running snapshot
+cannot authorize a new pod effect once a newer completed state exists.
+
+The unchanged frozen evaluator must therefore return `REJECT_BEFORE_EFFECT`
+when `relevant_state_current=false`. The fixed counterpart remains a useful
+`ALLOW_BOUND_EFFECT` path when current state is bound and an effect is actually
+required.
 
 ## Reference case — Tortoise #3442 / PR #5474
 
