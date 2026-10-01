@@ -1,0 +1,24 @@
+{
+  "schema_version": "governed-action.d04-source/v1",
+  "source_head": "2ca871652eabab06392ec91665a57392bbd7a6c6",
+  "run_id": "36803946462",
+  "run_attempt": "1",
+  "working_tree_clean": true,
+  "sha256": {
+    "governedaction/go.mod": "f8b2ea31a39f58cef181410ba93efa41a52beadc2408399ec9445348aa3f3224",
+    "governedaction/boundary.go": "73f6c5626f3c72f6eeff5e7a95ab770364211cbcd4a67bd96bb3295042e7147a",
+    "governedaction/boundary_test.go": "3f2351cb212b16da05060af0b0c59cc9fbdba4e963a2e2dd80f7088a5496e48b",
+    "internal/eepcrm/executor.go": "caeb58f248e21b6205817b727d34591bf826bf2e083c82d13bbb30aea5a20f26",
+    "internal/eepcrm/d04_boundary_test.go": "7f8ffd7638a00a9c04bc3fa705adfa2e39512a78eac2d0938b898d38cfbfb083",
+    "internal/decision/authorization.go": "f52ffaa569a1c3e0d71f138eb4e13ad30d85c7c3ed61c91a76c781698ada558a",
+    "internal/decision/d04_boundary_test.go": "23b70dc851dfba377df5c663df9e12144e40c16e302f2bbbea6d0caf6c97d759",
+    "internal/governedactionnormative/d04_library_test.go": "5bd36d06bd39ea6208b2a9dd75ee5e3c78c71dad7d3be41ed555f4e610326484",
+    "go.mod": "ba718d4ef5ff567e1ea947792404498dd82107d6e54d37d7b3e49b8695d6ca03",
+    "go.sum": "b31f0d883307600bc3843d2cd3293e917257a94733ea8d7a4eea498fc9b8d38d",
+    "experiments/gosmig-simulation/go.mod": "57d1cacb9540c8c948b91d7eebd6bfc8aa2828c7971ce0de3d2d35c159916a0c",
+    "experiments/gosmig-simulation/go.sum": "9c5851c580c870c741686f497f8b6cf20a61a0d4c680c148ae186f33cd78672a",
+    "experiments/gosmig-simulation/guard.go": "b849680f9ed67ca6d841bb8a22ae6a5898f8b8b0562040a162cef7d4103ec535",
+    "testdata/governed-action/d04/registration-v1.json": "5a6e61e1e26a8df10adc24d825d83a7048ae0d6a7ca767a63c23b9888b1f1425",
+    ".github/workflows/d04-shared-library.yml": "35ab1f335f1e2165cc76eddcb9e42297e4235288f278fc708f6d05ab3b2194d1"
+  }
+}

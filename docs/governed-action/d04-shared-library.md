@@ -71,6 +71,13 @@ committed in its canonical order with required transitive module metadata, so
 validation cannot silently change dependency files. The standalone shared
 module itself uses only the Go standard library.
 
+Validated implementation: `2ca871652eabab06392ec91665a57392bbd7a6c6`.
+All library/native-adapter, PostgreSQL and full unit/KinD jobs passed with
+committed formatting and stable dependency files. The additive
+[evidence closeout](d04-evidence/README.md) preserves actual native observations,
+raw test events, source hashes, unchanged frozen-blob identities and disclosed
+bootstrap attempts. Evidence preservation changes documentation only.
+
 ## Limits and rollback
 
 The library cannot prove that an adapter's clock, durable-write acknowledgement,

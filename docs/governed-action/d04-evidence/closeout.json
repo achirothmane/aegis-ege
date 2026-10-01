@@ -1,0 +1,327 @@
+{
+  "schema_version": "governed-action.d04-closeout/v1",
+  "status": "PROVISIONAL_IMPLEMENTED_TESTED",
+  "scope": "standalone K01 exact-binding, K03 finite-boundary-validity, K02 ordered-custody plus post-write revalidation; typed K04 stays native",
+  "independent_d03_pass_claimed": false,
+  "owner_development_assumption": "D03 assumed complete solely to authorize provisional D04 development",
+  "validation": {
+    "base_commit": "37d9e403c367077990dffb335ddfeabdefa4f991",
+    "validated_source_head": "2ca871652eabab06392ec91665a57392bbd7a6c6",
+    "validated_source_tree": "a0f6bdd0fb9fabfe2ae414374212512ac1aa40a9",
+    "pull_request": "https://github.com/achirothmane/aegis-ege/pull/100",
+    "runs": [
+      {
+        "id": 36803946462,
+        "name": "D04 shared executable relations",
+        "job_ids": [
+          110184096056
+        ],
+        "conclusion": "success",
+        "artifact_id": 11137185515,
+        "artifact_sha256": "21882532efdedca209057b2bf225ae9eedc0c98cac6464a7ec9619a63ff23a16"
+      },
+      {
+        "id": 36803946466,
+        "name": "gosmig PostgreSQL owner simulation",
+        "job_ids": [
+          110184096109
+        ],
+        "conclusion": "success",
+        "artifact_id": 11137310250,
+        "artifact_sha256": "719bdf4aee92eb1c561639b63eccb347b83193545296c8f66e30057ebe9cfa0f"
+      },
+      {
+        "id": 36803946447,
+        "name": "CI",
+        "job_ids": [
+          110184095857,
+          110184469201
+        ],
+        "conclusion": "success"
+      }
+    ],
+    "bootstrap_attempts": [
+      {
+        "head": "17443fad2cfbea38b3698d4dd8ad01b8c8d14c04",
+        "library_run": 36803443095,
+        "library_job": 110182602570,
+        "library_result": "success_on_formatted_worktree_not_final_source_validation",
+        "native_run": 36803443063,
+        "native_job": 110182602352,
+        "native_result": "blocked_before_native_tests_by_committed_format_check",
+        "resolution": "commit exact Go-formatted bytes and resolved module constraints"
+      },
+      {
+        "head": "f57fb5b2259dcf5c575fa818c6d2e774a4212c3a",
+        "library_run": 36803740629,
+        "library_job": 110183490591,
+        "library_result": "tests_passed_but_immutable_check_rejected_root_go_sum_drift",
+        "native_run": 36803740627,
+        "native_result": "success",
+        "resolution": "commit canonical checksum order and existing graph testify v1.6.1/go.mod checksum; change no expected results"
+      }
+    ]
+  },
+  "immutable_source": {
+    "schema_version": "governed-action.d04-source/v1",
+    "source_head": "2ca871652eabab06392ec91665a57392bbd7a6c6",
+    "run_id": "36803946462",
+    "run_attempt": "1",
+    "working_tree_clean": true,
+    "sha256": {
+      "governedaction/go.mod": "f8b2ea31a39f58cef181410ba93efa41a52beadc2408399ec9445348aa3f3224",
+      "governedaction/boundary.go": "73f6c5626f3c72f6eeff5e7a95ab770364211cbcd4a67bd96bb3295042e7147a",
+      "governedaction/boundary_test.go": "3f2351cb212b16da05060af0b0c59cc9fbdba4e963a2e2dd80f7088a5496e48b",
+      "internal/eepcrm/executor.go": "caeb58f248e21b6205817b727d34591bf826bf2e083c82d13bbb30aea5a20f26",
+      "internal/eepcrm/d04_boundary_test.go": "7f8ffd7638a00a9c04bc3fa705adfa2e39512a78eac2d0938b898d38cfbfb083",
+      "internal/decision/authorization.go": "f52ffaa569a1c3e0d71f138eb4e13ad30d85c7c3ed61c91a76c781698ada558a",
+      "internal/decision/d04_boundary_test.go": "23b70dc851dfba377df5c663df9e12144e40c16e302f2bbbea6d0caf6c97d759",
+      "internal/governedactionnormative/d04_library_test.go": "5bd36d06bd39ea6208b2a9dd75ee5e3c78c71dad7d3be41ed555f4e610326484",
+      "go.mod": "ba718d4ef5ff567e1ea947792404498dd82107d6e54d37d7b3e49b8695d6ca03",
+      "go.sum": "b31f0d883307600bc3843d2cd3293e917257a94733ea8d7a4eea498fc9b8d38d",
+      "experiments/gosmig-simulation/go.mod": "57d1cacb9540c8c948b91d7eebd6bfc8aa2828c7971ce0de3d2d35c159916a0c",
+      "experiments/gosmig-simulation/go.sum": "9c5851c580c870c741686f497f8b6cf20a61a0d4c680c148ae186f33cd78672a",
+      "experiments/gosmig-simulation/guard.go": "b849680f9ed67ca6d841bb8a22ae6a5898f8b8b0562040a162cef7d4103ec535",
+      "testdata/governed-action/d04/registration-v1.json": "5a6e61e1e26a8df10adc24d825d83a7048ae0d6a7ca767a63c23b9888b1f1425",
+      ".github/workflows/d04-shared-library.yml": "35ab1f335f1e2165cc76eddcb9e42297e4235288f278fc708f6d05ab3b2194d1"
+    }
+  },
+  "asserted_native_crm_faults": [
+    {
+      "schedule": "expiry-during-read",
+      "patch_requests": 0,
+      "durable_state": "CLAIMED"
+    },
+    {
+      "schedule": "expiry-during-custody",
+      "patch_requests": 0,
+      "durable_state": "POSSIBLE_EFFECT"
+    },
+    {
+      "schedule": "custody-write-fails",
+      "patch_requests": 0,
+      "durable_state": "CLAIMED"
+    },
+    {
+      "schedule": "plan-changes-during-custody",
+      "patch_requests": 0,
+      "durable_state": "POSSIBLE_EFFECT"
+    },
+    {
+      "schedule": "cancel-during-custody",
+      "patch_requests": 0,
+      "durable_state": "POSSIBLE_EFFECT"
+    }
+  ],
+  "unchanged_native_postgresql_cases": 13,
+  "unchanged_native_k07_mappings": 11,
+  "frozen_normative_blobs_unchanged": [
+    {
+      "path": "docs/governed-action/kernel-v1.md",
+      "git_blob_sha": "3b45e4521b995f1cbf8d4523c426279a31052a80"
+    },
+    {
+      "path": "docs/governed-action/domain-profiles-v1.md",
+      "git_blob_sha": "a8bd83497e8420f1e4e98028fb74ed4a855e99e8"
+    },
+    {
+      "path": "docs/governed-action/normative-vectors-and-change-control-v1.md",
+      "git_blob_sha": "7d4b3a1cef0463cec0ca598095c5f61fb3833d28"
+    },
+    {
+      "path": "testdata/governed-action/v1/schema.json",
+      "git_blob_sha": "963c81fc4682d25cf7ee9442e178f3762ed8f6ef"
+    },
+    {
+      "path": "testdata/governed-action/v1/normative-cases.json",
+      "git_blob_sha": "37e2e0a0867fa78df37f9d4243a1c4107d62094b"
+    },
+    {
+      "path": "testdata/governed-action/v1/change-control-cases.json",
+      "git_blob_sha": "5de2a6e3d28ddd5a89b8bcf0635b636b631e7961"
+    },
+    {
+      "path": "testdata/governed-action/v1/change-log-template.json",
+      "git_blob_sha": "e2e1d0f711e5452b0dad852264a0493266bd6517"
+    }
+  ],
+  "preserved_evidence_sha256": {
+    "source-provenance.json": "f0df6649c6b971c43d7765895c76b57c6e54636813fe537eb87888f820133dd0",
+    "library-tests.jsonl": "c630ebdb7b59cadebfb06df2e61e98012a1c414cf5a95d00dd3f060b9467c828",
+    "adapter-and-frozen-tests.jsonl": "07edb119210d9eeef1a60900e9d4759b0f5def3443c7e66b87405b9642fe0f67",
+    "native-postgresql.json": "f2e5b513f9b747e444acf7cae2658952bf7b5549689737fc76d2f65734deeda1",
+    "native-k07-result.json": "897837de8e790500754d5afdd1b771fdc94b3b07f65847604aac3e3f7653d7d8",
+    "upstream-module.json": "99235e138dc441aff46e9ff2cc4a6311931a324710bf75feea31ad5bc595c9e1"
+  },
+  "passed_test_event_names": {
+    "library-tests.jsonl": [
+      "TestExactBindingCannotBeReplacedOrOmitted/exact",
+      "TestExactBindingCannotBeReplacedOrOmitted/revision",
+      "TestExactBindingCannotBeReplacedOrOmitted/account",
+      "TestExactBindingCannotBeReplacedOrOmitted/profile",
+      "TestExactBindingCannotBeReplacedOrOmitted/missing-revision",
+      "TestExactBindingCannotBeReplacedOrOmitted/missing-target",
+      "TestExactBindingCannotBeReplacedOrOmitted/missing-profile",
+      "TestExactBindingCannotBeReplacedOrOmitted/normalization-is-not-authority",
+      "TestExactBindingCannotBeReplacedOrOmitted",
+      "TestFiniteBoundaryValidity/before",
+      "TestFiniteBoundaryValidity/at-expiry",
+      "TestFiniteBoundaryValidity/after",
+      "TestFiniteBoundaryValidity/unknown-clock",
+      "TestFiniteBoundaryValidity/missing-expiry",
+      "TestFiniteBoundaryValidity/same-instant-other-zone",
+      "TestFiniteBoundaryValidity",
+      "TestNoEffectOnFailedAdmissionCustodyOrRevalidation/admission-unavailable",
+      "TestNoEffectOnFailedAdmissionCustodyOrRevalidation/custody-unavailable",
+      "TestNoEffectOnFailedAdmissionCustodyOrRevalidation/authority-changed-during-write",
+      "TestNoEffectOnFailedAdmissionCustodyOrRevalidation/canceled-after-custody",
+      "TestNoEffectOnFailedAdmissionCustodyOrRevalidation",
+      "TestDispatchIsUsefulOnceAndNeverRetriesAnAmbiguousResult/normal",
+      "TestDispatchIsUsefulOnceAndNeverRetriesAnAmbiguousResult/lost-reply",
+      "TestDispatchIsUsefulOnceAndNeverRetriesAnAmbiguousResult",
+      "TestMissingHooksFailBeforeAnyEffectOrCustody/check",
+      "TestMissingHooksFailBeforeAnyEffectOrCustody/custody",
+      "TestMissingHooksFailBeforeAnyEffectOrCustody/effect",
+      "TestMissingHooksFailBeforeAnyEffectOrCustody"
+    ],
+    "adapter-and-frozen-tests.jsonl": [
+      "TestResolveUnknownAcquiresReadOnlyEvidenceAndAllows",
+      "TestResolveUnknownContradictoryProbeBlocks",
+      "TestResolveUnknownSkipsNonReadOnlyProbe",
+      "TestC10ClaimProofMatrixPinsMergedRepairEvidence",
+      "TestResolveUnknownProbeFailureRemainsEscalate",
+      "TestResolveUnknownHonorsMaxAttempts",
+      "TestMatchingStateBoundAuthorizationIsValid",
+      "TestC10DoesNotRelabelProcessAsEnforcedBranchProtection",
+      "TestExpiredAuthorizationIsInvalid",
+      "TestChangedResourceVersionInvalidatesAuthorization",
+      "TestChangedExecutionPlanInvalidatesAuthorization",
+      "TestMultipleSubjectStateChangesPreserveCauseSpecificReasons",
+      "TestSubjectStateBindingFailsClosedWithoutEvaluationTime",
+      "TestChangedActionInvalidatesAuthorization",
+      "TestChangedTargetInvalidatesAuthorization",
+      "TestD04UnknownBoundaryTimeCannotAuthorizeWithoutOptionalStateBindings",
+      "TestEvaluateAllowsWhenEASLStateIsValid",
+      "TestEvaluateBlocksContradictedEASLState",
+      "TestEvaluateBlocksExpiredEASLAssumption",
+      "TestEvaluateEscalatesMissingEASLEvidence",
+      "TestEvaluateEscalatesMalformedEASLSnapshot",
+      "TestEvaluateEscalatesDegradedEASLState",
+      "TestStaleEvidenceBlocks",
+      "TestContradictoryEvidenceWithinSameClaimBlocks",
+      "TestDifferentClaimsDoNotContradict",
+      "TestInsufficientEvidenceEscalates",
+      "TestDuplicateSourceDoesNotSatisfyRequiredSourceCount",
+      "TestBlastRadiusExceededBlocks",
+      "TestBlastRadiusWithinLimitDoesNotBlock",
+      "TestMissingStateBindingEscalates",
+      "TestReconcileContradictionUsesFreshEpochAndAllowsOnlyAfterAgreement",
+      "TestReconcileContradictionKeepsFreshContradictionBlocked",
+      "TestReconcileContradictionProbeFailureBecomesUnknownEscalation",
+      "TestC10OpenWorkCannotCountAsMainCapability",
+      "TestD02FaultScheduleIsPinnedAndCoversCE3ThroughCE8",
+      "TestD03CandidateReconDoesNotSelectOrConsumeHeldOutCohort",
+      "TestD03PublicIncidentCorpusPreservesClaimBoundaryAndGroundTruth",
+      "TestD03ReadinessRemainsBlockedUntilIndependentCohortIsRecorded",
+      "TestD03APublicCorpusPinsFrozenOracleAndCannotClaimD03Pass",
+      "TestD03APublicCorpusSourcesAreExternalClosedAndGrounded",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-OM-4952/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-OM-4952/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-OM-4945/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-OM-4945/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-HATCHET-4481/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-HATCHET-4481/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-HATCHET-4711/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-HATCHET-4711/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-HATCHET-4642/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-HATCHET-4642/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-INFISICAL-6654/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-INFISICAL-6654/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-TORTOISE-3442-A/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-TORTOISE-3442-B/historical",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions/D03A-TORTOISE-3442-B/fixed",
+      "TestD03APublicHeldOutIncidentsMatchPreregisteredFrozenDispositions",
+      "TestD04ExtractedRelationsAgreeWithFrozenRevisionAndCustodyVectors/CE2-R1-revision-substitution",
+      "TestD04ExtractedRelationsAgreeWithFrozenRevisionAndCustodyVectors/CE2-A1-exact-scope-reuse",
+      "TestD04ExtractedRelationsAgreeWithFrozenRevisionAndCustodyVectors/CE4-R1-effect-before-custody",
+      "TestD04ExtractedRelationsAgreeWithFrozenRevisionAndCustodyVectors/CE4-A1-custody-before-dispatch",
+      "TestD04ExtractedRelationsAgreeWithFrozenRevisionAndCustodyVectors",
+      "TestFreezeManifestPinsExactNormativeBlobBytes",
+      "TestFreezePrerequisiteSetIsExactAndComplete",
+      "TestFreezeExplicitlyExcludesNonPrerequisitesAndOpenPRs",
+      "TestFreezeDoesNotOverclaimMaturityOrIndependentReview",
+      "TestFreezePreservesByteIdenticalStateBindingCorpus",
+      "TestGosmigSimulationRegistrationPreservesScopeAndOracle",
+      "TestK07ExecutableSetPinsFrozenOracleAndCoversEveryCase",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE1-R1-vacuous-caller-profile",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE1-A1-trusted-minimal-profile",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE2-R1-revision-substitution",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE2-A1-exact-scope-reuse",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE3-R1-timeout-provider-substitution",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE3-A1-preserve-possible-effect",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE4-R1-effect-before-custody",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE4-A1-custody-before-dispatch",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE5-R1-observation-gap-false-success",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE5-A1-authorized-terminal-unknown",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE6-R1-stale-worker-after-takeover",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE6-A1-fenced-or-blocked-takeover",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE7-R1-unrelated-change-as-success",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE7-A1-exact-postcondition-verified",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE8-R1-current-read-stale-write",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE8-A1-destination-cas-success",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE9-R1-trusted-inadequate-profile",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE9-A1-profile-covers-known-distinction",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE10-R1-required-independence-unknown",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE10-A1-model-relative-independence-satisfied",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE11-R1-consequence-state-omitted",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE11-A1-consequence-state-bound-and-current",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE12-R1-undeclared-enforcement-assumptions",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/CE12-A1-declared-mediated-enforcement-boundary",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/SEED-CI-A1-validated-rerun",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/SEED-KUBE-A1-bounded-drain-completes",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/SEED-EEP-A1-conditional-update-verified",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle/SEED-EEP-A2-already-satisfied-noop",
+      "TestK07FrozenConformanceVectorsExecuteWithoutChangingOracle",
+      "TestK07PositiveSeedsRemainDomainTyped",
+      "TestK07FaultSchedulesAreFiniteAndDiscriminating",
+      "TestNormativeSchemaAndFixturesAreStructurallyValid",
+      "TestD02ObserverOutageRecoversAfterStartPermitExpiryWithoutSecondPatch",
+      "TestCE1ThroughCE12HaveRejectedAndUsefulPositiveCounterparts",
+      "TestCE1CallerSelectedEmptyRequirementsRemainRejected",
+      "TestCE9ThroughCE12PreFreezeRefinements",
+      "TestD02PermanentObservationGapRetiresUnknownOnlyAfterJournaledCustody",
+      "TestContradictoryExpectedVerdictForSameCaseIDIsInvalid",
+      "TestChangeControlAdversarialCases",
+      "TestD02ExpiredStartPermitCannotCreateNewEffect",
+      "TestChangeLogTemplateCannotClaimApproval",
+      "TestD02RecoveryRejectsChangedPlanWhileWaitingWithoutNewEffect",
+      "TestD04CRMRechecksAuthorityAndPlanAroundDurableCustody/expiry-during-read",
+      "TestD04CRMRechecksAuthorityAndPlanAroundDurableCustody/expiry-during-custody",
+      "TestD04CRMRechecksAuthorityAndPlanAroundDurableCustody/custody-write-fails",
+      "TestD04CRMRechecksAuthorityAndPlanAroundDurableCustody/plan-changes-during-custody",
+      "TestD04CRMRechecksAuthorityAndPlanAroundDurableCustody/cancel-during-custody",
+      "TestD04CRMRechecksAuthorityAndPlanAroundDurableCustody",
+      "TestExecutorBoundConditionalMutationAndDurableCompletion",
+      "TestExecutorReplayAfterRestartDoesNotDispatchAgain",
+      "TestExecutorConcurrentDuplicateAllowsOnePossibleEffect",
+      "TestExecutorStalePreconditionBlocksAtDestination",
+      "TestExecutorMissingDestinationPreconditionBlocksAutomaticPath",
+      "TestExecutorRejectsWrongConfiguredEndpointBeforeNetwork",
+      "TestExecutorAttemptStoreAndJournalOutagePreventDispatch",
+      "TestExecutorLostResponseAfterCommitCanVerifyPostconditionWithoutClaimingAcceptance",
+      "TestExecutorDoesNotFollowRedirectToDifferentDestination",
+      "TestExecutorRejectsLegacyPermitWithoutExecutionBinding",
+      "TestExecutorRejectsWrongConfiguredAccountBeforeNetwork",
+      "TestEvaluateCustomerUpdatePostconditionUsesRequestedFieldsOnly",
+      "TestUnrelatedTimestampChangeDoesNotAlterPostconditionObservation",
+      "TestExecutorAlreadySatisfiedAvoidsMutation",
+      "TestExecutorPartialApplicationIsNotVerified",
+      "TestExecutorUnrelatedChangeCannotProduceVerifiedOutcome",
+      "TestExecutorAcceptedRequestWithUnavailableObservationRemainsUnknown",
+      "TestExecutorPostMutationWrongTargetReadRemainsUnknown",
+      "TestExecutorDelayedCompletionRequiresStableIntendedPostcondition",
+      "TestExecutorContradictoryObservationsRemainUnknown",
+      "TestVerifyOutcomeRejectsImpossibleCombinationEvenWithRecomputedDigest"
+    ]
+  }
+}
