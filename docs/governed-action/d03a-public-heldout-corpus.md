@@ -34,14 +34,16 @@ evidence.
 
 ## v1 corpus
 
-The corpus currently contains eight reference mappings sourced from seven
-closed public issues across four external repositories:
+The corpus currently contains nine reference mappings sourced from eight
+closed public issues across five external repositories:
 
 - OpenMeter: migration-baseline completeness and concurrent billing-result
   attribution;
 - Hatchet: redelivery/idempotency, lost completion observation causing duplicate
   child work, and exact durable cancellation identity;
 - Infisical: migration rollback state ownership;
+- External Secrets Operator: credential lifecycle state binding when a recreated
+  controller object would otherwise regenerate and overwrite an existing credential;
 - Tortoise #3442: two deliberately separated facets from one investigation:
   a **positive execution-boundary case** where the failed job acquired no runner
   and executed zero steps, and a **negative selection-integrity case** where a
@@ -109,6 +111,32 @@ was fixed. None of these incidents may be used to silently redesign
 Normative change: **NO**  
 Runtime change: **NO**
 
+
+## Reference case — External Secrets Operator #6640 / PR #6641
+
+`refreshPolicy: CreatedOnce` used the `ExternalSecret` object's own status as its
+one-time sync memory. Recreating that controller object reset the status even
+when the target Secret still existed. With the stateless Password generator,
+the next reconcile could mint a new password and overwrite the Secret.
+
+The reported production consequence was stronger than a cosmetic resync: the
+Kubernetes Secret changed while Keycloak's already-bootstrapped admin credential
+did not. The stored credential and the real downstream authority therefore
+diverged.
+
+D03-A maps this as a `StateBinding` / `DecisionBasis` failure: target existence
+and the credential value actually accepted by the downstream authority are
+consequence-relevant state. Recreated controller status cannot stand in for
+that binding.
+
+The historical mapping must therefore produce
+`DEFER_MISSING_RELEVANT_STATE`.
+
+PR #6641 merged as
+`40b04db4543fe3a6e6bab90447cb018a5871c25d`. It added `CreateOrMerge`,
+clarified the `CreatedOnce` lifecycle, and added tested generate-once/freeze
+behavior using explicit target immutability. That fixed configuration provides
+the positive useful counterpart without changing the frozen kernel evaluator.
 
 ## Reference case — Tortoise #3442 / PR #5474
 

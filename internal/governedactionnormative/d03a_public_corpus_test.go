@@ -227,8 +227,8 @@ func TestD03APublicCorpusPinsFrozenOracleAndCannotClaimD03Pass(t *testing.T) {
 
 func TestD03APublicCorpusSourcesAreExternalClosedAndGrounded(t *testing.T) {
 	corpus := loadD03ACorpus(t)
-	if len(corpus.Incidents) < 8 {
-		t.Fatalf("D03-A v1 expected at least 8 grounded reference mappings, got %d", len(corpus.Incidents))
+	if len(corpus.Incidents) < 9 {
+		t.Fatalf("D03-A v1 expected at least 9 grounded reference mappings, got %d", len(corpus.Incidents))
 	}
 
 	seen := map[string]bool{}
@@ -257,6 +257,36 @@ func TestD03APublicCorpusSourcesAreExternalClosedAndGrounded(t *testing.T) {
 	}
 	if len(domains) < 3 {
 		t.Fatalf("D03-A v1 must span at least three structurally different domain categories, got %v", domains)
+	}
+}
+
+
+func TestD03AExternalSecretsCredentialLifecycleCaseIsStateBound(t *testing.T) {
+	corpus := loadD03ACorpus(t)
+	var found *d03AIncident
+	for i := range corpus.Incidents {
+		if corpus.Incidents[i].ID == "D03A-ESO-6640" {
+			found = &corpus.Incidents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("missing D03A-ESO-6640 credential-lifecycle incident")
+	}
+	if found.Repository != "external-secrets/external-secrets" || found.Domain != "credential-lifecycle" {
+		t.Fatalf("unexpected ESO incident identity: %+v", found)
+	}
+	if found.GroundTruth.Fix.MergeCommit != "40b04db4543fe3a6e6bab90447cb018a5871c25d" {
+		t.Fatalf("ESO fix provenance drifted: %s", found.GroundTruth.Fix.MergeCommit)
+	}
+	if value, ok := found.KernelMapping.HistoricalOverrides["relevant_state_bound"]; !ok || value {
+		t.Fatalf("historical ESO mapping must require missing relevant-state binding: %+v", found.KernelMapping.HistoricalOverrides)
+	}
+	if found.KernelMapping.HistoricalExpected != "DEFER_MISSING_RELEVANT_STATE" {
+		t.Fatalf("unexpected ESO historical disposition %q", found.KernelMapping.HistoricalExpected)
+	}
+	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
+		t.Fatalf("ESO fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
 	}
 }
 
