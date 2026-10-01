@@ -66,8 +66,10 @@ Evidence closeout is additive; no frozen expected results are edited to pass.
 
 The immutable dependency check also records Go's already-selected indirect
 versions for `go-spew`, `go-difflib` and `pflag` in the root module. Their checksums
-were already present in the baseline `go.sum`; that file stays unchanged. The
-standalone shared module itself uses only the Go standard library.
+were already present in the baseline `go.sum`. Go's resolved checksum file is
+committed in its canonical order with required transitive module metadata, so
+validation cannot silently change dependency files. The standalone shared
+module itself uses only the Go standard library.
 
 ## Limits and rollback
 
