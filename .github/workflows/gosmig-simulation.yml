@@ -26,14 +26,14 @@ jobs:
     timeout-minutes: 12
     services:
       postgres:
-        image: postgres:16.6
+        image: postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: fixture-only
           POSTGRES_DB: gosmig_fixture
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U postgres -d gosmig_fixture'
+          --health-cmd "pg_isready -U postgres -d gosmig_fixture"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
