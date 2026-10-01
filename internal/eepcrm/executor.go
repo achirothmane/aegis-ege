@@ -50,23 +50,23 @@ type CustomerUpdatePlan struct {
 }
 
 type OutcomeEvidence struct {
-	APIVersion            string                   `json:"api_version"`
-	PostconditionProfile  string                   `json:"postcondition_profile"`
-	IntentID              string                   `json:"intent_id"`
-	Target                string                   `json:"target"`
-	EvidencePacketDigest  string                   `json:"evidence_packet_digest"`
-	PermitDigest          string                   `json:"permit_digest"`
-	PlanDigest            string                   `json:"plan_digest"`
-	BeforeDigest          string                   `json:"before_digest"`
-	AfterDigest           string                   `json:"after_digest,omitempty"`
-	Result                PostconditionResult      `json:"result"`
-	RequestAcceptance     RequestAcceptance        `json:"request_acceptance"`
-	ObservationStatus     ObservationStatus        `json:"observation_status"`
-	ObservationCount      int                      `json:"observation_count"`
-	Postcondition         *PostconditionEvaluation `json:"postcondition,omitempty"`
-	HTTPStatus            int                      `json:"http_status,omitempty"`
-	ObservedAt            time.Time                `json:"observed_at"`
-	IntegrityDigest       string                   `json:"integrity_digest"`
+	APIVersion           string                   `json:"api_version"`
+	PostconditionProfile string                   `json:"postcondition_profile"`
+	IntentID             string                   `json:"intent_id"`
+	Target               string                   `json:"target"`
+	EvidencePacketDigest string                   `json:"evidence_packet_digest"`
+	PermitDigest         string                   `json:"permit_digest"`
+	PlanDigest           string                   `json:"plan_digest"`
+	BeforeDigest         string                   `json:"before_digest"`
+	AfterDigest          string                   `json:"after_digest,omitempty"`
+	Result               PostconditionResult      `json:"result"`
+	RequestAcceptance    RequestAcceptance        `json:"request_acceptance"`
+	ObservationStatus    ObservationStatus        `json:"observation_status"`
+	ObservationCount     int                      `json:"observation_count"`
+	Postcondition        *PostconditionEvaluation `json:"postcondition,omitempty"`
+	HTTPStatus           int                      `json:"http_status,omitempty"`
+	ObservedAt           time.Time                `json:"observed_at"`
+	IntegrityDigest      string                   `json:"integrity_digest"`
 }
 
 type customerSnapshot struct {
@@ -508,7 +508,7 @@ func (e *Executor) Execute(
 }
 
 type postconditionObservation struct {
-	Evaluation *PostconditionEvaluation
+	Evaluation  *PostconditionEvaluation
 	AfterDigest string
 	Status      ObservationStatus
 	Count       int

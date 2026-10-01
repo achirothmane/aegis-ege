@@ -64,6 +64,11 @@ the source SHA checked out. PostgreSQL artifacts separately retain real native
 observations. Final immutable runs reject formatting or dependency-file drift.
 Evidence closeout is additive; no frozen expected results are edited to pass.
 
+The immutable dependency check also records Go's already-selected indirect
+versions for `go-spew`, `go-difflib` and `pflag` in the root module. Their checksums
+were already present in the baseline `go.sum`; that file stays unchanged. The
+standalone shared module itself uses only the Go standard library.
+
 ## Limits and rollback
 
 The library cannot prove that an adapter's clock, durable-write acknowledgement,

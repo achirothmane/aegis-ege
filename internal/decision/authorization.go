@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/achirothmane/easl"
 	"github.com/achirothmane/aegis-ege/governedaction"
+	"github.com/achirothmane/easl"
 
 	"github.com/achirothmane/aegis-ege/internal/easlruntime"
 )

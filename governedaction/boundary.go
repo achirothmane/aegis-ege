@@ -15,12 +15,12 @@ import (
 var (
 	ErrMissingBinding = errors.New("governed action binding is incomplete")
 	ErrBindingChanged = errors.New("governed action binding changed")
-	ErrUnknownTime = errors.New("boundary time is unknown")
-	ErrMissingExpiry = errors.New("authority has no finite expiry")
-	ErrExpired = errors.New("authority expired at the effect boundary")
-	ErrMissingCheck = errors.New("effect boundary check is required")
+	ErrUnknownTime    = errors.New("boundary time is unknown")
+	ErrMissingExpiry  = errors.New("authority has no finite expiry")
+	ErrExpired        = errors.New("authority expired at the effect boundary")
+	ErrMissingCheck   = errors.New("effect boundary check is required")
 	ErrMissingCustody = errors.New("durable custody recorder is required")
-	ErrMissingEffect = errors.New("effect callback is required")
+	ErrMissingEffect  = errors.New("effect callback is required")
 )
 
 // Binding contains opaque, exact native references. The adapter must produce
@@ -29,16 +29,16 @@ var (
 // all consequential payload and plan semantics. No canonicalizer is imposed.
 type Binding struct {
 	ActionRevision string
-	Target string
-	Profile string
+	Target         string
+	Profile        string
 }
 
 type BindingField string
 
 const (
 	ActionRevisionField BindingField = "action_revision"
-	TargetField BindingField = "target"
-	ProfileField BindingField = "profile"
+	TargetField         BindingField = "target"
+	ProfileField        BindingField = "profile"
 )
 
 type BindingError struct {
@@ -53,7 +53,7 @@ func (e *BindingError) Unwrap() error { return e.Cause }
 // It compares exact native references without normalizing or resolving aliases.
 func CheckBinding(admitted, current Binding) error {
 	fields := []struct {
-		name BindingField
+		name              BindingField
 		admitted, current string
 	}{
 		{ActionRevisionField, admitted.ActionRevision, current.ActionRevision},
@@ -138,7 +138,7 @@ func PrepareEffect(ctx context.Context, check, retain func(context.Context) erro
 type DispatchResult[T any] struct {
 	Preparation
 	BoundaryEntered bool
-	Value T
+	Value           T
 }
 
 // Dispatch performs one callback invocation after PrepareEffect. It does not

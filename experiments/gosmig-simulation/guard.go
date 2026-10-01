@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/achirothmane/aegis-ege/governedaction"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/padurean/gosmig"
-	"github.com/achirothmane/aegis-ege/governedaction"
 )
 
 const (

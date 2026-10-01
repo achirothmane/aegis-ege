@@ -13,10 +13,10 @@ import (
 func TestExactBindingCannotBeReplacedOrOmitted(t *testing.T) {
 	admitted := ga.Binding{ActionRevision: "sha256:plan-a", Target: "scope:account-a/customer-17", Profile: "crm/v1"}
 	cases := []struct {
-		name string
+		name    string
 		current ga.Binding
-		field ga.BindingField
-		cause error
+		field   ga.BindingField
+		cause   error
 	}{
 		{"exact", admitted, "", nil},
 		{"revision", ga.Binding{"sha256:plan-b", admitted.Target, admitted.Profile}, ga.ActionRevisionField, ga.ErrBindingChanged},
@@ -31,7 +31,9 @@ func TestExactBindingCannotBeReplacedOrOmitted(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ga.CheckBinding(admitted, tc.current)
 			if tc.cause == nil {
-				if err != nil { t.Fatal(err) }
+				if err != nil {
+					t.Fatal(err)
+				}
 				return
 			}
 			var bindingErr *ga.BindingError
@@ -47,7 +49,11 @@ func TestExactBindingCannotBeReplacedOrOmitted(t *testing.T) {
 
 func TestFiniteBoundaryValidity(t *testing.T) {
 	until := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	cases := []struct { name string; until, at time.Time; cause error }{
+	cases := []struct {
+		name      string
+		until, at time.Time
+		cause     error
+	}{
 		{"before", until, until.Add(-time.Nanosecond), nil},
 		{"at-expiry", until, until, ga.ErrExpired},
 		{"after", until, until.Add(time.Nanosecond), ga.ErrExpired},
@@ -67,12 +73,12 @@ func TestFiniteBoundaryValidity(t *testing.T) {
 func TestNoEffectOnFailedAdmissionCustodyOrRevalidation(t *testing.T) {
 	fault := errors.New("fixture dependency unavailable")
 	cases := []struct {
-		name string
-		failCheck int
+		name                          string
+		failCheck                     int
 		failRetain, cancelAfterRetain bool
-		wantRetained bool
-		wantOrder []string
-		cause error
+		wantRetained                  bool
+		wantOrder                     []string
+		cause                         error
 	}{
 		{"admission-unavailable", 1, false, false, false, []string{"check"}, fault},
 		{"custody-unavailable", 0, true, false, false, []string{"check", "retain"}, fault},
@@ -87,14 +93,21 @@ func TestNoEffectOnFailedAdmissionCustodyOrRevalidation(t *testing.T) {
 			checks, effects := 0, 0
 			result, err := ga.Dispatch(ctx,
 				func(context.Context) error {
-					order = append(order, "check"); checks++
-					if checks == tc.failCheck { return fault }
+					order = append(order, "check")
+					checks++
+					if checks == tc.failCheck {
+						return fault
+					}
 					return nil
 				},
 				func(context.Context) error {
 					order = append(order, "retain")
-					if tc.failRetain { return fault }
-					if tc.cancelAfterRetain { cancel() }
+					if tc.failRetain {
+						return fault
+					}
+					if tc.cancelAfterRetain {
+						cancel()
+					}
 					return nil
 				},
 				func(context.Context) (int, error) { effects++; return 202, nil },
@@ -116,8 +129,11 @@ func TestDispatchIsUsefulOnceAndNeverRetriesAnAmbiguousResult(t *testing.T) {
 				func(context.Context) error { order = append(order, "check"); return nil },
 				func(context.Context) error { order = append(order, "custody"); return nil },
 				func(context.Context) (string, error) {
-					order = append(order, "effect"); committedEffects++
-					if loseReply { return "", lostReply }
+					order = append(order, "effect")
+					committedEffects++
+					if loseReply {
+						return "", lostReply
+					}
 					return "native-accepted", nil
 				},
 			)
@@ -125,8 +141,12 @@ func TestDispatchIsUsefulOnceAndNeverRetriesAnAmbiguousResult(t *testing.T) {
 				t.Fatalf("result=%+v error=%v effects=%d order=%v", result, err, committedEffects, order)
 			}
 			if loseReply {
-				if !errors.Is(err, lostReply) || result.Value != "" { t.Fatalf("ambiguous result=%+v error=%v", result, err) }
-			} else if err != nil || result.Value != "native-accepted" { t.Fatalf("normal result=%+v error=%v", result, err) }
+				if !errors.Is(err, lostReply) || result.Value != "" {
+					t.Fatalf("ambiguous result=%+v error=%v", result, err)
+				}
+			} else if err != nil || result.Value != "native-accepted" {
+				t.Fatalf("normal result=%+v error=%v", result, err)
+			}
 		})
 	}
 }
@@ -140,12 +160,20 @@ func TestMissingHooksFailBeforeAnyEffectOrCustody(t *testing.T) {
 			effect := func(context.Context) (int, error) { calls++; return 1, nil }
 			var want error
 			switch missing {
-			case "check": check = nil; want = ga.ErrMissingCheck
-			case "custody": retain = nil; want = ga.ErrMissingCustody
-			case "effect": effect = nil; want = ga.ErrMissingEffect
+			case "check":
+				check = nil
+				want = ga.ErrMissingCheck
+			case "custody":
+				retain = nil
+				want = ga.ErrMissingCustody
+			case "effect":
+				effect = nil
+				want = ga.ErrMissingEffect
 			}
 			result, err := ga.Dispatch(context.Background(), check, retain, effect)
-			if !errors.Is(err, want) || calls != 0 || result.CustodyRecorded || result.BoundaryEntered { t.Fatalf("result=%+v error=%v calls=%d", result, err, calls) }
+			if !errors.Is(err, want) || calls != 0 || result.CustodyRecorded || result.BoundaryEntered {
+				t.Fatalf("result=%+v error=%v calls=%d", result, err, calls)
+			}
 		})
 	}
 }

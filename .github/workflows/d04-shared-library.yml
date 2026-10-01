@@ -47,11 +47,13 @@ jobs:
         with:
           go-version: '1.25.3'
           cache: false
-      - name: Bootstrap formatting for review (replace with immutable check)
+      - name: Verify committed formatting and pinned dependencies
         run: |
           mkdir -p d04-evidence
-          gofmt -w governedaction/*.go internal/eepcrm/d04_boundary_test.go internal/eepcrm/executor.go internal/decision/authorization.go internal/decision/d04_boundary_test.go internal/governedactionnormative/d04_library_test.go experiments/gosmig-simulation/guard.go
-          (cd experiments/gosmig-simulation && go mod tidy && go mod verify)
+          test -z "$(gofmt -l governedaction/*.go internal/eepcrm/d04_boundary_test.go internal/eepcrm/executor.go internal/decision/authorization.go internal/decision/d04_boundary_test.go internal/governedactionnormative/d04_library_test.go experiments/gosmig-simulation/guard.go)"
+          (cd governedaction && go mod download && go mod verify)
+          (cd experiments/gosmig-simulation && go mod download && go mod verify)
+          git diff --exit-code -- go.mod go.sum governedaction/go.mod governedaction/go.sum experiments/gosmig-simulation/go.mod experiments/gosmig-simulation/go.sum
       - name: Test standalone library with race detector
         working-directory: governedaction
         run: go test -mod=readonly -race -count=1 -json ./... | tee ../d04-evidence/library-tests.jsonl
@@ -60,6 +62,7 @@ jobs:
           go mod download
           go mod verify
           go test -mod=readonly -race -count=1 -json ./internal/eepcrm ./internal/decision ./internal/governedactionnormative | tee d04-evidence/adapter-and-frozen-tests.jsonl
+          git diff --exit-code -- go.mod go.sum governedaction/go.mod governedaction/go.sum experiments/gosmig-simulation/go.mod experiments/gosmig-simulation/go.sum
       - name: Record resolved source provenance
         if: always()
         run: |
@@ -67,7 +70,7 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, os, subprocess
           from pathlib import Path
-          paths = ['governedaction/go.mod', 'governedaction/boundary.go', 'governedaction/boundary_test.go', 'internal/eepcrm/executor.go', 'internal/eepcrm/d04_boundary_test.go', 'internal/decision/authorization.go', 'internal/decision/d04_boundary_test.go', 'internal/governedactionnormative/d04_library_test.go', 'go.mod', 'experiments/gosmig-simulation/go.mod', 'experiments/gosmig-simulation/go.sum', 'experiments/gosmig-simulation/guard.go', 'testdata/governed-action/d04/registration-v1.json', '.github/workflows/d04-shared-library.yml']
+          paths = ['governedaction/go.mod', 'governedaction/boundary.go', 'governedaction/boundary_test.go', 'internal/eepcrm/executor.go', 'internal/eepcrm/d04_boundary_test.go', 'internal/decision/authorization.go', 'internal/decision/d04_boundary_test.go', 'internal/governedactionnormative/d04_library_test.go', 'go.mod', 'go.sum', 'experiments/gosmig-simulation/go.mod', 'experiments/gosmig-simulation/go.sum', 'experiments/gosmig-simulation/guard.go', 'testdata/governed-action/d04/registration-v1.json', '.github/workflows/d04-shared-library.yml']
           result = {'schema_version': 'governed-action.d04-source/v1', 'source_head': os.environ['D04_SOURCE_HEAD'], 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'working_tree_clean': subprocess.call(['git', 'diff', '--quiet']) == 0, 'sha256': {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in paths}}
           Path('d04-evidence/source-provenance.json').write_text(json.dumps(result, indent=2) + '\n')
           PY
@@ -86,6 +89,7 @@ jobs:
             internal/decision/d04_boundary_test.go
             internal/governedactionnormative/d04_library_test.go
             go.mod
+            go.sum
             experiments/gosmig-simulation/go.mod
             experiments/gosmig-simulation/go.sum
             experiments/gosmig-simulation/guard.go
