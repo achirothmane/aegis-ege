@@ -38,6 +38,7 @@ type c10ClaimCorrection struct {
 	Target string `json:"target"`
 	PR     int    `json:"pr"`
 	Head   string `json:"head"`
+	Merge  string `json:"merge"`
 	Merged *bool  `json:"merged"`
 }
 
@@ -84,8 +85,8 @@ func TestC10ClaimProofMatrixPinsMergedRepairEvidence(t *testing.T) {
 	if record.SchemaVersion != "governed-action.c10-claim-proof-provenance/v1" {
 		t.Fatalf("unexpected C10 schema %q", record.SchemaVersion)
 	}
-	if record.Status != "IN_PROGRESS" {
-		t.Fatalf("C10 status = %q, want IN_PROGRESS until claim-correction PRs merge", record.Status)
+	if record.Status != "COMPLETE" {
+		t.Fatalf("C10 status = %q, want COMPLETE after claim-correction PRs merge", record.Status)
 	}
 	if !record.Scope.NoArchitectureChange || !record.Scope.NoRepositorySettingsChange || !record.Scope.NoDistributionClaim {
 		t.Fatalf("C10 scope widened unexpectedly: %+v", record.Scope)
@@ -159,23 +160,26 @@ func TestC10OpenWorkCannotCountAsMainCapability(t *testing.T) {
 		}
 	}
 
-	pending := 0
+	mergedCorrections := 0
 	for _, correction := range record.ClaimCorrections {
-		if correction.Merged != nil && !*correction.Merged {
-			pending++
-			if correction.PR <= 0 || len(correction.Head) != 40 {
-				t.Fatalf("pending correction lacks exact PR/head: %+v", correction)
+		if correction.Merged != nil {
+			if !*correction.Merged {
+				t.Fatalf("C10 claim correction remains unmerged: %+v", correction)
+			}
+			mergedCorrections++
+			if correction.PR <= 0 || len(correction.Head) != 40 || len(correction.Merge) != 40 {
+				t.Fatalf("merged correction lacks exact PR/head/merge provenance: %+v", correction)
 			}
 		}
 	}
-	if pending != 3 {
-		t.Fatalf("pending C10 claim corrections = %d, want 3", pending)
+	if mergedCorrections != 3 {
+		t.Fatalf("merged C10 claim corrections = %d, want 3", mergedCorrections)
 	}
-	if record.CompletionGate.AllMaterialClaimsSupportedOrCorrected {
-		t.Fatal("C10 must not claim completion while correction PRs are open")
+	if !record.CompletionGate.AllMaterialClaimsSupportedOrCorrected {
+		t.Fatal("C10 completion gate must be true after all material corrections merge")
 	}
-	if len(record.CompletionGate.PendingClaimPRs) != 3 {
-		t.Fatalf("pending claim PRs = %v, want 3", record.CompletionGate.PendingClaimPRs)
+	if len(record.CompletionGate.PendingClaimPRs) != 0 {
+		t.Fatalf("pending claim PRs = %v, want none", record.CompletionGate.PendingClaimPRs)
 	}
 	if record.NormativeChange || record.RuntimeChange {
 		t.Fatalf("C10 must be evidence/documentation-only: normative=%v runtime=%v", record.NormativeChange, record.RuntimeChange)
