@@ -63,6 +63,7 @@ func evaluateR01(w r01World) r01Decision {
 			d.disposition = "REJECT_SECOND_EFFECT"
 			return d
 		}
+		return d
 	}
 	if !w.authorityCurrent || !w.takeoverExclusive {
 		if w.staleWorkerE3 {
