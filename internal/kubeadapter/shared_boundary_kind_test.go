@@ -4,6 +4,7 @@ package kubeadapter
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -46,7 +47,30 @@ func TestKindSharedBoundaryExpiresDuringNativeCustody(t *testing.T) {
 				}
 				return nil
 			}
-			_, report := executeCheckpointedKindDrainPastPreMutationDrift(t, adapter, "shared-native-expiry-"+phase, env.nodeName, policy, store)
+			// Each fresh pre-mutation authorization has a distinct custody
+			// identity. An existing ConfigMap must never be overwritten with a
+			// new empty StoreVersion after native resourceVersion drift.
+			var report GuardedDrainExecutionReport
+			var actionID string
+			for attempt := 0; attempt < 12; attempt++ {
+				actionID = fmt.Sprintf("shared-native-expiry-%s-%d", phase, attempt)
+				previousCordoned = false
+				consecutive = 0
+				prepared := prepareKindDrainWithFreshAuthorization(t, adapter, actionID, env.nodeName, policy)
+				report, err = adapter.ExecuteAuthorizedNodeDrainWithCheckpointStore(ctx, *prepared.Authorization, env.nodeName, policy, store)
+				if err != nil {
+					t.Fatal(err)
+				}
+				applied := false
+				for _, step := range report.Steps {
+					applied = applied || step.Applied
+				}
+				if !injected && !applied && hasReason(report.ReasonCodes, decision.ResourceVersionChanged) {
+					time.Sleep(50 * time.Millisecond)
+					continue
+				}
+				break
+			}
 			if !injected || report.Decision != decision.Escalate || !hasReason(report.ReasonCodes, decision.AuthorizationExpired) {
 				t.Fatalf("native expiry injection not observed: injected=%v report=%+v", injected, report)
 			}
@@ -61,7 +85,7 @@ func TestKindSharedBoundaryExpiresDuringNativeCustody(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			c, err := reopened.Load(ctx, "shared-native-expiry-"+phase)
+			c, err := reopened.Load(ctx, actionID)
 			if err != nil || len(c.CompletedPodUIDs) != 0 || len(c.AuthorizedPods) != 1 {
 				t.Fatalf("native custody missing or false completion: %+v, %v", c, err)
 			}
