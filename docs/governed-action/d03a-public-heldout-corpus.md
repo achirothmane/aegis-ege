@@ -34,8 +34,8 @@ evidence.
 
 ## v1 corpus
 
-The corpus currently contains nine reference mappings sourced from eight
-closed public issues across five external repositories:
+The corpus currently contains ten reference mappings sourced from nine
+closed public issues across six external repositories:
 
 - OpenMeter: migration-baseline completeness and concurrent billing-result
   attribution;
@@ -44,6 +44,8 @@ closed public issues across five external repositories:
 - Infisical: migration rollback state ownership;
 - External Secrets Operator: credential lifecycle state binding when a recreated
   controller object would otherwise regenerate and overwrite an existing credential;
+- Argo Workflows: stale workflow reconciliation after completion, where an older
+  resourceVersion could otherwise recreate a pod for an already-finished execution;
 - Tortoise #3442: two deliberately separated facets from one investigation:
   a **positive execution-boundary case** where the failed job acquired no runner
   and executed zero steps, and a **negative selection-integrity case** where a
@@ -137,6 +139,31 @@ PR #6641 merged as
 clarified the `CreatedOnce` lifecycle, and added tested generate-once/freeze
 behavior using explicit target immutability. That fixed configuration provides
 the positive useful counterpart without changing the frozen kernel evaluator.
+
+## Reference case — Argo Workflows #16294 / PR #16357
+
+Argo Workflows recorded a stale reconciliation hazard: after the real workflow
+had completed successfully, an older still-Running workflow object could be
+processed again and reach the missing-pod creation path. The issue records two
+distinct pod UIDs for the same logical workflow execution; another reporter
+observed an already-completed step run again hours later.
+
+The related bookkeeping defect was isolated in #16305: completed workflow state
+was not reliably compared with stale informer copies before reconciliation.
+PR #16357 replaced the older caches with UID-keyed `lastWrittenVersions` and
+ordered Kubernetes `resourceVersion` comparison. Stale copies older than a
+completed/deleted state are dropped before effectful reconciliation. The PR
+merged as `a7a7a8dfb53a35314b81616ec35b5e3f7270b250`; a maintainer later
+confirmed that #15090 and #16357 should fix #16294.
+
+D03-A maps the historical trace to `StateBinding` / `DecisionBasis`: the current
+workflow completion state is consequence-relevant. An older Running snapshot
+cannot authorize a new pod effect once a newer completed state exists.
+
+The unchanged frozen evaluator must therefore return `REJECT_BEFORE_EFFECT`
+when `relevant_state_current=false`. The fixed counterpart remains a useful
+`ALLOW_BOUND_EFFECT` path when current state is bound and an effect is actually
+required.
 
 ## Reference case — Tortoise #3442 / PR #5474
 

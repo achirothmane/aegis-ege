@@ -227,8 +227,8 @@ func TestD03APublicCorpusPinsFrozenOracleAndCannotClaimD03Pass(t *testing.T) {
 
 func TestD03APublicCorpusSourcesAreExternalClosedAndGrounded(t *testing.T) {
 	corpus := loadD03ACorpus(t)
-	if len(corpus.Incidents) < 9 {
-		t.Fatalf("D03-A v1 expected at least 9 grounded reference mappings, got %d", len(corpus.Incidents))
+	if len(corpus.Incidents) < 10 {
+		t.Fatalf("D03-A v1 expected at least 10 grounded reference mappings, got %d", len(corpus.Incidents))
 	}
 
 	seen := map[string]bool{}
@@ -287,6 +287,36 @@ func TestD03AExternalSecretsCredentialLifecycleCaseIsStateBound(t *testing.T) {
 	}
 	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
 		t.Fatalf("ESO fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
+	}
+}
+
+
+func TestD03AArgoStaleWorkflowCaseRequiresCurrentState(t *testing.T) {
+	corpus := loadD03ACorpus(t)
+	var found *d03AIncident
+	for i := range corpus.Incidents {
+		if corpus.Incidents[i].ID == "D03A-ARGO-16294" {
+			found = &corpus.Incidents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("missing D03A-ARGO-16294 workflow-controller incident")
+	}
+	if found.Repository != "argoproj/argo-workflows" || found.Domain != "workflow-controller-reconciliation" {
+		t.Fatalf("unexpected Argo incident identity: %+v", found)
+	}
+	if found.GroundTruth.Fix.MergeCommit != "a7a7a8dfb53a35314b81616ec35b5e3f7270b250" {
+		t.Fatalf("Argo fix provenance drifted: %s", found.GroundTruth.Fix.MergeCommit)
+	}
+	if value, ok := found.KernelMapping.HistoricalOverrides["relevant_state_current"]; !ok || value {
+		t.Fatalf("historical Argo mapping must require stale relevant state: %+v", found.KernelMapping.HistoricalOverrides)
+	}
+	if found.KernelMapping.HistoricalExpected != "REJECT_BEFORE_EFFECT" {
+		t.Fatalf("unexpected Argo historical disposition %q", found.KernelMapping.HistoricalExpected)
+	}
+	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
+		t.Fatalf("Argo fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
 	}
 }
 
