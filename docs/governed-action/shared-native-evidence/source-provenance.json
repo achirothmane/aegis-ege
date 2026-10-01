@@ -1,0 +1,17 @@
+{
+  "schema": "shared-native-boundaries.source/v1",
+  "head": "f2648c14db904353b6fdcd6f2dfeb89a76dd4bee",
+  "run_id": "36810261850",
+  "run_attempt": "1",
+  "working_tree_clean": true,
+  "sha256": {
+    "governedaction/go.mod": "f8b2ea31a39f58cef181410ba93efa41a52beadc2408399ec9445348aa3f3224",
+    "governedaction/boundary.go": "73f6c5626f3c72f6eeff5e7a95ab770364211cbcd4a67bd96bb3295042e7147a",
+    "governedaction/boundary_test.go": "3f2351cb212b16da05060af0b0c59cc9fbdba4e963a2e2dd80f7088a5496e48b",
+    "internal/kubeadapter/real_execution.go": "63cd7b8a2ea6ef51185f33e0c18470c40dcef73a01e5fa85678fba4f819d648a",
+    "internal/kubeadapter/shared_boundary.go": "f3c791eca7d24d04f5a160f19e68b84825d2a2c128e15ea32fa2f4deadf5f3b3",
+    "internal/kubeadapter/shared_boundary_test.go": "1072d069099325d6b9c765fb0c6cc2389f076feb30a4a69d1fcf0f1eb700822f",
+    "internal/kubeadapter/shared_boundary_kind_test.go": "961890546aacb8afdf39bee9694e76e5bfe639e99a3bbabd9d19eea2d831e9db",
+    "testdata/governed-action/shared-boundaries/registration-v1.json": "97e323de025838ad38c9a28859f4caabe558f51f0619f778036c6e2f3c6f3cf2"
+  }
+}

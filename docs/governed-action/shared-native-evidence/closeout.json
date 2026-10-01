@@ -1,0 +1,91 @@
+{
+  "schema": "shared-native-boundaries.cross-domain-closeout/v1",
+  "classification": "PROVISIONAL_OWNER_NATIVE_TESTED",
+  "official_D05_completion": false,
+  "D03_PASS": false,
+  "independent_participation": false,
+  "aegis_immutable_source": "f2648c14db904353b6fdcd6f2dfeb89a76dd4bee",
+  "shared_library_commit": "a902f1dddf8f234955d0797a2b62b8cfa647be78",
+  "shared_library_sha256": {
+    "boundary.go": "73f6c5626f3c72f6eeff5e7a95ab770364211cbcd4a67bd96bb3295042e7147a",
+    "boundary_test.go": "3f2351cb212b16da05060af0b0c59cc9fbdba4e963a2e2dd80f7088a5496e48b",
+    "go.mod": "f8b2ea31a39f58cef181410ba93efa41a52beadc2408399ec9445348aa3f3224"
+  },
+  "core_changed": false,
+  "frozen_oracle_changed": false,
+  "github_ci": {
+    "repository": "achirothmane/ci-retry-gate-consumer-e2e",
+    "PR": 25,
+    "native_source_head": "c66d68ab6cad0ebb97df7a350946d0928ff9cf99",
+    "proof_run": 36809813634,
+    "source_run": 36809813478,
+    "source_attempt_after": 2,
+    "knowledge": "VERIFIED",
+    "disposition": "CLOSED",
+    "receipt_after_deliberate_loss": null,
+    "stable_control_reexecuted": false,
+    "registered_adapter_scenarios": 17,
+    "legacy_D01_python_extracted": false
+  },
+  "kubernetes": {
+    "immutable_run": 36810261850,
+    "full_repository_run": 36810261777,
+    "raw_native_test_failures": 0,
+    "native_tests_and_subtests_passed": 45,
+    "adapter_tests_and_subtests_passed": 188,
+    "additional_custody_invalidations": 8,
+    "additional_native_expiry_schedules": 2,
+    "legacy_no_checkpoint_path_extracted": false,
+    "cooperative_lease_is_target_generation_fence": false
+  },
+  "postgresql": {
+    "native_run": 36810261735,
+    "passed": true,
+    "cases": 13,
+    "unchanged_K07_mappings": 11,
+    "unauthorized_effects": 0,
+    "upstream_module": "v0.0.0-20251102200842-f2cc69c685d6"
+  },
+  "library": {
+    "run": 36810261733,
+    "raw_test_failures": 0,
+    "boundary_tests_and_subtests_passed": 28
+  },
+  "artifacts": [
+    {
+      "id": 11138972866,
+      "role": "immutable-KinD-and-adapter-evidence",
+      "sha256": "3aa0e5e6511b00f836112b343b29f7185a4eb7ae8d4e1543184dea4fa15f15e9"
+    },
+    {
+      "id": 11139402765,
+      "role": "native-PostgreSQL-and-frozen-oracle",
+      "sha256": "7c843f2c85edec19ecb20dce0b695fb4da1c8e43f5eb66f72a7482c82a95ca9d"
+    },
+    {
+      "id": 11139293034,
+      "role": "shared-library-CRM-and-frozen-contract",
+      "sha256": "ebd8e0d3d5eaa860618043ebb17de87eceabfe439d234c1329dfeb168588567a"
+    }
+  ],
+  "non_qualifying_earlier_validation": [
+    {
+      "run": 36808256348,
+      "reason": "initial native expiry fixture reused a retained ConfigMap across fresh preparation; missing pipefail masked test failure"
+    },
+    {
+      "run": 36809429594,
+      "reason": "same native expiry custody identity reuse; native full CI failed"
+    },
+    {
+      "run": 36809730705,
+      "reason": "pre-mutation drift test helper attempted empty replacement custody rather than resuming original CAS checkpoint; full native CI failed"
+    }
+  ],
+  "limitations": [
+    "owner-controlled provider experiments rather than independent D03 evidence",
+    "GitHub has no atomic rerun CAS; one cooperative writer is part of the TCB",
+    "Kubernetes lease renewal is not hostile-writer target generation fencing",
+    "no fourth-domain complexity-dividend measurement or universal complete mediation claim"
+  ]
+}
