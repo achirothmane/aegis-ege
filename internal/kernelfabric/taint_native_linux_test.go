@@ -4,6 +4,7 @@ package kernelfabric
 
 import (
 	"context"
+	_ "embed"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -20,6 +21,9 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+//go:embed testdata/aegis_taint.bpf.o
+var nativeTaintBPFObject []byte
 
 const (
 	taintNativeHelperEnv    = "AEGIS_TAINT_NATIVE_HELPER"
@@ -57,9 +61,8 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("native taint test requires root")
 	}
-	artifact := strings.TrimSpace(os.Getenv("AEGIS_TAINT_BPF_OBJECT"))
-	if artifact == "" {
-		t.Skip("AEGIS_TAINT_BPF_OBJECT is not set")
+	if len(nativeTaintBPFObject) == 0 {
+		t.Fatal("embedded native taint BPF object is empty")
 	}
 	if err := prepareNativeTaintKernel(); err != nil {
 		t.Fatalf("prepare native taint kernel environment: %v", err)
@@ -86,6 +89,10 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	defer removeNativeTaintPins(bpffsRoot)
 
 	workDir := t.TempDir()
+	artifact := filepath.Join(workDir, "aegis_taint.bpf.o")
+	if err := os.WriteFile(artifact, nativeTaintBPFObject, 0o600); err != nil {
+		t.Fatalf("materialize embedded taint BPF object: %v", err)
+	}
 	secretPath := filepath.Join(workDir, "secret.txt")
 	bridgePath := filepath.Join(workDir, "bridge.txt")
 	if err := os.WriteFile(secretPath, []byte("classified"), 0o600); err != nil {
