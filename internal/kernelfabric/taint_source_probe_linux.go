@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -181,6 +180,3 @@ func randomProbeToken() (uint64, error) {
 	}
 }
 
-// Keep os imported on Linux builds where future source-probe hardening may
-// consume fd metadata through os.File without changing the public contract.
-var _ = os.ErrNotExist
