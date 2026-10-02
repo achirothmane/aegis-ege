@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -58,6 +60,9 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	artifact := strings.TrimSpace(os.Getenv("AEGIS_TAINT_BPF_OBJECT"))
 	if artifact == "" {
 		t.Skip("AEGIS_TAINT_BPF_OBJECT is not set")
+	}
+	if err := prepareNativeTaintKernel(); err != nil {
+		t.Fatalf("prepare native taint kernel environment: %v", err)
 	}
 
 	originalCgroup, err := currentUnifiedCgroupPath()
@@ -335,4 +340,54 @@ func removeNativeTaintPins(root string) {
 		_ = os.Remove(filepath.Join(root, "links", name))
 	}
 	_ = os.RemoveAll(root)
+}
+
+
+func prepareNativeTaintKernel() error {
+	if err := ensureNativeFilesystem("/sys/fs/bpf", "bpf", uint64(bpfFSMagic)); err != nil {
+		return err
+	}
+	if err := ensureNativeFilesystem("/sys/kernel/security", "securityfs", 0x73636673); err != nil {
+		return err
+	}
+	if err := ensureNativeFilesystem("/sys/fs/cgroup", "cgroup2", uint64(cgroup2FSMagic)); err != nil {
+		return err
+	}
+
+	lsmPayload, err := os.ReadFile("/sys/kernel/security/lsm")
+	if err != nil {
+		return fmt.Errorf("read active LSM list: %w", err)
+	}
+	active := "," + strings.TrimSpace(string(lsmPayload)) + ","
+	if !strings.Contains(active, ",bpf,") {
+		return fmt.Errorf("BPF LSM is not active: %s", strings.TrimSpace(string(lsmPayload)))
+	}
+	if _, err := os.Stat("/sys/kernel/btf/vmlinux"); err != nil {
+		return fmt.Errorf("kernel BTF is unavailable: %w", err)
+	}
+	return nil
+}
+
+func ensureNativeFilesystem(path, fsType string, magic uint64) error {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("create %s mountpoint: %w", fsType, err)
+	}
+	var stat unix.Statfs_t
+	if err := unix.Statfs(path, &stat); err == nil && uint64(stat.Type) == magic {
+		return nil
+	}
+	source := fsType
+	if fsType == "cgroup2" {
+		source = "none"
+	}
+	if err := unix.Mount(source, path, fsType, 0, ""); err != nil {
+		return fmt.Errorf("mount %s at %s: %w", fsType, path, err)
+	}
+	if err := unix.Statfs(path, &stat); err != nil {
+		return fmt.Errorf("stat %s after mount: %w", fsType, err)
+	}
+	if uint64(stat.Type) != magic {
+		return fmt.Errorf("%s mounted with unexpected filesystem magic %#x", fsType, uint64(stat.Type))
+	}
+	return nil
 }
