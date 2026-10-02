@@ -34,6 +34,18 @@ var taintBootstrapPrograms = []BootstrapProgram{
 		AttachType: "raw_tracepoint/sched_process_fork",
 	},
 	{
+		PinName:    "aegis_trename",
+		Name:       "aegis_trename",
+		Type:       "lsm",
+		AttachType: "lsm/inode_rename",
+	},
+	{
+		PinName:    "aegis_tunlink",
+		Name:       "aegis_tunlink",
+		Type:       "lsm",
+		AttachType: "lsm/inode_unlink",
+	},
+	{
 		PinName:    "aegis_tconn4",
 		Name:       "aegis_tconn4",
 		Type:       "cgroup_sock_addr",
@@ -57,6 +69,7 @@ var taintBootstrapMaps = []BootstrapMap{
 	{Name: "aegis_tcgroups", Type: "hash"},
 	{Name: "aegis_tevents", Type: "ringbuf"},
 	{Name: "aegis_tfail", Type: "hash"},
+	{Name: "aegis_tdirty", Type: "array"},
 	{Name: "aegis_tsrc", Type: "hash"},
 }
 
