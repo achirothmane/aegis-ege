@@ -51,7 +51,7 @@ var taintBootstrapMaps = []BootstrapMap{
 	{Name: "aegis_ftaint", Type: "hash"},
 	{Name: "aegis_ptaint", Type: "hash"},
 	{Name: "aegis_tprobe", Type: "hash"},
-	{Name: "aegis_tprobe_results", Type: "hash"},
+	{Name: "aegis_tprobe_r", Type: "hash"},
 	{Name: "aegis_tacct", Type: "array"},
 	{Name: "aegis_tallow", Type: "hash"},
 	{Name: "aegis_tcgroups", Type: "hash"},
