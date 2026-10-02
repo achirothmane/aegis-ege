@@ -21,20 +21,20 @@ type museClassCorpus struct {
 }
 
 type museClassCase struct {
-	ID                   string                  `json:"id"`
-	Name                 string                  `json:"name"`
-	Class                string                  `json:"class"`
-	Coverage             string                  `json:"coverage"`
-	Gate                 string                  `json:"gate"`
-	Expect               string                  `json:"expect"`
-	AdmittedOrigin       *museOriginFixture      `json:"admitted_origin,omitempty"`
-	CurrentOrigin        *museOriginFixture      `json:"current_origin,omitempty"`
-	AdmittedApproval     *museApprovalFixture    `json:"admitted_approval,omitempty"`
-	CurrentApproval      *museApprovalFixture    `json:"current_approval,omitempty"`
-	AdmittedCredential   *museCredentialFixture  `json:"admitted_credential,omitempty"`
-	CurrentCredential    *museCredentialFixture  `json:"current_credential,omitempty"`
-	EffectsUsed          uint32                  `json:"effects_used,omitempty"`
-	At                   string                  `json:"at,omitempty"`
+	ID                 string                 `json:"id"`
+	Name               string                 `json:"name"`
+	Class              string                 `json:"class"`
+	Coverage           string                 `json:"coverage"`
+	Gate               string                 `json:"gate"`
+	Expect             string                 `json:"expect"`
+	AdmittedOrigin     *museOriginFixture     `json:"admitted_origin,omitempty"`
+	CurrentOrigin      *museOriginFixture     `json:"current_origin,omitempty"`
+	AdmittedApproval   *museApprovalFixture   `json:"admitted_approval,omitempty"`
+	CurrentApproval    *museApprovalFixture   `json:"current_approval,omitempty"`
+	AdmittedCredential *museCredentialFixture `json:"admitted_credential,omitempty"`
+	CurrentCredential  *museCredentialFixture `json:"current_credential,omitempty"`
+	EffectsUsed        uint32                 `json:"effects_used,omitempty"`
+	At                 string                 `json:"at,omitempty"`
 }
 
 type museOriginFixture struct {
