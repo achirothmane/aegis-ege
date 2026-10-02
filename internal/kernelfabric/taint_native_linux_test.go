@@ -222,7 +222,14 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("read configured sensitive source: %v", err)
 	}
 	if err := assertNativeProcessTaint(bpffsRoot, uint32(os.Getpid()), 1); err != nil {
-		t.Fatalf("sensitive read did not produce process taint: %v", err)
+		diagnostic := diagnoseNativeReadKey(reader, activated.CgroupID, uint32(os.Getpid()))
+		t.Fatalf(
+			"sensitive read did not produce process taint: %v; kernel read observation: %s; configured source: device=%d inode=%d",
+			err,
+			diagnostic,
+			sourceKey.Device,
+			sourceKey.Inode,
+		)
 	}
 	if err := os.WriteFile(bridgePath, []byte("launder-attempt"), 0o600); err != nil {
 		t.Fatalf("write bridge file: %v", err)
@@ -458,4 +465,30 @@ func assertNativeFileTaint(bpffsRoot string, key TaintFileKey, want uint64) erro
 		)
 	}
 	return nil
+}
+
+
+func diagnoseNativeReadKey(
+	reader *TaintEvidenceReader,
+	cgroupID uint64,
+	tgid uint32,
+) string {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for {
+		event, _, err := reader.ReadContext(ctx)
+		if err != nil {
+			return "unavailable: " + err.Error()
+		}
+		if event.CgroupID == cgroupID &&
+			event.TGID == tgid &&
+			event.EventType == TaintEventFileReadObserved {
+			return fmt.Sprintf(
+				"device=%d inode=%d labels=%#x",
+				event.FileDevice,
+				event.FileInode,
+				event.Labels,
+			)
+		}
+	}
 }
