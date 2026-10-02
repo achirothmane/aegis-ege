@@ -401,3 +401,29 @@ func TaintSourceContinuityWatermark(bpffsRoot string) (uint64, error) {
 	}
 	return clean, nil
 }
+
+
+func TaintRecoveryCommitmentState(bpffsRoot string) ([32]byte, error) {
+	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
+	if root == "." || root == "" {
+		root = DefaultTaintBPFFSRoot
+	}
+	m, err := openExactTaintMap(
+		filepath.Join(root, "maps", "aegis_trecover"),
+		ebpf.Array,
+		4,
+		32,
+		1,
+	)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer m.Close()
+
+	var key uint32
+	var commitment [32]byte
+	if err := m.Lookup(&key, &commitment); err != nil {
+		return [32]byte{}, err
+	}
+	return commitment, nil
+}
