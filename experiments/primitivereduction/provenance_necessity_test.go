@@ -83,9 +83,12 @@ func TestV9ValidBooleanCanHideIssuerTrustDecision(t *testing.T) {
 
 func TestTrustBoundAdmissionRejectsUntrustedSelfAttestation(t *testing.T) {
 	p := DecomposeEvidence(ReduceCapability(githubMergeProposal()))
-	originalIssuer := p.Attestations[0].Issuer
+	trustedIssuers := make([]Identity, 0, len(p.Attestations))
+	for _, attestation := range p.Attestations {
+		trustedIssuers = append(trustedIssuers, attestation.Issuer)
+	}
 
-	trust := BuildProvenanceTrustState("trust-v1", []Identity{originalIssuer})
+	trust := BuildProvenanceTrustState("trust-v1", trustedIssuers)
 
 	if got := EvaluateTrustBoundAdmission(p, trust); got.Decision != DecisionAllow {
 		t.Fatalf("trusted original issuer rejected: %+v", got)
