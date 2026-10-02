@@ -86,3 +86,63 @@ This is the cgroup network adapter only. XDP and BPF-LSM are separate enforcemen
 
 
 For the trust model, TOCTOU staging, post-load verification, partial-attach rollback, and local-attestation boundary, see [../../docs/signed-bpf-loader-bootstrap.md](../../docs/signed-bpf-loader-bootstrap.md).
+
+
+## Experimental taint evidence adapter
+
+`aegis_taint.bpf.c` is a separate experimental artifact for the Muse-class
+M01-M03 hardening work. It does **not** replace the signed network DecisionCapsule
+adapter and it is not yet part of the production bootstrap manifest.
+
+The artifact compiles four programs:
+
+- `lsm/file_permission` — observes configured sensitive-source reads and
+  propagates taint through file reads/writes;
+- `tracepoint/sched/sched_process_fork` — propagates the parent's process taint
+  to a child process;
+- `cgroup/connect4`;
+- `cgroup/connect6` — fail closed when a protected cgroup has propagation
+  uncertainty or when the current process carries labels not admitted by that
+  cgroup's taint allow-mask.
+
+The kernel transports an opaque 64-bit label set. It does not embed meanings
+such as "private" or "secret"; userspace profile code maps bit positions to
+semantic labels and fails closed on unmapped bits.
+
+Pinned-map names reserved by the experiment are:
+
+```text
+aegis_tsrc      configured sensitive file identities -> labels
+aegis_ftaint    propagated file identities -> labels
+aegis_ptaint    process TGID -> labels
+aegis_tcgroups  protected cgroup IDs
+aegis_tallow    admitted egress label mask per cgroup
+aegis_tfail     propagation uncertainty count per cgroup
+aegis_tevents   ring-buffer evidence stream
+aegis_tacct     stream loss accounting
+```
+
+Propagation is monotonic. A tainted process write unions labels into the file;
+a later reader unions file labels into its process state. A fork copies the
+parent's current label set. If a process/file propagation map update fails, the
+adapter records propagation uncertainty; protected egress requires an initialized
+zero-valued uncertainty entry and denies when the counter is non-zero.
+
+### Claim boundary
+
+CI now compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf`
+and the Go side mirrors/decodes its fixed ABI. This proves source-level build and
+ABI compatibility only.
+
+It does **not** yet prove:
+
+- that the target Linux kernel enables BPF LSM and accepts the programs;
+- that the signed loader attaches and pins all four programs atomically;
+- that fork/file/connect hooks completely mediate a hostile workload;
+- that a process cannot escape by changing cgroups/namespaces or by exploiting
+  an unmodelled IPC path;
+- safe lifetime cleanup for TGID/inode reuse without weakening fail-closed
+  behavior.
+
+Until a signed native attach test exists, M01-M03 remain kernel-artifact
+candidates plus executable semantic tests, not production Linux taint claims.
