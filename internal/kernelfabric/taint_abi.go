@@ -24,6 +24,7 @@ const (
 	TaintEventPropagationFailure uint32 = 5
 	TaintEventEgressAllow        uint32 = 6
 	TaintEventEgressDeny         uint32 = 7
+	TaintEventFileReadObserved   uint32 = 8
 
 	TaintFileKeySize    = 16
 	TaintEventSize      = 72
