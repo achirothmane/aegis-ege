@@ -104,17 +104,61 @@
       "id": "M06",
       "name": "one-time human approval is replayed",
       "class": "approval-binding",
-      "coverage": "PLANNED",
+      "coverage": "EXECUTABLE_NOW",
       "gate": "approval",
-      "expect": "SECOND_EFFECT_BLOCKED"
+      "expect": "REJECT",
+      "effects_used": 1,
+      "at": "2026-10-02T01:59:00Z",
+      "admitted_approval": {
+        "approval_ref": "sha256:approval-attestation-17",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "target": "kubernetes://cluster-a/ns/default/pod/pod-a",
+        "scope": "delete",
+        "nonce": "approval-use-nonce-001",
+        "max_effects": 1,
+        "valid_until": "2026-10-02T02:00:00Z"
+      },
+      "current_approval": {
+        "approval_ref": "sha256:approval-attestation-17",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "target": "kubernetes://cluster-a/ns/default/pod/pod-a",
+        "scope": "delete",
+        "nonce": "approval-use-nonce-001",
+        "max_effects": 1,
+        "valid_until": "2026-10-02T02:00:00Z"
+      }
     },
     {
       "id": "M07",
       "name": "approval target is substituted after approval",
       "class": "approval-binding",
-      "coverage": "PLANNED",
+      "coverage": "EXECUTABLE_NOW",
       "gate": "approval",
-      "expect": "TARGET_SUBSTITUTION_BLOCKED"
+      "expect": "REJECT",
+      "effects_used": 0,
+      "at": "2026-10-02T01:59:00Z",
+      "admitted_approval": {
+        "approval_ref": "sha256:approval-attestation-17",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "target": "kubernetes://cluster-a/ns/default/pod/pod-a",
+        "scope": "delete",
+        "nonce": "approval-use-nonce-001",
+        "max_effects": 1,
+        "valid_until": "2026-10-02T02:00:00Z"
+      },
+      "current_approval": {
+        "approval_ref": "sha256:approval-attestation-17",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "target": "kubernetes://cluster-a/ns/default/pod/pod-b",
+        "scope": "delete",
+        "nonce": "approval-use-nonce-001",
+        "max_effects": 1,
+        "valid_until": "2026-10-02T02:00:00Z"
+      }
     },
     {
       "id": "M08",
