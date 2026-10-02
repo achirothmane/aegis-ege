@@ -270,13 +270,28 @@ sensitive file read
   -> kernel DENY
 ```
 
-A second schedule then atomically replaced that enrolled OverlayFS source after
-activation. The logical path remained the same while the userspace inode changed
-from 6 to 11. New `lsm/inode_rename` / `lsm/inode_unlink` guards treat
-mutation of a registered source identity as evidence-continuity loss:
+A second schedule attacks the enrollment -> activation boundary. The source is
+first enrolled at OverlayFS device 38/inode 6, then atomically replaced before
+activation. The activation plan now binds the absolute source path as well as
+the observed kernel identities. Activation installs those identities while the
+target cgroup is still inactive, re-probes the path, requires exact identity-set
+equality, and re-checks source-continuity state before writing the protected
+cgroup flag. The stale plan is rejected when the path now resolves to inode 12;
+activation succeeds only after explicit re-enrollment.
+
+A third schedule forces copy-up on a separately enrolled lower-layer source.
+Before copy-up the LSM observes device 37/inode 7 and device 38/inode 7. After
+copy-up it observes device 37/inode 14 and device 38/inode 7. Because the
+OverlayFS virtual identity remains stable, `aegis_tdirty` stays zero and the
+clean child is tainted through the still-enrolled device 38/inode 7 identity
+before its connect is denied.
+
+A fourth schedule atomically replaces the active source. The userspace inode
+changes from 12 to 13. The `lsm/inode_rename` / `lsm/inode_unlink` guards
+treat mutation of a registered source identity as evidence-continuity loss:
 `aegis_tdirty` becomes non-zero, and every protected connect fails closed.
-The native run observed `aegis_tdirty=1` and a clean pre-existing child could
-not egress after reading the replacement object.
+The native run observed the counter advance by two registered identities and a
+clean pre-existing child could not egress after reading the replacement object.
 
 
 The same native harness also exercises M15 in two stages. M15a runs an
@@ -386,13 +401,21 @@ Only the following new claims are earned by this change:
     detected by the kernel rename guard and increments source identity
     continuity state;
 30. once source identity continuity is dirty, protected network egress fails
-    closed even for a clean process reading an unenrolled replacement inode.
+    closed even for a clean process reading an unenrolled replacement inode;
+31. activation binds each source path into the plan, installs enrolled
+    identities while the cgroup is still inactive, re-probes the path, and
+    rejects an exact identity-set mismatch before activation;
+32. mutation between enrollment and activation is therefore rejected in the
+    native OverlayFS schedule and requires explicit re-enrollment;
+33. the tested OverlayFS copy-up changes the underlying identity while
+    preserving the enrolled virtual identity, so a clean reader is still
+    tainted and denied without setting source-continuity DIRTY.
 
 This change does **not** yet prove:
 
 - production Linux process/data taint observation and complete mediation;
-- source continuity across every copy-up, live-remount, inode-reuse and
-  pre-activation mutation schedule;
+- source continuity across every live-remount, inode-reuse, filesystem-specific
+  copy-up implementation and source-lifetime cleanup schedule;
 - containment of an attacker that already controls the host initial user namespace or host root;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
@@ -430,7 +453,9 @@ Stacked-filesystem source identity proof
     ↓
 Post-activation rename / replacement invalidation
     ↓
-Copy-up + pre-activation mutation / enrollment TOCTOU
+Copy-up + enrollment/activation TOCTOU proof
+    ↓
+Source lifetime / remount / inode-reuse falsification
     ↓
 Unmodelled IPC / namespace / effect-surface falsification
 ```

@@ -60,6 +60,41 @@ func TestTaintActivationPlanDigestBindsSourcePath(t *testing.T) {
 	}
 }
 
+func TestTaintActivationPlanRejectsInvalidSourcePathContracts(t *testing.T) {
+	relative := TaintActivationPlan{
+		CgroupPath: "/sys/fs/cgroup/aegis",
+		Sources: []TaintSourceBinding{
+			{
+				Path:   "relative/source",
+				File:   TaintFileKey{Device: 8, Inode: 11},
+				Labels: 1,
+			},
+		},
+	}
+	if err := ValidateTaintActivationPlan(relative); err == nil {
+		t.Fatal("relative source path accepted")
+	}
+
+	inconsistent := TaintActivationPlan{
+		CgroupPath: "/sys/fs/cgroup/aegis",
+		Sources: []TaintSourceBinding{
+			{
+				Path:   "/var/lib/aegis/source",
+				File:   TaintFileKey{Device: 8, Inode: 11},
+				Labels: 1,
+			},
+			{
+				Path:   "/var/lib/aegis/source",
+				File:   TaintFileKey{Device: 9, Inode: 12},
+				Labels: 2,
+			},
+		},
+	}
+	if err := ValidateTaintActivationPlan(inconsistent); err == nil {
+		t.Fatal("one source path accepted inconsistent label sets")
+	}
+}
+
 func TestTaintActivationPlanRejectsDuplicatesAndEmptyLabels(t *testing.T) {
 	base := TaintActivationPlan{
 		CgroupPath: "/sys/fs/cgroup/aegis",
