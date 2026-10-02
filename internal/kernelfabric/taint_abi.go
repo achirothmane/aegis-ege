@@ -27,6 +27,7 @@ const (
 	TaintEventFileReadObserved   uint32 = 8
 
 	TaintFileKeySize    = 16
+	TaintProbeKeySize   = 24
 	TaintEventSize      = 72
 	TaintAccountingSize = 24
 )
@@ -40,6 +41,13 @@ var (
 type TaintFileKey struct {
 	Device uint64
 	Inode  uint64
+}
+
+type TaintProbeKey struct {
+	TID      uint32
+	Reserved uint32
+	Device   uint64
+	Inode    uint64
 }
 
 type TaintEvent struct {
