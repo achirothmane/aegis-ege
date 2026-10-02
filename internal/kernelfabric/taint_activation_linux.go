@@ -24,8 +24,9 @@ type TaintActivationRequest struct {
 }
 
 type TaintActivationResult struct {
-	CgroupID   uint64
-	PlanDigest string
+	CgroupID        uint64
+	PlanDigest      string
+	EnrollmentEpoch uint64
 }
 
 // ActivateTaintCgroup is phase two of the taint install protocol.
@@ -110,6 +111,11 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		return TaintActivationResult{}, err
 	}
 	defer dirtyMap.Close()
+	cleanMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tclean"), ebpf.Array, 4, 8, 1)
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	defer cleanMap.Close()
 	armedMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tarmed"), ebpf.Array, 4, 4, 1)
 	if err != nil {
 		return TaintActivationResult{}, err
@@ -123,14 +129,32 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 	if armedState != 0 {
 		return TaintActivationResult{}, errors.New("taint source lifetime guard is already armed")
 	}
+	epochMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tepoch"), ebpf.Array, 4, 8, 1)
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	defer epochMap.Close()
+	var epochKey uint32
+	var currentEpoch uint64
+	if err := epochMap.Lookup(&epochKey, &currentEpoch); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("read taint enrollment epoch: %w", err)
+	}
+	if currentEpoch != 0 {
+		return TaintActivationResult{}, fmt.Errorf("taint enrollment epoch is already initialized: %d", currentEpoch)
+	}
 	sourceDirty, err := taintSourceDirtyCount(dirtyMap)
 	if err != nil {
 		return TaintActivationResult{}, err
 	}
-	if sourceDirty != 0 {
+	var cleanGeneration uint64
+	if err := cleanMap.Lookup(&epochKey, &cleanGeneration); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("read taint source continuity watermark: %w", err)
+	}
+	if sourceDirty != 0 || cleanGeneration != 0 {
 		return TaintActivationResult{}, fmt.Errorf(
-			"taint source identity continuity is dirty before activation: %d",
+			"taint source continuity generations must start at zero: dirty=%d clean=%d",
 			sourceDirty,
+			cleanGeneration,
 		)
 	}
 	cgroupMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tcgroups"), ebpf.Hash, 8, 4, 4096)
@@ -148,6 +172,8 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		_ = failureMap.Delete(&cgroupID)
 		var disabled uint32
 		_ = armedMap.Update(&armedKey, &disabled, ebpf.UpdateAny)
+		var zeroEpoch uint64
+		_ = epochMap.Update(&epochKey, &zeroEpoch, ebpf.UpdateAny)
 	}
 	activated := false
 	defer func() {
@@ -201,6 +227,14 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		return TaintActivationResult{}, fmt.Errorf("initialize taint uncertainty counter: %w", err)
 	}
 
+	// Enrollment epoch is initialized before the protected-cgroup flag. A crash
+	// here remains inert because the cgroup is still not active and rollback
+	// restores epoch zero.
+	var initialEpoch uint64 = 1
+	if err := epochMap.Update(&epochKey, &initialEpoch, ebpf.UpdateAny); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("initialize taint enrollment epoch: %w", err)
+	}
+
 	// Activation point: write this last.
 	var enabled uint32 = 1
 	if err := cgroupMap.Update(&cgroupID, &enabled, ebpf.UpdateNoExist); err != nil {
@@ -209,8 +243,9 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 
 	activated = true
 	return TaintActivationResult{
-		CgroupID:   cgroupID,
-		PlanDigest: planDigest,
+		CgroupID:        cgroupID,
+		PlanDigest:      planDigest,
+		EnrollmentEpoch: initialEpoch,
 	}, nil
 }
 
@@ -387,9 +422,10 @@ func TaintCgroupActivationState(bpffsRoot string, cgroupID uint64) (bool, error)
 	return enabled != 0, nil
 }
 
-// TaintSourceIdentityDirtyState returns the global source-identity invalidation
-// counter. Any non-zero value means at least one registered source inode was
-// unlinked or participated in a rename/replacement after registration.
+// TaintSourceIdentityDirtyState returns the monotonic global source-continuity
+// invalidation generation. A non-zero value is not by itself DIRTY after
+// recovery; egress is current only when this generation equals the separately
+// admitted clean watermark.
 func TaintSourceIdentityDirtyState(bpffsRoot string) (uint64, error) {
 	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
 	if root == "." || root == "" {
