@@ -16,14 +16,14 @@ import (
 )
 
 type r01ShipmentResult struct {
-	Worker          string    `json:"worker"`
-	EffectID        string    `json:"effect_id"`
-	ActionRef       string    `json:"action_ref"`
-	AuthorityAt     time.Time `json:"authority_at"`
-	BoundaryAt      time.Time `json:"boundary_at"`
-	AuthorityValid  bool      `json:"authority_valid"`
-	BoundaryValid   bool      `json:"boundary_valid"`
-	Created         bool      `json:"created"`
+	Worker         string    `json:"worker"`
+	EffectID       string    `json:"effect_id"`
+	ActionRef      string    `json:"action_ref"`
+	AuthorityAt    time.Time `json:"authority_at"`
+	BoundaryAt     time.Time `json:"boundary_at"`
+	AuthorityValid bool      `json:"authority_valid"`
+	BoundaryValid  bool      `json:"boundary_valid"`
+	Created        bool      `json:"created"`
 }
 
 type r01CardinalityEvidence struct {
@@ -53,8 +53,8 @@ func TestR01ShipmentHelperProcess(t *testing.T) {
 	expiresAt, err := time.Parse(time.RFC3339Nano, os.Getenv("R01_EXPIRES_AT"))
 	fail(err)
 	result := r01ShipmentResult{
-		Worker:   os.Getenv("R01_WORKER"),
-		EffectID: os.Getenv("R01_EFFECT_ID"),
+		Worker:    os.Getenv("R01_WORKER"),
+		EffectID:  os.Getenv("R01_EFFECT_ID"),
 		ActionRef: os.Getenv("R01_ACTION_REF"),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -164,10 +164,10 @@ func TestR01NativeDuplicateCallbacksExactlyOneShipment(t *testing.T) {
 	const actionRef = "action:r01:fulfill-order-731"
 
 	type running struct {
-		cmd       *exec.Cmd
-		barrier   string
-		result    string
-		worker    string
+		cmd     *exec.Cmd
+		barrier string
+		result  string
+		worker  string
 	}
 	workers := make([]running, 0, 2)
 	for _, worker := range []string{"callback-a", "callback-b"} {
