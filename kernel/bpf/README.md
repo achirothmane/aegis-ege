@@ -264,13 +264,22 @@ valid. A pre-issued authorization whose expected DIRTY value was exactly 2 but
 whose source epoch was still 1 was rejected by the epoch fence; DIRTY, CLEAN,
 and epoch remained unchanged and egress remained denied.
 
+The crash-boundary schedule now kills the recovery controller with `os.Exit`
+after the epoch has advanced but before CLEAN is admitted. The surviving process
+observes `epoch=2, dirty=1, clean=0`, pinned in-flight recovery commitment, and
+DENY. A different correctly signed authorization with otherwise identical
+numeric recovery state cannot resume that transition. Re-presenting the exact
+signed authorization whose commitment is pinned completes the recovery, advances
+CLEAN to DIRTY, clears the commitment, and restores clean egress. A later
+invalidation still rejects the old authorization because no completed recovery
+commitment remains pending.
+
 It does **not** yet prove:
 
 - source continuity across every filesystem-specific copy-up implementation,
   mount namespace propagation edge case, or source-lifetime cleanup schedule;
-- host-reboot recovery, multi-profile concurrent recovery, distributed recovery
-  authority, or crash-resume liveness after epoch advance but before CLEAN
-  watermark commit;
+- host-reboot recovery, bpffs persistence across host failure, multi-profile or
+  distributed concurrent recovery, or recovery-authority quorum semantics;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
