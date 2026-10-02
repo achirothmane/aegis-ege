@@ -229,3 +229,38 @@ Kubernetes ConfigMap
 A KinD integration proof advances the capability root to T2, restores mutable coordination, witness state, and the local capability-root ledger to T1, and verifies that both `Current` and re-issuance fail closed while the Kubernetes external head remains unchanged at T2.
 
 This establishes independence from local process/container/filesystem rollback for the tested deployment profile. It does **not** claim independence from a Kubernetes administrator who can rewrite both the application state and the capability-root ConfigMap. Deployments with that threat model must provide an `ExternalHeadStore` under a separately administered trust domain.
+
+
+## TPM 2.0 NV counter backend
+
+`TPMNVMonotonicRoot` anchors the rollbackable companion state to a TPM 2.0 NV counter.
+
+```text
+companion state generation = C
+            |
+            | must match
+            v
+TPM NV counter             = C
+```
+
+A newer snapshot is committed with a crash-recoverable sequence:
+
+```text
+persist pending state C+1
+        |
+        v
+TPM2_NV_Increment
+        |
+        v
+atomic pending -> committed
+```
+
+Recovery distinguishes both interruption windows. If pending exists while the TPM remains at C, the increment did not occur and pending is discarded. If the TPM is already C+1 while committed state is still C and pending is C+1, pending is promoted. Any other generation relation fails closed.
+
+The simulator proof restores mutable coordination, mutable witness, and even the companion root state to T1 after T2 was accepted. The TPM counter remains higher, so execution is denied with `CAPABILITY_ROOT_ROLLBACK_DETECTED` before the mutation controller runs.
+
+A second proof deletes and redefines the same NV counter handle. The newly initialized TPM counter remains greater than the prior value, so the old companion state still cannot become current.
+
+### Claim boundary
+
+The TPM backend protects against rollback of application/filesystem state while the TPM anti-rollback property remains trusted. It does not claim protection after physical replacement of the TPM, compromise of the TPM implementation itself, or migration to another device without an explicit root-transfer protocol.
