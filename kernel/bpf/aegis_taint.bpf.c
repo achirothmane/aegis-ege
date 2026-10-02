@@ -315,6 +315,17 @@ int aegis_fperm(__u64 *ctx)
 		if (file_labels)
 			labels |= *file_labels;
 
+		struct taint_emit_input observed = {
+			.cgroup_id = cgroup_id,
+			.file_device = file_key.device,
+			.file_inode = file_key.inode,
+			.labels = labels,
+			.tgid = tgid,
+			.event_type = AEGIS_TAINT_EVENT_FILE_READ_OBSERVED,
+			.operation = AEGIS_TAINT_OP_READ,
+		};
+		emit_event(&observed);
+
 		if (labels) {
 			__u32 event_type = source_labels ?
 				AEGIS_TAINT_EVENT_SOURCE_READ :
