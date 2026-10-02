@@ -28,9 +28,22 @@ struct dentry {
 	struct inode *d_inode;
 } __attribute__((preserve_access_index));
 
+struct ns_common {
+	unsigned int inum;
+} __attribute__((preserve_access_index));
+
+struct mnt_namespace {
+	struct ns_common ns;
+} __attribute__((preserve_access_index));
+
+struct nsproxy {
+	struct mnt_namespace *mnt_ns;
+} __attribute__((preserve_access_index));
+
 struct task_struct {
 	int pid;
 	int tgid;
+	struct nsproxy *nsproxy;
 } __attribute__((preserve_access_index));
 
 struct taint_emit_input {
@@ -55,6 +68,8 @@ static __u64 (*bpf_get_current_pid_tgid)(void) =
 	(void *)BPF_FUNC_get_current_pid_tgid;
 static __u64 (*bpf_get_current_cgroup_id)(void) =
 	(void *)BPF_FUNC_get_current_cgroup_id;
+static void *(*bpf_get_current_task)(void) =
+	(void *)BPF_FUNC_get_current_task;
 static long (*bpf_probe_read_kernel)(void *dst, __u32 size, const void *unsafe_ptr) =
 	(void *)BPF_FUNC_probe_read_kernel;
 static void *(*bpf_ringbuf_reserve)(void *ringbuf, __u64 size, __u64 flags) =
@@ -123,6 +138,13 @@ struct {
 } aegis_tfail SEC(".maps");
 
 struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 4096);
+	__type(key, __u64);
+	__type(value, __u64);
+} aegis_tmns SEC(".maps");
+
+struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
@@ -149,6 +171,26 @@ static __always_inline __u32 current_tgid(void)
 static __always_inline __u32 current_tid(void)
 {
 	return (__u32)bpf_get_current_pid_tgid();
+}
+
+static __always_inline int current_mount_namespace_id(__u64 *out)
+{
+	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+	struct nsproxy *nsproxy = 0;
+	struct mnt_namespace *mnt_ns = 0;
+	unsigned int inum = 0;
+
+	if (!task || !out)
+		return -1;
+	if (BPF_CORE_READ_INTO(&nsproxy, task, nsproxy) || !nsproxy)
+		return -1;
+	if (BPF_CORE_READ_INTO(&mnt_ns, nsproxy, mnt_ns) || !mnt_ns)
+		return -1;
+	if (BPF_CORE_READ_INTO(&inum, mnt_ns, ns.inum) || !inum)
+		return -1;
+
+	*out = (__u64)inum;
+	return 0;
 }
 
 static __always_inline int protected_cgroup(__u64 cgroup_id)
@@ -559,10 +601,15 @@ static __always_inline int enforce_taint_egress(void)
 	 * userspace has initialized its propagation-failure counter. Missing
 	 * uncertainty state therefore fails closed.
 	 */
+	__u64 current_mnt_ns = 0;
+	__u64 *expected_mnt_ns = bpf_map_lookup_elem(&aegis_tmns, &cgroup_id);
 	__u32 zero = 0;
 	__u64 *source_dirty = bpf_map_lookup_elem(&aegis_tdirty, &zero);
 	__u64 *failures = bpf_map_lookup_elem(&aegis_tfail, &cgroup_id);
-	if (!source_dirty || *source_dirty || !failures || *failures) {
+	if (!expected_mnt_ns ||
+	    current_mount_namespace_id(&current_mnt_ns) ||
+	    current_mnt_ns != *expected_mnt_ns ||
+	    !source_dirty || *source_dirty || !failures || *failures) {
 		struct taint_emit_input denied = {
 			.cgroup_id = cgroup_id,
 			.labels = labels,
