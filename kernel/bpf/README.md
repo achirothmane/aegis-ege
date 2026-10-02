@@ -164,7 +164,11 @@ aegis-taint-plan
 
 aegis-taint-activate
   -> verify signed bootstrap receipt + current boot + pinned links
-  -> initialize source labels / allow-mask / uncertainty counter
+  -> install enrolled source identities while target cgroup is still inactive
+  -> kernel-probe every bound source path again
+  -> require exact enrolled/current identity-set equality
+  -> require source-identity DIRTY counter == 0
+  -> initialize allow-mask / propagation uncertainty
   -> set protected-cgroup flag LAST
 ```
 
@@ -180,16 +184,29 @@ read/fork/file/connect enforcement end-to-end. In the proof run, userspace
 and underlying identity; both were enrolled and the later read tainted the
 process.
 
-The same native fixture then atomically replaced the enrolled merged-path source
-after activation. Its userspace identity changed from device 38/inode 6 to
-device 38/inode 11. The `inode_rename` hook observed the registered target
-identity, incremented `aegis_tdirty` to 1, and a clean child remained unable to
-egress even though the replacement inode itself was not enrolled.
+The native harness also attacks the enrollment/activation boundary. After an
+initial enrollment of device 38/inode 6 (with the corresponding underlying
+identity), it atomically replaces the source before activation. Activation
+re-probes the bound path, observes inode 12 instead, rejects the stale plan, and
+only succeeds after explicit re-enrollment of the new kernel identity set.
+
+A second enrolled lower-layer file exercises OverlayFS copy-up. Its enrolled
+kernel identities were device 37/inode 7 and device 38/inode 7. After copy-up,
+the underlying identity moved to device 37/inode 14 while the OverlayFS virtual
+identity remained device 38/inode 7. The dirty counter stayed zero and the
+clean child became tainted through the stable enrolled overlay identity before
+its connect was denied.
+
+Finally, the harness atomically replaces the active source again. The enrolled
+userspace inode 12 becomes inode 13. The rename guard advances
+`aegis_tdirty` (two registered identities were invalidated in this run), and a
+clean child remains unable to egress even though the replacement inode itself
+was never enrolled.
 
 It does **not** yet prove:
 
-- source continuity across every copy-up, live remount, inode-reuse, or
-  pre-activation mutation schedule;
+- source continuity across every live-remount, inode-reuse, filesystem-specific
+  copy-up implementation, or source-lifetime cleanup schedule;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
@@ -199,6 +216,8 @@ It does **not** yet prove:
 The native result earns a bounded claim: a regular sensitive source can be
 registered from the identities the loaded LSM actually observes, including a
 tested OverlayFS merged-path read, without activating the target cgroup first.
-After activation, atomic replacement/unlink-style identity invalidation is
-fail-closed rather than silently treating the new inode as clean.
+The enrollment -> activation mutation window is revalidated at commit time,
+the tested OverlayFS copy-up preserves taint through a stable enrolled virtual
+identity, and post-activation replacement/unlink-style identity invalidation is
+fail-closed rather than silently treating a new inode as clean.
 Production-complete Linux taint containment remains outside this claim.
