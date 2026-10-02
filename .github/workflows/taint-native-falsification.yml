@@ -88,5 +88,6 @@ jobs:
         if: steps.probe.outputs.supported != 'true'
         shell: bash
         run: |
-          "$(go env GOPATH)/bin/vimto" -kernel :stable-selftests -- \
+          "$(go env GOPATH)/bin/vimto" \
+            -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
             bash scripts/run-taint-native-vm.sh "$PWD/.taint-native/aegis_taint.bpf.o"
