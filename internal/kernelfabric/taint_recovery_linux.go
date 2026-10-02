@@ -22,11 +22,11 @@ type TaintRecoveryRequest struct {
 }
 
 type TaintRecoveryResult struct {
-	CgroupID       uint64
-	PlanDigest     string
-	PreviousEpoch  uint64
-	EnrollmentEpoch uint64
-	ClearedDirty   uint64
+	CgroupID         uint64
+	PlanDigest       string
+	PreviousEpoch    uint64
+	EnrollmentEpoch  uint64
+	AdmittedDirtyGen uint64
 }
 
 func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult, error) {
@@ -92,6 +92,11 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 		return TaintRecoveryResult{}, err
 	}
 	defer dirtyMap.Close()
+	cleanMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tclean"), ebpf.Array, 4, 8, 1)
+	if err != nil {
+		return TaintRecoveryResult{}, err
+	}
+	defer cleanMap.Close()
 	armedMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tarmed"), ebpf.Array, 4, 4, 1)
 	if err != nil {
 		return TaintRecoveryResult{}, err
@@ -141,10 +146,15 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	if err != nil {
 		return TaintRecoveryResult{}, err
 	}
-	if currentDirty == 0 || currentDirty != auth.ExpectedDirty {
+	var currentClean uint64
+	if err := cleanMap.Lookup(&zeroKey, &currentClean); err != nil {
+		return TaintRecoveryResult{}, fmt.Errorf("read taint source continuity watermark: %w", err)
+	}
+	if currentDirty <= currentClean || currentDirty != auth.ExpectedDirty {
 		return TaintRecoveryResult{}, fmt.Errorf(
-			"taint recovery dirty-state mismatch: current=%d authorized=%d",
+			"taint recovery continuity mismatch: dirty=%d clean=%d authorized_dirty=%d",
 			currentDirty,
+			currentClean,
 			auth.ExpectedDirty,
 		)
 	}
@@ -200,27 +210,30 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 		)
 	}
 
-	// Advance the fencing epoch before clearing DIRTY. A crash after this write
-	// remains fail-closed because DIRTY is still non-zero; the old authorization
-	// can no longer be replayed because its FromEpoch is stale.
+	// Advance the fencing epoch before admitting the observed invalidation
+	// generation. A crash after this write remains fail-closed because the clean
+	// watermark still trails DIRTY; the old authorization is now fenced by epoch.
 	nextEpoch := auth.ToEpoch
 	if err := epochMap.Update(&zeroKey, &nextEpoch, ebpf.UpdateAny); err != nil {
 		return TaintRecoveryResult{}, fmt.Errorf("advance taint enrollment epoch: %w", err)
 	}
 
-	// Final recovery effect boundary. Only this last write can restore egress.
-	var clean uint64
-	if err := dirtyMap.Update(&zeroKey, &clean, ebpf.UpdateAny); err != nil {
-		return TaintRecoveryResult{}, fmt.Errorf("clear taint source continuity dirty state: %w", err)
+	// Final recovery effect boundary. DIRTY is monotonic and is never reset.
+	// Admitting exactly the signed generation as the clean watermark prevents a
+	// concurrent invalidation from being lost: if DIRTY advances at any point,
+	// dirty != clean and egress remains denied.
+	admitted := auth.ExpectedDirty
+	if err := cleanMap.Update(&zeroKey, &admitted, ebpf.UpdateAny); err != nil {
+		return TaintRecoveryResult{}, fmt.Errorf("advance taint source continuity watermark: %w", err)
 	}
 
 	rollbackSources = false
 	return TaintRecoveryResult{
-		CgroupID:        cgroupID,
-		PlanDigest:      planDigest,
-		PreviousEpoch:   auth.FromEpoch,
-		EnrollmentEpoch: nextEpoch,
-		ClearedDirty:    auth.ExpectedDirty,
+		CgroupID:         cgroupID,
+		PlanDigest:       planDigest,
+		PreviousEpoch:    auth.FromEpoch,
+		EnrollmentEpoch:  nextEpoch,
+		AdmittedDirtyGen: admitted,
 	}, nil
 }
 
@@ -299,4 +312,30 @@ func restoreTaintSourceMap(m *ebpf.Map, snapshot map[TaintFileKey]uint64) error 
 		}
 	}
 	return nil
+}
+
+
+func TaintSourceContinuityWatermark(bpffsRoot string) (uint64, error) {
+	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
+	if root == "." || root == "" {
+		root = DefaultTaintBPFFSRoot
+	}
+	m, err := openExactTaintMap(
+		filepath.Join(root, "maps", "aegis_tclean"),
+		ebpf.Array,
+		4,
+		8,
+		1,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer m.Close()
+
+	var key uint32
+	var clean uint64
+	if err := m.Lookup(&key, &clean); err != nil {
+		return 0, err
+	}
+	return clean, nil
 }
