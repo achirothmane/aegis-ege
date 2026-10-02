@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,13 +45,16 @@ func main() {
 		CgroupPath:    *cgroupPath,
 		AllowedLabels: allowedMask,
 	}
-	sourceLabels := make(map[kernelfabric.TaintFileKey]uint64)
+	sourceBindings := make(map[kernelfabric.TaintFileKey]kernelfabric.TaintSourceBinding)
 	for _, raw := range sources {
 		index := strings.LastIndex(raw, "=")
 		if index <= 0 || index == len(raw)-1 {
 			fatalf("invalid -source %q; expected ABSOLUTE_PATH=LABEL_MASK", raw)
 		}
-		path := raw[:index]
+		path := filepath.Clean(strings.TrimSpace(raw[:index]))
+		if path == "." || !filepath.IsAbs(path) {
+			fatalf("invalid source path %q; absolute path required", raw[:index])
+		}
 		maskText := raw[index+1:]
 		mask, err := strconv.ParseUint(strings.TrimSpace(maskText), 0, 64)
 		if err != nil || mask == 0 {
@@ -61,25 +65,36 @@ func main() {
 			fatalf("kernel-observe -source %q: %v", path, err)
 		}
 		for _, key := range keys {
-			sourceLabels[key] |= mask
+			existing, exists := sourceBindings[key]
+			if exists && existing.Path != path {
+				fatalf(
+					"kernel source identity device=%d inode=%d is shared by paths %q and %q",
+					key.Device,
+					key.Inode,
+					existing.Path,
+					path,
+				)
+			}
+			existing.Path = path
+			existing.File = key
+			existing.Labels |= mask
+			sourceBindings[key] = existing
 		}
 	}
-	keys := make([]kernelfabric.TaintFileKey, 0, len(sourceLabels))
-	for key := range sourceLabels {
-		keys = append(keys, key)
+	bindings := make([]kernelfabric.TaintSourceBinding, 0, len(sourceBindings))
+	for _, binding := range sourceBindings {
+		bindings = append(bindings, binding)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].Device != keys[j].Device {
-			return keys[i].Device < keys[j].Device
+	sort.Slice(bindings, func(i, j int) bool {
+		if bindings[i].Path != bindings[j].Path {
+			return bindings[i].Path < bindings[j].Path
 		}
-		return keys[i].Inode < keys[j].Inode
+		if bindings[i].File.Device != bindings[j].File.Device {
+			return bindings[i].File.Device < bindings[j].File.Device
+		}
+		return bindings[i].File.Inode < bindings[j].File.Inode
 	})
-	for _, key := range keys {
-		plan.Sources = append(plan.Sources, kernelfabric.TaintSourceBinding{
-			File:   key,
-			Labels: sourceLabels[key],
-		})
-	}
+	plan.Sources = append(plan.Sources, bindings...)
 
 	if err := kernelfabric.WriteTaintActivationPlan(*output, plan); err != nil {
 		fatalf("write activation plan: %v", err)
