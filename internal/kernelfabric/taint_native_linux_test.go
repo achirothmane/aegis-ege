@@ -35,6 +35,8 @@ const (
 	taintNativeHelperBPFFSRoot    = "AEGIS_TAINT_NATIVE_HELPER_BPFFS_ROOT"
 	taintNativeHelperEscapeCgroup = "AEGIS_TAINT_NATIVE_HELPER_ESCAPE_CGROUP"
 	taintNativeHelperCgroupID     = "AEGIS_TAINT_NATIVE_HELPER_CGROUP_ID"
+	taintNativeHelperHostUID      = "AEGIS_TAINT_NATIVE_HELPER_HOST_UID"
+	taintNativeHelperHostGID      = "AEGIS_TAINT_NATIVE_HELPER_HOST_GID"
 )
 
 func TestTaintNativeHelper(t *testing.T) {
@@ -63,6 +65,33 @@ func TestTaintNativeHelper(t *testing.T) {
 			t.Fatalf("parse hostile helper cgroup id: %v", err)
 		}
 		if err := attemptHostileGuardDisable(
+			os.Getenv(taintNativeHelperBPFFSRoot),
+			os.Getenv(taintNativeHelperEscapeCgroup),
+			cgroupID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
+			t.Fatal(err)
+		}
+	case "hostile-isolated":
+		time.Sleep(100 * time.Millisecond)
+		hostUID, err := strconv.ParseUint(os.Getenv(taintNativeHelperHostUID), 10, 32)
+		if err != nil {
+			t.Fatalf("parse isolated hostile host uid: %v", err)
+		}
+		hostGID, err := strconv.ParseUint(os.Getenv(taintNativeHelperHostGID), 10, 32)
+		if err != nil {
+			t.Fatalf("parse isolated hostile host gid: %v", err)
+		}
+		if err := assertHostUserNamespaceMapping(uint32(hostUID), uint32(hostGID)); err != nil {
+			t.Fatal(err)
+		}
+		cgroupID, err := strconv.ParseUint(os.Getenv(taintNativeHelperCgroupID), 10, 64)
+		if err != nil {
+			t.Fatalf("parse isolated hostile cgroup id: %v", err)
+		}
+		if err := attemptNamespacedHostileGuardDisable(
 			os.Getenv(taintNativeHelperBPFFSRoot),
 			os.Getenv(taintNativeHelperEscapeCgroup),
 			cgroupID,
@@ -341,6 +370,27 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatal("M15 hostile workload removed protected-cgroup activation")
 	}
 
+	// M15b: use the actual attested workload launcher with a signed isolation
+	// profile. The workload is root only in a fresh user namespace mapped to
+	// non-root host identities. It then repeats privileged guard-disable attacks.
+	if err := runM15bIsolatedHostileWorkload(
+		t,
+		cgroupPath,
+		originalCgroup,
+		bpffsRoot,
+		activated.CgroupID,
+		listener.Addr().String(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	isActive, err = TaintCgroupActivationState(bpffsRoot, activated.CgroupID)
+	if err != nil {
+		t.Fatalf("observe M15b activation state: %v", err)
+	}
+	if !isActive {
+		t.Fatal("M15b isolated hostile workload removed protected-cgroup activation")
+	}
+
 	// Release the child that was created while the parent was still clean.
 	// Reading the tainted bridge file must taint that child before its connect.
 	if _, err := stdin.Write([]byte("go")); err != nil {
@@ -356,6 +406,189 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if err := waitForNativeTaintEvidence(reader, activated.CgroupID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func runM15bIsolatedHostileWorkload(
+	t *testing.T,
+	cgroupPath string,
+	escapeCgroup string,
+	bpffsRoot string,
+	cgroupID uint64,
+	address string,
+) error {
+	t.Helper()
+
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return fmt.Errorf("resolve native helper executable: %w", err)
+	}
+	const hostUID = uint32(65534)
+	const hostGID = uint32(65534)
+	spec := WorkloadLaunchSpec{
+		Executable: executable,
+		Args:       []string{"-test.run=^TestTaintNativeHelper$"},
+		Environment: []WorkloadEnvironmentVariable{
+			{Name: taintNativeHelperEnv, Value: "1"},
+			{Name: taintNativeHelperMode, Value: "hostile-isolated"},
+			{Name: taintNativeHelperAddr, Value: address},
+			{Name: taintNativeHelperBPFFSRoot, Value: bpffsRoot},
+			{Name: taintNativeHelperEscapeCgroup, Value: escapeCgroup},
+			{Name: taintNativeHelperCgroupID, Value: strconv.FormatUint(cgroupID, 10)},
+			{Name: taintNativeHelperHostUID, Value: strconv.FormatUint(uint64(hostUID), 10)},
+			{Name: taintNativeHelperHostGID, Value: strconv.FormatUint(uint64(hostGID), 10)},
+		},
+		LinuxIsolation: &LinuxWorkloadIsolationSpec{
+			Mode:    LinuxWorkloadIsolationUserNamespaceV1,
+			HostUID: hostUID,
+			HostGID: hostGID,
+		},
+	}
+	specDigest, err := WorkloadLaunchSpecDigest(spec)
+	if err != nil {
+		return err
+	}
+	issuerPublic, issuerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	_, hostPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	grant, err := SignWorkloadAdmissionGrant(WorkloadAdmissionGrant{
+		Version:              WorkloadAdmissionGrantVersion,
+		GrantID:              "m15b-native-grant",
+		RequestID:            "m15b-native-request",
+		DeviceID:             "m15b-native-device",
+		WorkloadID:           "m15b-hostile-workload",
+		WorkloadSpecDigest:   specDigest,
+		TargetCgroup:         cgroupPath,
+		TargetCgroupID:       cgroupID,
+		BootstrapDigest:      "sha256:" + strings.Repeat("a", 64),
+		RemoteDecisionID:     "m15b-native-remote-decision",
+		RemoteDecisionDigest: "sha256:" + strings.Repeat("b", 64),
+		IssuerID:             "m15b-native-admission",
+		NotBefore:            now.Add(-time.Second),
+		ExpiresAt:            now.Add(time.Minute),
+	}, issuerPrivate)
+	if err != nil {
+		return err
+	}
+
+	started, err := StartAttestedWorkload(context.Background(), AttestedWorkloadLaunchRequest{
+		SignedGrant:       grant,
+		IssuerPublicKey:   issuerPublic,
+		LaunchSpec:        spec,
+		ConsumptionDir:    filepath.Join(t.TempDir(), "m15b-consumed"),
+		DeviceID:          "m15b-native-device",
+		HostAttestorKey:   hostPrivate,
+		Now:               now,
+	})
+	if err != nil {
+		return fmt.Errorf("M15b start isolated hostile workload: %w", err)
+	}
+	if err := started.Command.Wait(); err != nil {
+		return fmt.Errorf("M15b isolated hostile workload escaped separation: %w", err)
+	}
+	if err := VerifySignedWorkloadActivationReceipt(
+		started.SignedReceipt,
+		hostPrivate.Public().(ed25519.PublicKey),
+	); err != nil {
+		return fmt.Errorf("M15b activation receipt verification: %w", err)
+	}
+	return nil
+}
+
+func assertHostUserNamespaceMapping(hostUID, hostGID uint32) error {
+	uidMap, err := os.ReadFile("/proc/self/uid_map")
+	if err != nil {
+		return fmt.Errorf("read isolated uid_map: %w", err)
+	}
+	gidMap, err := os.ReadFile("/proc/self/gid_map")
+	if err != nil {
+		return fmt.Errorf("read isolated gid_map: %w", err)
+	}
+	wantUID := fmt.Sprintf("0 %d 1", hostUID)
+	wantGID := fmt.Sprintf("0 %d 1", hostGID)
+	if !mappingContains(uidMap, wantUID) {
+		return fmt.Errorf("host uid isolation missing: uid_map=%q want=%q", strings.TrimSpace(string(uidMap)), wantUID)
+	}
+	if !mappingContains(gidMap, wantGID) {
+		return fmt.Errorf("host gid isolation missing: gid_map=%q want=%q", strings.TrimSpace(string(gidMap)), wantGID)
+	}
+	return nil
+}
+
+func mappingContains(payload []byte, want string) bool {
+	wantFields := strings.Fields(want)
+	for _, line := range strings.Split(string(payload), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != len(wantFields) {
+			continue
+		}
+		match := true
+		for i := range fields {
+			if fields[i] != wantFields[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func attemptNamespacedHostileGuardDisable(
+	bpffsRoot string,
+	escapeCgroup string,
+	cgroupID uint64,
+) error {
+	for _, path := range []string{
+		filepath.Join(bpffsRoot, "links", "aegis_tconn4"),
+		filepath.Join(bpffsRoot, "links", "aegis_tconn6"),
+		filepath.Join(bpffsRoot, "links", "aegis_fperm"),
+		filepath.Join(bpffsRoot, "links", "aegis_fork"),
+	} {
+		if err := os.Remove(path); err == nil {
+			return fmt.Errorf("namespaced hostile actor removed host enforcement link %s", path)
+		}
+	}
+
+	mapPath := filepath.Join(bpffsRoot, "maps", "aegis_tcgroups")
+	if protected, err := ebpf.LoadPinnedMap(mapPath, nil); err == nil {
+		defer protected.Close()
+		if err := protected.Delete(&cgroupID); err == nil {
+			return errors.New("namespaced hostile actor deleted host protected-cgroup state")
+		}
+		var disabled uint32
+		if err := protected.Update(&cgroupID, &disabled, ebpf.UpdateAny); err == nil {
+			return errors.New("namespaced hostile actor disabled host protected-cgroup state")
+		}
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(escapeCgroup, "cgroup.procs"),
+		[]byte(strconv.Itoa(os.Getpid())),
+		0o600,
+	); err == nil {
+		return errors.New("namespaced hostile actor escaped the protected cgroup")
+	}
+
+	if fd, err := unix.Open("/proc/1/ns/mnt", unix.O_RDONLY|unix.O_CLOEXEC, 0); err == nil {
+		defer unix.Close(fd)
+		if err := unix.Setns(fd, unix.CLONE_NEWNS); err == nil {
+			return errors.New("namespaced hostile actor joined the host mount namespace")
+		}
+	}
+
+	// The actor may be able to alter only its private mount view. That is not
+	// host enforcement authority; the parent verifies host pins and activation
+	// after this process exits.
+	_ = unix.Unmount(bpffsRoot, unix.MNT_DETACH)
+	return nil
 }
 
 func attemptHostileGuardDisable(bpffsRoot, escapeCgroup string, cgroupID uint64) error {
