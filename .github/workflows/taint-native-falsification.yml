@@ -28,10 +28,19 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y e2fsprogs
+          sudo apt-get install -y e2fsprogs util-linux
           mkdir -p internal/kernelfabric/testdata
           truncate -s 16M internal/kernelfabric/testdata/aegis_inode_reuse.ext4
           mkfs.ext4 -q -F -N 64 -m 0 internal/kernelfabric/testdata/aegis_inode_reuse.ext4
+          : > internal/kernelfabric/testdata/aegis_taint.bpf.o
+      - name: Force exact same-number inode reuse on host ext4
+        shell: bash
+        run: |
+          sudo -E env \
+            "PATH=$PATH" \
+            go test -count=1 -tags=taintnative \
+              -run "^TestNativeExt4SameInodeReuseFixture$" \
+              -v ./internal/kernelfabric
       - name: Probe native BPF LSM environment
         id: probe
         shell: bash
@@ -56,7 +65,7 @@ jobs:
           sudo -E env \
             "PATH=$PATH" \
             go test -count=1 -tags=taintnative \
-              -run "^(TestNativeTaintReadForkFileAndEgress|TestNativeTaintBindMountSubstitutionFailsClosed|TestNativeTaintAncestorRenameSubstitutionFailsClosed|TestNativeTaintAncestorSymlinkSubstitutionFailsClosed|TestNativeTaintSameInodeReuseFailsClosed|TestTaintNativeHelper|TestTaintInodeReuseHelper)$" \
+              -run "^(TestNativeTaintReadForkFileAndEgress|TestNativeTaintBindMountSubstitutionFailsClosed|TestNativeTaintAncestorRenameSubstitutionFailsClosed|TestNativeTaintAncestorSymlinkSubstitutionFailsClosed|TestNativeTaintUnlinkContinuityIsSticky|TestTaintNativeHelper|TestTaintInodeReuseHelper)$" \
               -v ./internal/kernelfabric
       - name: Record unsupported host kernel
         if: steps.probe.outputs.supported != 'true'
@@ -105,5 +114,5 @@ jobs:
             "$VIMTO" \
               -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
               go test -count=1 -tags=taintnative \
-                -run "^(TestNativeTaintReadForkFileAndEgress|TestNativeTaintBindMountSubstitutionFailsClosed|TestNativeTaintAncestorRenameSubstitutionFailsClosed|TestNativeTaintAncestorSymlinkSubstitutionFailsClosed|TestNativeTaintSameInodeReuseFailsClosed|TestTaintNativeHelper|TestTaintInodeReuseHelper)$" \
+                -run "^(TestNativeTaintReadForkFileAndEgress|TestNativeTaintBindMountSubstitutionFailsClosed|TestNativeTaintAncestorRenameSubstitutionFailsClosed|TestNativeTaintAncestorSymlinkSubstitutionFailsClosed|TestNativeTaintUnlinkContinuityIsSticky|TestTaintNativeHelper|TestTaintInodeReuseHelper)$" \
                 -v ./internal/kernelfabric
