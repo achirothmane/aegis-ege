@@ -14,11 +14,11 @@ import (
 )
 
 type TaintRecoveryRequest struct {
-	BPFFSRoot              string
-	Plan                   TaintActivationPlan
-	SignedAuthorization    SignedTaintRecoveryAuthorization
-	RecoveryAuthorityKey   ed25519.PublicKey
-	Now                    time.Time
+	BPFFSRoot            string
+	Plan                 TaintActivationPlan
+	SignedAuthorization  SignedTaintRecoveryAuthorization
+	RecoveryAuthorityKey ed25519.PublicKey
+	Now                  time.Time
 }
 
 type TaintRecoveryResult struct {
@@ -313,7 +313,6 @@ func restoreTaintSourceMap(m *ebpf.Map, snapshot map[TaintFileKey]uint64) error 
 	}
 	return nil
 }
-
 
 func TaintSourceContinuityWatermark(bpffsRoot string) (uint64, error) {
 	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
