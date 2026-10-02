@@ -38,11 +38,30 @@ type WorkloadEnvironmentVariable struct {
 	Value string `json:"value"`
 }
 
+const LinuxWorkloadIsolationUserNamespaceV1 = "user-namespace-v1"
+
+type LinuxWorkloadIsolationSpec struct {
+	Mode    string `json:"mode"`
+	HostUID uint32 `json:"host_uid"`
+	HostGID uint32 `json:"host_gid"`
+}
+
+func (s LinuxWorkloadIsolationSpec) Validate() error {
+	if strings.TrimSpace(s.Mode) != LinuxWorkloadIsolationUserNamespaceV1 {
+		return fmt.Errorf("unsupported linux workload isolation mode %q", s.Mode)
+	}
+	if s.HostUID == 0 || s.HostGID == 0 {
+		return errors.New("linux workload isolation host uid/gid must be non-root")
+	}
+	return nil
+}
+
 type WorkloadLaunchSpec struct {
 	Executable  string                        `json:"executable"`
 	Args        []string                      `json:"args,omitempty"`
 	WorkingDir  string                        `json:"working_dir,omitempty"`
-	Environment []WorkloadEnvironmentVariable `json:"environment,omitempty"`
+	Environment    []WorkloadEnvironmentVariable `json:"environment,omitempty"`
+	LinuxIsolation *LinuxWorkloadIsolationSpec     `json:"linux_isolation,omitempty"`
 }
 
 func (s WorkloadLaunchSpec) Validate() error {
@@ -54,6 +73,11 @@ func (s WorkloadLaunchSpec) Validate() error {
 		workingDir := filepath.Clean(strings.TrimSpace(s.WorkingDir))
 		if workingDir == "." || !filepath.IsAbs(workingDir) {
 			return errors.New("workload working_dir must be absolute when set")
+		}
+	}
+	if s.LinuxIsolation != nil {
+		if err := s.LinuxIsolation.Validate(); err != nil {
+			return err
 		}
 	}
 	seen := map[string]struct{}{}
