@@ -248,10 +248,31 @@ the protected-cgroup flag only after all source and fail-closed state is
 initialized. A crash around that final boundary can be reconciled by reading the
 protected-cgroup map.
 
-This still does **not** prove production Linux kernel mediation. The loader and
-activation path compile and have pure contract tests, but no privileged native
-runtime test has yet shown that a BPF-LSM-enabled target kernel accepts all four
-hooks and that a hostile real process cannot evade them.
+A privileged native falsification now boots a BPF selftests Linux kernel when
+the GitHub-hosted kernel lacks BPF-LSM. On a dedicated non-stacked tmpfs source
+filesystem it has shown the full in-kernel path:
+
+```text
+sensitive file read
+  -> process taint
+  -> fork inheritance
+  -> tainted file propagation
+  -> later reader inheritance
+  -> protected cgroup connect
+  -> kernel DENY
+```
+
+The same native harness also exercises M15 in two stages. M15a runs an
+unprivileged hostile process in the protected cgroup. M15b launches the hostile
+workload through the signed attested-workload path with
+`linux_isolation=user-namespace-v1`: UID/GID 0 inside the workload namespace
+map to explicit non-root host identities. The actor then attempts to remove
+pinned links, mutate protected-cgroup state, escape the cgroup, and join the
+host mount namespace. The attempts fail and host-side activation remains
+observable.
+
+This is native enforcement evidence, not a claim of production-complete Linux
+mediation.
 
 ## 6. Muse-class adversarial corpus
 
@@ -267,10 +288,11 @@ Current accounting is explicit:
 
 | Coverage | Cases | Meaning |
 |---|---:|---|
-| EXECUTABLE_NOW | 10 | M00/M04/M05 origin; M06/M07 approval; M08/M09 credential; M01/M02/M03 taint and propagation |
+| EXECUTABLE_NOW | 10 | M00/M04/M05 origin; M06/M07 approval; M08/M09 credential; M01/M02/M03 synthetic taint relations |
+| NATIVE_EXECUTABLE | 1 | M15 hostile-actor enforcement separation is exercised by the privileged Linux VM workflow |
 | EXISTING_COVERAGE | 4 | Existing kernel/recovery/anti-rollback work already exercises the class, but not through this new origin check |
-| PARTIAL_EXISTING | 2 | Relevant machinery exists, but the full Muse-class property is not yet proved |
-| PLANNED | 0 | No M00-M15 case remains documentation-only; some remain existing/partial rather than newly executable |
+| PARTIAL_EXISTING | 1 | M10 still has relevant machinery without a complete final-destination proof |
+| PLANNED | 0 | No M00-M15 case remains documentation-only |
 
 ### Registered cases
 
@@ -314,8 +336,8 @@ Only the following new claims are earned by this change:
 14. forked children inherit the parent's complete synthetic taint set;
 15. file/IPC-style channel transfer propagates taint to a previously clean reader;
 16. a clean writer cannot erase channel taint;
-17. M00-M09 are machine-registered and executable, while M10-M15 retain their
-    existing/partial classifications;
+17. M00-M09 are machine-registered as executable relations, M15 is registered
+    as a privileged native executable proof, and M10 remains partial;
 18. the experimental Linux taint object compiles as BPF and exposes a fixed
     file/process/egress evidence ABI;
 19. the kernel-side label bitset remains semantically opaque: userspace profile
@@ -326,18 +348,31 @@ Only the following new claims are earned by this change:
     is produced;
 22. activation is a second phase: source labels, egress allow-mask and a zeroed
     propagation-uncertainty counter are installed before the protected-cgroup
-    bit can be written.
+    bit can be written;
+23. a BPF-LSM-enabled Linux test kernel has accepted the native hooks and
+    executed read -> fork/file propagation -> connect denial in-kernel on a
+    dedicated non-stacked tmpfs;
+24. a hostile unprivileged process cannot remove the pinned guard, mutate the
+    protected-cgroup state, escape the protected cgroup, or regain network
+    egress in the native harness;
+25. `linux_isolation=user-namespace-v1` is bound into the signed workload-spec
+    digest and maps workload-root to non-root host UID/GID before executing the
+    M15b hostile workload;
+26. the M15b actor cannot join the host mount namespace or disable host-side
+    enforcement, and the parent independently observes that activation remains
+    present after the actor exits.
 
 This change does **not** yet prove:
 
-- successful native loading/attachment of the Linux taint programs on a real BPF-LSM-enabled test kernel;
-- a privileged end-to-end proof that file read -> fork/file propagation -> network denial occurs in-kernel;
 - production Linux process/data taint observation and complete mediation;
+- reliable source-file identity registration across stacked/overlay filesystems;
+- containment of an attacker that already controls the host initial user namespace or host root;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
 - atomic concurrent approval consumption without an adapter-native transaction/CAS/fence;
 - DNS/redirect final-destination mediation;
-- that a hostile process cannot bypass the effect-boundary enforcer;
+- complete mediation across every namespace escape, IPC channel, file type, and
+  kernel effect surface;
 - a Muse-compatible runtime;
 - production-grade agent containment.
 
@@ -362,7 +397,11 @@ Signed two-phase attach/pin + activation
     ↓
 Privileged native hook test on BPF-LSM-enabled kernel
     ↓
-Hostile-agent harness
+Hostile-agent harness / signed user-namespace separation
+    ↓
+Stacked-filesystem source identity proof
+    ↓
+Unmodelled IPC / namespace / effect-surface falsification
 ```
 
 Each step must add a failing attack schedule first, then an executable control,
