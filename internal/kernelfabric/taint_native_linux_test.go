@@ -231,23 +231,74 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if len(sourceKeys) == 0 {
 		t.Fatal("overlay source probe returned no kernel identities")
 	}
-	statKey, err := ResolveTaintFileKey(secretPath)
+	initialStatKey, err := ResolveTaintFileKey(secretPath)
 	if err != nil {
 		t.Fatalf("resolve userspace overlay source identity: %v", err)
 	}
-	t.Logf("overlay source userspace identity=%+v kernel identities=%+v", statKey, sourceKeys)
+	t.Logf("overlay source userspace identity=%+v kernel identities=%+v", initialStatKey, sourceKeys)
 
-	plan := TaintActivationPlan{
-		CgroupPath:    cgroupPath,
-		AllowedLabels: 0,
-		Sources:       make([]TaintSourceBinding, 0, len(sourceKeys)),
+	buildPlan := func(keys []TaintFileKey) TaintActivationPlan {
+		plan := TaintActivationPlan{
+			CgroupPath:    cgroupPath,
+			AllowedLabels: 0,
+			Sources:       make([]TaintSourceBinding, 0, len(keys)),
+		}
+		for _, key := range keys {
+			plan.Sources = append(plan.Sources, TaintSourceBinding{
+				Path:   secretPath,
+				File:   key,
+				Labels: 1,
+			})
+		}
+		return plan
 	}
-	for _, key := range sourceKeys {
-		plan.Sources = append(plan.Sources, TaintSourceBinding{
-			File:   key,
-			Labels: 1,
-		})
+
+	// Enrollment -> activation TOCTOU falsification. Change the logical source
+	// path after enrollment but before activation. Activation must re-probe the
+	// path and reject the stale identity set while the cgroup is still inactive.
+	stalePlan := buildPlan(sourceKeys)
+	preActivationReplacement := filepath.Join(
+		filepath.Dir(secretPath),
+		"replacement-before-activation.txt",
+	)
+	if err := os.WriteFile(
+		preActivationReplacement,
+		[]byte("classified-pre-activation-replacement"),
+		0o600,
+	); err != nil {
+		t.Fatalf("prepare pre-activation overlay replacement: %v", err)
 	}
+	if err := os.Rename(preActivationReplacement, secretPath); err != nil {
+		t.Fatalf("replace source between enrollment and activation: %v", err)
+	}
+	if _, err := ActivateTaintCgroup(TaintActivationRequest{
+		BPFFSRoot:                     bpffsRoot,
+		Plan:                          stalePlan,
+		SignedBootstrapReceipt:        loaded.SignedReceipt,
+		BootstrapAttestationPublicKey: attestationPublic,
+	}); err == nil {
+		t.Fatal("stale source identity plan activated after pre-activation replacement")
+	}
+
+	sourceKeys, err = ResolveTaintFileKeysObserved(bpffsRoot, secretPath)
+	if err != nil {
+		t.Fatalf("re-enroll replacement overlay source identities: %v", err)
+	}
+	if len(sourceKeys) == 0 {
+		t.Fatal("replacement overlay source probe returned no kernel identities")
+	}
+	statKey, err := ResolveTaintFileKey(secretPath)
+	if err != nil {
+		t.Fatalf("resolve replacement userspace overlay identity: %v", err)
+	}
+	t.Logf(
+		"pre-activation replacement rejected: old userspace=%+v current userspace=%+v current kernel identities=%+v",
+		initialStatKey,
+		statKey,
+		sourceKeys,
+	)
+
+	plan := buildPlan(sourceKeys)
 	activated, err := ActivateTaintCgroup(TaintActivationRequest{
 		BPFFSRoot:                     bpffsRoot,
 		Plan:                          plan,
@@ -255,7 +306,7 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		BootstrapAttestationPublicKey: attestationPublic,
 	})
 	if err != nil {
-		t.Fatalf("activate taint cgroup: %v", err)
+		t.Fatalf("activate re-enrolled taint cgroup: %v", err)
 	}
 	if activated.CgroupID == 0 || activated.PlanDigest == "" {
 		t.Fatal("activation result is incomplete")
