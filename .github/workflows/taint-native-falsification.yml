@@ -34,19 +34,19 @@ jobs:
         if: steps.probe.outputs.supported == 'true'
         shell: bash
         run: |
+          mkdir -p internal/kernelfabric/testdata
           ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
           clang -O2 -g -Wall -Werror -target bpf \
             -I"$ARCH_INCLUDE" \
             -Ikernel/bpf \
             -c kernel/bpf/aegis_taint.bpf.c \
-            -o "$RUNNER_TEMP/aegis_taint.bpf.o"
+            -o internal/kernelfabric/testdata/aegis_taint.bpf.o
       - name: Execute privileged native taint falsification
         if: steps.probe.outputs.supported == 'true'
         shell: bash
         run: |
           sudo -E env \
             "PATH=$PATH" \
-            "AEGIS_TAINT_BPF_OBJECT=$RUNNER_TEMP/aegis_taint.bpf.o" \
             go test -count=1 -tags=taintnative \
               -run "^(TestNativeTaintReadForkFileAndEgress|TestTaintNativeHelper)$" \
               -v ./internal/kernelfabric
@@ -77,24 +77,22 @@ jobs:
         if: steps.probe.outputs.supported != 'true'
         shell: bash
         run: |
-          mkdir -p .taint-native
+          mkdir -p internal/kernelfabric/testdata
           ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
           clang -O2 -g -Wall -Werror -target bpf \
             -I"$ARCH_INCLUDE" \
             -Ikernel/bpf \
             -c kernel/bpf/aegis_taint.bpf.c \
-            -o "$PWD/.taint-native/aegis_taint.bpf.o"
+            -o internal/kernelfabric/testdata/aegis_taint.bpf.o
       - name: Execute native taint falsification in BPF selftests VM
         if: steps.probe.outputs.supported != 'true'
         shell: bash
         env:
-          AEGIS_TAINT_BPF_OBJECT: .taint-native/aegis_taint.bpf.o
           CGO_ENABLED: "0"
         run: |
           VIMTO="$(go env GOPATH)/bin/vimto"
           sudo -E env \
             "PATH=$PATH" \
-            "AEGIS_TAINT_BPF_OBJECT=$AEGIS_TAINT_BPF_OBJECT" \
             "CGO_ENABLED=0" \
             "$VIMTO" \
               -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
