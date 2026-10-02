@@ -238,9 +238,9 @@ func (r *TPMNVMonotonicRoot) readCounter(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	named := tpm2.NamedHandle{Handle: r.cfg.NVIndex, Name: pub.NVName, Auth: tpm2.PasswordAuth(r.cfg.IndexAuth)}
+	authHandle := tpm2.AuthHandle{Handle: r.cfg.NVIndex, Name: pub.NVName, Auth: tpm2.PasswordAuth(r.cfg.IndexAuth)}
 	response, err := (tpm2.NVRead{
-		AuthHandle: named,
+		AuthHandle: authHandle,
 		NVIndex:    tpm2.NamedHandle{Handle: r.cfg.NVIndex, Name: pub.NVName},
 		Size:       8,
 	}).Execute(r.tpm)
@@ -261,9 +261,9 @@ func (r *TPMNVMonotonicRoot) incrementCounter(ctx context.Context) (uint64, erro
 	if err != nil {
 		return 0, err
 	}
-	named := tpm2.NamedHandle{Handle: r.cfg.NVIndex, Name: pub.NVName, Auth: tpm2.PasswordAuth(r.cfg.IndexAuth)}
+	authHandle := tpm2.AuthHandle{Handle: r.cfg.NVIndex, Name: pub.NVName, Auth: tpm2.PasswordAuth(r.cfg.IndexAuth)}
 	if _, err := (tpm2.NVIncrement{
-		AuthHandle: named,
+		AuthHandle: authHandle,
 		NVIndex:    tpm2.NamedHandle{Handle: r.cfg.NVIndex, Name: pub.NVName},
 	}).Execute(r.tpm); err != nil {
 		return 0, err
