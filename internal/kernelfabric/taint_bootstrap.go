@@ -148,7 +148,6 @@ func sameBootstrapMaps(got, want []BootstrapMap) bool {
 	return true
 }
 
-
 type TaintPinnedLinkAttestation struct {
 	Name       string `json:"name"`
 	Path       string `json:"path"`
@@ -157,17 +156,17 @@ type TaintPinnedLinkAttestation struct {
 }
 
 type TaintBootstrapReceipt struct {
-	Version             string                      `json:"version"`
-	ManifestDigest      string                      `json:"manifest_digest"`
-	ManifestSignerKeyID string                      `json:"manifest_signer_key_id"`
-	ArtifactSHA256      string                      `json:"artifact_sha256"`
-	ArtifactSize        int64                       `json:"artifact_size"`
-	Host                BootstrapHostSnapshot       `json:"host"`
-	CgroupPath          string                      `json:"cgroup_path"`
-	Programs            []PinnedProgramAttestation  `json:"programs"`
-	Maps                []PinnedMapAttestation      `json:"maps"`
+	Version             string                       `json:"version"`
+	ManifestDigest      string                       `json:"manifest_digest"`
+	ManifestSignerKeyID string                       `json:"manifest_signer_key_id"`
+	ArtifactSHA256      string                       `json:"artifact_sha256"`
+	ArtifactSize        int64                        `json:"artifact_size"`
+	Host                BootstrapHostSnapshot        `json:"host"`
+	CgroupPath          string                       `json:"cgroup_path"`
+	Programs            []PinnedProgramAttestation   `json:"programs"`
+	Maps                []PinnedMapAttestation       `json:"maps"`
 	Links               []TaintPinnedLinkAttestation `json:"links"`
-	CompletedAt         time.Time                   `json:"completed_at"`
+	CompletedAt         time.Time                    `json:"completed_at"`
 }
 
 type SignedTaintBootstrapReceipt struct {
@@ -364,7 +363,6 @@ func WriteSignedTaintBootstrapReceipt(path string, signed SignedTaintBootstrapRe
 	}
 	return nil
 }
-
 
 func LoadSignedTaintBootstrapReceipt(path string) (SignedTaintBootstrapReceipt, error) {
 	payload, err := os.ReadFile(path)
