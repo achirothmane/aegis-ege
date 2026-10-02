@@ -199,11 +199,30 @@ process reads file/IPC channel
 
 Labels are additive. A clean writer cannot erase an already-tainted channel.
 
-This is **not** yet Linux kernel taint enforcement. The repository's current BPF
-implementation is a cgroup network-connect adapter; the existing documentation
-explicitly keeps BPF-LSM filesystem/process adapters as future work. Therefore
-M01-M03 now prove the relation and propagation model in executable tests, not
-complete mediation against a hostile Linux process.
+A first Linux kernel artifact now exists at `kernel/bpf/aegis_taint.bpf.c`.
+It contains:
+
+```text
+lsm/file_permission
+tracepoint/sched/sched_process_fork
+cgroup/connect4
+cgroup/connect6
+```
+
+The LSM program unions configured source-file labels and propagated file labels
+into per-process taint, propagates process taint into written files, and fails
+the file operation closed if the required taint-state update cannot be recorded.
+The fork tracepoint copies a parent's current label set into the child map. The
+cgroup connect programs deny egress for a protected cgroup when propagation
+uncertainty is non-zero or when process labels exceed the admitted cgroup
+allow-mask.
+
+CI compiles this object with `clang -target bpf`, and the Go side mirrors and
+decodes its fixed ABI while refusing unmapped label bits. However, this still
+does **not** prove production Linux kernel mediation: the signed loader does not
+yet attach/pin the LSM, tracepoint, and cgroup programs as one verified unit, and
+no privileged native runtime test has yet exercised the hooks against a hostile
+process.
 
 ## 6. Muse-class adversarial corpus
 
@@ -267,10 +286,15 @@ Only the following new claims are earned by this change:
 15. file/IPC-style channel transfer propagates taint to a previously clean reader;
 16. a clean writer cannot erase channel taint;
 17. M00-M09 are machine-registered and executable, while M10-M15 retain their
-    existing/partial classifications.
+    existing/partial classifications;
+18. the experimental Linux taint object compiles as BPF and exposes a fixed
+    file/process/egress evidence ABI;
+19. the kernel-side label bitset remains semantically opaque: userspace profile
+    code owns bit-to-label meanings and fails closed on unmapped bits.
 
 This change does **not** yet prove:
 
+- successful signed loading/attachment of the Linux taint programs on a BPF-LSM-enabled kernel;
 - production Linux process/data taint observation and complete mediation;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
@@ -295,7 +319,9 @@ Credential-surrogate broker experiment
     ↓
 Synthetic taint evidence + propagation
     ↓
-Linux BPF-LSM/process/filesystem evidence producer
+Linux BPF-LSM/process/filesystem artifact + ABI
+    ↓
+Signed atomic attach/pin + privileged native hook test
     ↓
 Hostile-agent harness
 ```
