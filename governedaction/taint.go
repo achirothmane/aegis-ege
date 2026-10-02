@@ -43,7 +43,7 @@ type TaintEvidence struct {
 // complete under its declared failure model.
 func CheckTaintEgress(admitted TaintEgressBinding, observed TaintEvidence) error {
 	fields := []struct {
-		name              string
+		name               string
 		admitted, observed string
 	}{
 		{"subject_ref", admitted.SubjectRef, observed.SubjectRef},
