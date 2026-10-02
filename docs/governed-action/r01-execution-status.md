@@ -1,6 +1,6 @@
 # R01 Execution Status — Split-Brain Fulfillment
 
-Status: ACTIVE FALSIFICATION — R01-04 CLOSED NATIVE; NO FINAL R01 VERDICT YET
+Status: SURVIVES_R01 — scoped executable falsification decision recorded
 
 ## Frozen rule
 
@@ -75,4 +75,36 @@ R01-04 is now closed by native evidence:
 - durable rows: 1
 - winners: 1
 
-The overall R01 verdict remains open. The remaining strongest falsification is one end-to-end R01-A compound schedule that composes E1, E2 uncertainty, authority revocation/takeover, duplicate callback, semantic ABA, E1 reversal and contradictory observation in one lineage. Per-vector evidence must not be silently promoted into a whole-trace claim.
+## Whole-trace closure
+
+R01-A was executed as one native schedule on source head `2c9c3a818dede1c8370fbd4c510856c82c7c7ef7`.
+
+Evidence:
+
+- PostgreSQL workflow run: `37060044985` — success
+- artifact: `11249254001`
+- artifact digest: `sha256:4a687e7bc0f5312871503b6e6bf8a81a6edfd3a9cbea37e27f10ed8f60e6f146`
+- D04 run: `37060044877` — success
+- CI run: `37060044754` — unit + KinD success
+
+Whole-trace facts:
+
+- E1 was initially present under exact lineage, then ended `REVERSED`.
+- E2 provider acceptance survived caller exit `93` with no success receipt.
+- the same old webhook was delivered twice.
+- webhook evidence said `CAPTURED`; later provider API evidence said `NOT_CAPTURED`.
+- an unrelated same-value effect preserved aggregate amount `73100`, demonstrating semantic ABA without exact lineage.
+- old authority expired; takeover advanced to `worker-b`, fence `2`.
+- two stale E3 attempts exited before mutation: `[41, 41]`.
+- E3 durable rows remained `0`.
+- exact compound postcondition remained false.
+- production contradiction reconciliation minted no authorization.
+- frozen K07 rejected false-verified and stale-takeover outcomes.
+
+## Decision
+
+`SURVIVES_R01`
+
+This is a scoped decision for the registered R01 executable falsification reality. No frozen-oracle edit and no new normative relation were required.
+
+It does **not** establish universal kernel correctness, production complete mediation, physical failure-domain independence across real external providers, or the Complexity Dividend. Those remain separate proof obligations.
