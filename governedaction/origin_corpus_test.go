@@ -21,18 +21,20 @@ type museClassCorpus struct {
 }
 
 type museClassCase struct {
-	ID               string               `json:"id"`
-	Name             string               `json:"name"`
-	Class            string               `json:"class"`
-	Coverage         string               `json:"coverage"`
-	Gate             string               `json:"gate"`
-	Expect           string               `json:"expect"`
-	AdmittedOrigin   *museOriginFixture   `json:"admitted_origin,omitempty"`
-	CurrentOrigin    *museOriginFixture   `json:"current_origin,omitempty"`
-	AdmittedApproval *museApprovalFixture `json:"admitted_approval,omitempty"`
-	CurrentApproval  *museApprovalFixture `json:"current_approval,omitempty"`
-	EffectsUsed      uint32               `json:"effects_used,omitempty"`
-	At               string               `json:"at,omitempty"`
+	ID                   string                  `json:"id"`
+	Name                 string                  `json:"name"`
+	Class                string                  `json:"class"`
+	Coverage             string                  `json:"coverage"`
+	Gate                 string                  `json:"gate"`
+	Expect               string                  `json:"expect"`
+	AdmittedOrigin       *museOriginFixture      `json:"admitted_origin,omitempty"`
+	CurrentOrigin        *museOriginFixture      `json:"current_origin,omitempty"`
+	AdmittedApproval     *museApprovalFixture    `json:"admitted_approval,omitempty"`
+	CurrentApproval      *museApprovalFixture    `json:"current_approval,omitempty"`
+	AdmittedCredential   *museCredentialFixture  `json:"admitted_credential,omitempty"`
+	CurrentCredential    *museCredentialFixture  `json:"current_credential,omitempty"`
+	EffectsUsed          uint32                  `json:"effects_used,omitempty"`
+	At                   string                  `json:"at,omitempty"`
 }
 
 type museOriginFixture struct {
@@ -52,6 +54,17 @@ type museApprovalFixture struct {
 	Scope          string `json:"scope"`
 	Nonce          string `json:"nonce"`
 	MaxEffects     uint32 `json:"max_effects"`
+	ValidUntil     string `json:"valid_until"`
+}
+
+type museCredentialFixture struct {
+	HandleID       string `json:"handle_id"`
+	ActionRevision string `json:"action_revision"`
+	EffectID       string `json:"effect_id"`
+	Audience       string `json:"audience"`
+	Destination    string `json:"destination"`
+	Scope          string `json:"scope"`
+	TrustEpoch     string `json:"trust_epoch"`
 	ValidUntil     string `json:"valid_until"`
 }
 
@@ -77,6 +90,7 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	coverage := map[string]int{}
 	executedOrigin := 0
 	executedApproval := 0
+	executedCredential := 0
 
 	for _, tc := range corpus.Cases {
 		if tc.ID == "" || tc.Name == "" || tc.Class == "" || tc.Coverage == "" || tc.Gate == "" || tc.Expect == "" {
@@ -130,6 +144,29 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 			err = ga.CheckApprovalUse(admitted, current, at, tc.EffectsUsed)
 			assertMuseExpectation(t, tc, err)
 			executedApproval++
+
+		case "credential":
+			if tc.Coverage != "EXECUTABLE_NOW" {
+				t.Fatalf("%s credential case is not executable: %s", tc.ID, tc.Coverage)
+			}
+			if tc.AdmittedCredential == nil || tc.CurrentCredential == nil {
+				t.Fatalf("%s missing credential fixture", tc.ID)
+			}
+			admitted, err := fixtureCredential(*tc.AdmittedCredential)
+			if err != nil {
+				t.Fatalf("%s admitted credential fixture: %v", tc.ID, err)
+			}
+			current, err := fixtureCredential(*tc.CurrentCredential)
+			if err != nil {
+				t.Fatalf("%s current credential fixture: %v", tc.ID, err)
+			}
+			at, err := time.Parse(time.RFC3339, tc.At)
+			if err != nil {
+				t.Fatalf("%s boundary time: %v", tc.ID, err)
+			}
+			err = ga.CheckCredentialUse(admitted, current, at)
+			assertMuseExpectation(t, tc, err)
+			executedCredential++
 		}
 	}
 
@@ -145,8 +182,11 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	if executedApproval != 2 {
 		t.Fatalf("executed approval cases=%d; want 2", executedApproval)
 	}
-	if coverage["EXECUTABLE_NOW"] != 5 ||
-		coverage["PLANNED"] != 5 ||
+	if executedCredential != 2 {
+		t.Fatalf("executed credential cases=%d; want 2", executedCredential)
+	}
+	if coverage["EXECUTABLE_NOW"] != 7 ||
+		coverage["PLANNED"] != 3 ||
 		coverage["EXISTING_COVERAGE"] != 4 ||
 		coverage["PARTIAL_EXISTING"] != 2 {
 		t.Fatalf("unexpected coverage accounting: %+v", coverage)
@@ -210,6 +250,23 @@ func fixtureApproval(in museApprovalFixture) (ga.ApprovalUseBinding, error) {
 		Scope:          in.Scope,
 		Nonce:          in.Nonce,
 		MaxEffects:     in.MaxEffects,
+		ValidUntil:     until,
+	}, nil
+}
+
+func fixtureCredential(in museCredentialFixture) (ga.CredentialUseBinding, error) {
+	until, err := time.Parse(time.RFC3339, in.ValidUntil)
+	if err != nil {
+		return ga.CredentialUseBinding{}, fmt.Errorf("valid_until: %w", err)
+	}
+	return ga.CredentialUseBinding{
+		HandleID:       in.HandleID,
+		ActionRevision: in.ActionRevision,
+		EffectID:       in.EffectID,
+		Audience:       in.Audience,
+		Destination:    in.Destination,
+		Scope:          in.Scope,
+		TrustEpoch:     in.TrustEpoch,
 		ValidUntil:     until,
 	}, nil
 }
