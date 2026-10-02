@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	taintInodeReuseHelperEnv   = "AEGIS_TAINT_INODE_REUSE_HELPER"
-	taintRestartObserverEnv    = "AEGIS_TAINT_RESTART_OBSERVER"
+	taintInodeReuseHelperEnv = "AEGIS_TAINT_INODE_REUSE_HELPER"
+	taintRestartObserverEnv  = "AEGIS_TAINT_RESTART_OBSERVER"
 )
 
 func TestTaintRestartObserver(t *testing.T) {
