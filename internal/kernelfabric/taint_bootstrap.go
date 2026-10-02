@@ -103,6 +103,7 @@ var taintBootstrapMaps = []BootstrapMap{
 	{Name: "aegis_tclean", Type: "array"},
 	{Name: "aegis_tarmed", Type: "array"},
 	{Name: "aegis_tepoch", Type: "array"},
+	{Name: "aegis_trecover", Type: "array"},
 	{Name: "aegis_tsrc", Type: "hash"},
 }
 
