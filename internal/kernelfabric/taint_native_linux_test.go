@@ -444,6 +444,26 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("start clean source-replacement child: %v", err)
 	}
 
+	// A third child starts clean and later forces OverlayFS copy-up on a second
+	// enrolled lower-layer source. Safety requires either preserved taint
+	// continuity or source-identity DIRTY before its connect attempt.
+	copyupChild := exec.Command(os.Args[0], "-test.run=^TestTaintNativeHelper$")
+	copyupChild.Env = append(os.Environ(),
+		taintNativeHelperEnv+"=1",
+		taintNativeHelperMode+"=copyup",
+		taintNativeHelperAddr+"="+listener.Addr().String(),
+		taintNativeHelperSource+"="+copyupPath,
+	)
+	copyupStdin, err := copyupChild.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyupChild.Stdout = os.Stdout
+	copyupChild.Stderr = os.Stderr
+	if err := copyupChild.Start(); err != nil {
+		t.Fatalf("start clean copy-up child: %v", err)
+	}
+
 	if _, err := os.ReadFile(secretPath); err != nil {
 		t.Fatalf("read configured sensitive source: %v", err)
 	}
@@ -558,6 +578,46 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("file-propagation child escaped taint egress guard: %v", err)
 	}
 
+	dirtyBeforeCopyup, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source identity continuity before copy-up: %v", err)
+	}
+	if dirtyBeforeCopyup != 0 {
+		t.Fatalf("source identity continuity already dirty before copy-up: %d", dirtyBeforeCopyup)
+	}
+	if _, err := copyupStdin.Write([]byte("go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyupStdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+	copyupPID := uint32(copyupChild.Process.Pid)
+	if err := copyupChild.Wait(); err != nil {
+		t.Fatalf("clean child escaped after OverlayFS copy-up: %v", err)
+	}
+	dirtyAfterCopyup, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source identity continuity after copy-up: %v", err)
+	}
+	if dirtyAfterCopyup == 0 {
+		if err := assertNativeProcessTaint(bpffsRoot, copyupPID, 1); err != nil {
+			t.Fatalf(
+				"copy-up neither dirtied source identity nor preserved taint: %v",
+				err,
+			)
+		}
+	}
+	copyupCurrentKeys, err := ResolveTaintFileKeysObserved(bpffsRoot, copyupPath)
+	if err != nil {
+		t.Fatalf("observe copy-up source identities after mutation: %v", err)
+	}
+	t.Logf(
+		"OverlayFS copy-up safety: enrolled=%+v current=%+v dirty=%d",
+		copyupKeys,
+		copyupCurrentKeys,
+		dirtyAfterCopyup,
+	)
+
 	if err := os.Rename(replacementPath, secretPath); err != nil {
 		t.Fatalf("atomically replace enrolled overlay source: %v", err)
 	}
@@ -574,10 +634,18 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read source identity continuity after replacement: %v", err)
 	}
-	if dirty == 0 {
-		t.Fatal("source replacement did not dirty kernel source identity continuity")
+	if dirty <= dirtyAfterCopyup {
+		t.Fatalf(
+			"source replacement did not advance identity continuity: before=%d after=%d",
+			dirtyAfterCopyup,
+			dirty,
+		)
 	}
-	t.Logf("source identity continuity dirty count=%d", dirty)
+	t.Logf(
+		"source identity continuity dirty count=%d (after copy-up=%d)",
+		dirty,
+		dirtyAfterCopyup,
+	)
 
 	if _, err := replacementStdin.Write([]byte("go")); err != nil {
 		t.Fatal(err)
