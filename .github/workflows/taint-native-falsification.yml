@@ -91,8 +91,13 @@ jobs:
           AEGIS_TAINT_BPF_OBJECT: .taint-native/aegis_taint.bpf.o
           CGO_ENABLED: "0"
         run: |
-          "$(go env GOPATH)/bin/vimto" \
-            -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
-            go test -count=1 -tags=taintnative \
-              -run "^(TestNativeTaintReadForkFileAndEgress|TestTaintNativeHelper)$" \
-              -v ./internal/kernelfabric
+          VIMTO="$(go env GOPATH)/bin/vimto"
+          sudo -E env \
+            "PATH=$PATH" \
+            "AEGIS_TAINT_BPF_OBJECT=$AEGIS_TAINT_BPF_OBJECT" \
+            "CGO_ENABLED=0" \
+            "$VIMTO" \
+              -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
+              go test -count=1 -tags=taintnative \
+                -run "^(TestNativeTaintReadForkFileAndEgress|TestTaintNativeHelper)$" \
+                -v ./internal/kernelfabric
