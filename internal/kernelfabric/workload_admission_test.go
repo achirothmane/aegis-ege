@@ -104,6 +104,41 @@ func admissionTestGrant(
 	return grant, spec, issuerPub, issuerPriv
 }
 
+func TestWorkloadSpecDigestBindsLinuxIsolation(t *testing.T) {
+	base := admissionTestSpec()
+	base.LinuxIsolation = &LinuxWorkloadIsolationSpec{
+		Mode:    LinuxWorkloadIsolationUserNamespaceV1,
+		HostUID: 65534,
+		HostGID: 65534,
+	}
+	first, err := WorkloadLaunchSpecDigest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutated := base
+	isolation := *base.LinuxIsolation
+	isolation.HostUID = 65533
+	mutated.LinuxIsolation = &isolation
+	second, err := WorkloadLaunchSpecDigest(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("linux isolation mutation did not change workload spec digest")
+	}
+
+	unisolated := base
+	unisolated.LinuxIsolation = nil
+	third, err := WorkloadLaunchSpecDigest(unisolated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == third {
+		t.Fatal("removing linux isolation did not change workload spec digest")
+	}
+}
+
 func TestWorkloadSpecDigestNormalizesEnvironmentOrder(t *testing.T) {
 	first := admissionTestSpec()
 	second := admissionTestSpec()
