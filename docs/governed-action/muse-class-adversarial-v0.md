@@ -218,11 +218,40 @@ uncertainty is non-zero or when process labels exceed the admitted cgroup
 allow-mask.
 
 CI compiles this object with `clang -target bpf`, and the Go side mirrors and
-decodes its fixed ABI while refusing unmapped label bits. However, this still
-does **not** prove production Linux kernel mediation: the signed loader does not
-yet attach/pin the LSM, tracepoint, and cgroup programs as one verified unit, and
-no privileged native runtime test has yet exercised the hooks against a hostile
-process.
+decodes its fixed ABI while refusing unmapped label bits.
+
+A signed two-phase install path now also exists:
+
+```text
+release-signed taint manifest
+        ↓
+verify artifact digest + exact ELF program/map surface
+        ↓
+load LSM / fork tracepoint / connect4 / connect6
+        ↓
+pin programs + maps + BPF links
+        ↓
+signed local bootstrap receipt
+        ↓
+activation plan
+        ↓
+verify receipt + current boot + pinned links
+        ↓
+install source labels / allow-mask / uncertainty counter
+        ↓
+write protected-cgroup flag LAST
+```
+
+The install phase intentionally leaves the target cgroup inactive. A partial
+install therefore cannot become taint enforcement authority. Activation writes
+the protected-cgroup flag only after all source and fail-closed state is
+initialized. A crash around that final boundary can be reconciled by reading the
+protected-cgroup map.
+
+This still does **not** prove production Linux kernel mediation. The loader and
+activation path compile and have pure contract tests, but no privileged native
+runtime test has yet shown that a BPF-LSM-enabled target kernel accepts all four
+hooks and that a hostile real process cannot evade them.
 
 ## 6. Muse-class adversarial corpus
 
@@ -290,11 +319,19 @@ Only the following new claims are earned by this change:
 18. the experimental Linux taint object compiles as BPF and exposes a fixed
     file/process/egress evidence ABI;
 19. the kernel-side label bitset remains semantically opaque: userspace profile
-    code owns bit-to-label meanings and fails closed on unmapped bits.
+    code owns bit-to-label meanings and fails closed on unmapped bits;
+20. a signed loader validates the exact taint ELF surface before loading and
+    exposes no unsigned taint-loader command;
+21. programs, maps and links are pinned before a signed local bootstrap receipt
+    is produced;
+22. activation is a second phase: source labels, egress allow-mask and a zeroed
+    propagation-uncertainty counter are installed before the protected-cgroup
+    bit can be written.
 
 This change does **not** yet prove:
 
-- successful signed loading/attachment of the Linux taint programs on a BPF-LSM-enabled kernel;
+- successful native loading/attachment of the Linux taint programs on a real BPF-LSM-enabled test kernel;
+- a privileged end-to-end proof that file read -> fork/file propagation -> network denial occurs in-kernel;
 - production Linux process/data taint observation and complete mediation;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
@@ -321,7 +358,9 @@ Synthetic taint evidence + propagation
     ↓
 Linux BPF-LSM/process/filesystem artifact + ABI
     ↓
-Signed atomic attach/pin + privileged native hook test
+Signed two-phase attach/pin + activation
+    ↓
+Privileged native hook test on BPF-LSM-enabled kernel
     ↓
 Hostile-agent harness
 ```
