@@ -10,8 +10,8 @@ import (
 var (
 	ErrMissingApprovalBinding = errors.New("approval use binding is incomplete")
 	ErrApprovalBindingChanged = errors.New("approval use binding changed")
-	ErrApprovalEffectLimit     = errors.New("approval effect limit is invalid")
-	ErrApprovalExhausted       = errors.New("approval effect limit exhausted")
+	ErrApprovalEffectLimit    = errors.New("approval effect limit is invalid")
+	ErrApprovalExhausted      = errors.New("approval effect limit exhausted")
 )
 
 // ApprovalUseBinding is an experimental execution-boundary relation for using
