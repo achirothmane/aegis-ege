@@ -27,6 +27,13 @@ struct aegis_taint_file_key {
 	__u64 inode;
 };
 
+struct aegis_taint_probe_key {
+	__u32 tid;
+	__u32 reserved;
+	__u64 device;
+	__u64 inode;
+};
+
 struct aegis_taint_event {
 	__u64 sequence;
 	__u64 observed_at_mono_ns;
@@ -49,6 +56,7 @@ struct aegis_taint_accounting {
 };
 
 _Static_assert(sizeof(struct aegis_taint_file_key) == 16, "aegis_taint_file_key ABI drift");
+_Static_assert(sizeof(struct aegis_taint_probe_key) == 24, "aegis_taint_probe_key ABI drift");
 _Static_assert(sizeof(struct aegis_taint_event) == 72, "aegis_taint_event ABI drift");
 _Static_assert(sizeof(struct aegis_taint_accounting) == 24, "aegis_taint_accounting ABI drift");
 
