@@ -199,6 +199,38 @@ A file beside mutable coordination, an in-process variable, a second key in the 
 The deterministic anchor used in CI exists to falsify Aegis boundary behavior. It is not evidence that any particular production TPM, HSM, KMS, or consensus substrate has been independently protected or operationally validated.
 
 
+## M10 ExternalHeadStore backend
+
+Aegis reuses the existing M10 `journal.ExternalHeadStore` as a concrete capability-root anchor through `ExternalHeadCapabilityRootAnchor`.
+
+The adapter maps:
+
+```text
+CapabilityRootAnchorState.Sequence    -> ExternalHead.Sequence
+CapabilityRootAnchorState.Commitment  -> ExternalHead.HeadHash
+fixed capability-root protocol id     -> ExternalHead.KeyID
+```
+
+The first advance explicitly creates the sequence-zero external head before advancing to sequence one. This preserves the existing M10 compare-and-advance protocol and makes initialization behavior identical across backends.
+
+For the v1 single-cluster production profile, `journal.KubernetesHeadStore` provides the external store:
+
+```text
+local capability root ledger
+        |
+        | exact head commitment
+        v
+Kubernetes ConfigMap
+        |
+        +-- resourceVersion compare-and-set
+        +-- separate control-plane persistence
+```
+
+A KinD integration proof advances the capability root to T2, restores mutable coordination, witness state, and the local capability-root ledger to T1, and verifies that both `Current` and re-issuance fail closed while the Kubernetes external head remains unchanged at T2.
+
+This establishes independence from local process/container/filesystem rollback for the tested deployment profile. It does **not** claim independence from a Kubernetes administrator who can rewrite both the application state and the capability-root ConfigMap. Deployments with that threat model must provide an `ExternalHeadStore` under a separately administered trust domain.
+
+
 ## TPM 2.0 NV counter backend
 
 `TPMNVMonotonicRoot` anchors the rollbackable companion state to a TPM 2.0 NV counter.
