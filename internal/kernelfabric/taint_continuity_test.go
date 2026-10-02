@@ -13,12 +13,16 @@ func TestTaintContinuityDetectsRingLossAndSequenceGap(t *testing.T) {
 	}
 	if err := tracker.Observe(TaintEvent{
 		Sequence:   11,
+		EventType:  TaintEventSourceRead,
+		Operation:  TaintOperationRead,
 		ABIVersion: TaintABIVersion,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := tracker.Observe(TaintEvent{
 		Sequence:   13,
+		EventType:  TaintEventEgressDeny,
+		Operation:  TaintOperationConnect,
 		ABIVersion: TaintABIVersion,
 	}); err != nil {
 		t.Fatal(err)
@@ -48,7 +52,12 @@ func TestTaintContinuityRejectsNonMonotonicSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := TaintEvent{Sequence: 7, ABIVersion: TaintABIVersion}
+	event := TaintEvent{
+		Sequence:   7,
+		EventType:  TaintEventForkPropagation,
+		Operation:  TaintOperationFork,
+		ABIVersion: TaintABIVersion,
+	}
 	if err := tracker.Observe(event); err != nil {
 		t.Fatal(err)
 	}
