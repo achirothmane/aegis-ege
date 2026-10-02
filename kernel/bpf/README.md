@@ -127,8 +127,10 @@ aegis_tprobe_r   kernel-observed (TID, device, inode) -> probe token
 aegis_tcgroups  protected cgroup IDs
 aegis_tallow    admitted egress label mask per cgroup
 aegis_tfail     propagation uncertainty count per cgroup
-aegis_tdirty    global source-identity invalidation counter
+aegis_tdirty    monotonic source-continuity invalidation generation
+aegis_tclean    admitted continuity generation watermark
 aegis_tarmed    source-lifetime topology guard arm state
+aegis_tepoch    monotonic source enrollment/recovery epoch
 aegis_tevents   ring-buffer evidence stream
 aegis_tacct     stream loss accounting
 ```
@@ -142,10 +144,12 @@ zero-valued uncertainty entry and denies when the counter is non-zero.
 ### Claim boundary
 
 CI compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf` and
-the Go side mirrors/decodes its fixed ABI. Protected egress now also requires
-`aegis_tdirty == 0`; registered-source rename/replacement/unlink and armed
-mount-topology mutation attempts move source identity continuity to fail-closed
-DIRTY.
+the Go side mirrors/decodes its fixed ABI. Protected egress requires the
+monotonic invalidation generation in `aegis_tdirty` to equal the separately
+admitted `aegis_tclean` watermark. Registered-source
+rename/replacement/unlink and armed mount-topology mutation attempts advance
+DIRTY; they never decrement or reset it. Any `dirty != clean` state fails
+closed.
 
 The repository now also contains a signed two-phase install path:
 
@@ -174,7 +178,8 @@ aegis-taint-activate
   -> arm mount-topology source-lifetime invalidation
   -> kernel-probe every bound source path again
   -> require exact enrolled/current identity-set equality
-  -> require source-identity DIRTY counter == 0
+  -> require DIRTY generation == CLEAN watermark == 0
+  -> initialize enrollment epoch 1
   -> initialize allow-mask / propagation uncertainty
   -> set protected-cgroup flag LAST
 ```
@@ -236,20 +241,36 @@ a clean child that never reads the future object is still denied egress. The
 bounded safety claim is therefore continuity revocation before reuse, not unique
 object identity from inode numbers alone.
 
-The same native schedule now crosses a userspace-restart boundary. A fresh
-process reopens the pinned maps after continuity loss and must observe both the
-protected cgroup and non-zero DIRTY state before its clean effect attempt is
-denied. A brand-new loader cannot overwrite the existing pinned substrate, and
-replaying the stale activation plan cannot restore ALLOW. This proves restart
-preservation under the current pinned-state contract; it does not define a
-recovery protocol.
+The same native schedule crosses a userspace-restart boundary. A fresh process
+reopens the pinned maps after continuity loss and observes both the protected
+cgroup and the outstanding `dirty > clean` gap before its clean effect attempt
+is denied. A brand-new loader cannot overwrite the existing pinned substrate,
+and replaying the stale activation plan cannot restore ALLOW.
+
+Recovery is now explicit rather than a DIRTY reset. A separate signed recovery
+authorization binds the fresh plan digest, cgroup, current boot, bpffs root,
+exact invalidation generation, and an exact `from_epoch -> from_epoch+1`
+transition. Recovery kernel-reprobes the proposed source set before and after
+source-map replacement while `dirty > clean` still blocks effects. It advances
+the enrollment epoch and then advances CLEAN to the authorized DIRTY generation
+as the final effect boundary. DIRTY itself remains monotonic, so an invalidation
+that races recovery cannot be erased: it leaves `dirty > clean` and egress
+denied.
+
+The native recovery proof observed `dirty=1, clean=1, epoch=2` after authorized
+re-enrollment and restored clean egress. It then caused a topology-only
+invalidation, advancing DIRTY to 2 while leaving the recovered source plan
+valid. A pre-issued authorization whose expected DIRTY value was exactly 2 but
+whose source epoch was still 1 was rejected by the epoch fence; DIRTY, CLEAN,
+and epoch remained unchanged and egress remained denied.
 
 It does **not** yet prove:
 
 - source continuity across every filesystem-specific copy-up implementation,
   mount namespace propagation edge case, or source-lifetime cleanup schedule;
-- safe explicit reset/re-enrollment of source-continuity DIRTY after a lifetime
-  change, host reboot recovery, or lifecycle garbage collection;
+- host-reboot recovery, multi-profile concurrent recovery, distributed recovery
+  authority, or crash-resume liveness after epoch advance but before CLEAN
+  watermark commit;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
