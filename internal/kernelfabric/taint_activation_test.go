@@ -63,7 +63,6 @@ func TestTaintActivationPlanDigestBindsSourcePath(t *testing.T) {
 	}
 }
 
-
 func TestTaintActivationPlanDigestBindsMountNamespace(t *testing.T) {
 	base := TaintActivationPlan{
 		CgroupPath:       "/sys/fs/cgroup/aegis",
