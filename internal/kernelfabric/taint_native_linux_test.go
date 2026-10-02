@@ -421,10 +421,30 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 func mountNativeOverlaySource(t *testing.T) string {
 	t.Helper()
 
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "overlay-backing")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create overlay backing mountpoint: %v", err)
+	}
+	if err := unix.Mount(
+		"aegis-overlay-backing",
+		root,
+		"tmpfs",
+		0,
+		"mode=0700,size=16m",
+	); err != nil {
+		t.Fatalf("mount overlay tmpfs backing: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := unix.Unmount(root, unix.MNT_DETACH); err != nil {
+			t.Logf("unmount overlay tmpfs backing: %v", err)
+		}
+	})
+
 	lower := filepath.Join(root, "lower")
+	upper := filepath.Join(root, "upper")
+	work := filepath.Join(root, "work")
 	merged := filepath.Join(root, "merged")
-	for _, dir := range []string{lower, merged} {
+	for _, dir := range []string{lower, upper, work, merged} {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatalf("create overlay directory %s: %v", dir, err)
 		}
@@ -432,11 +452,14 @@ func mountNativeOverlaySource(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(lower, "secret.txt"), []byte("classified"), 0o600); err != nil {
 		t.Fatalf("write overlay lower secret: %v", err)
 	}
-	// A lower-only overlay is sufficient for the identity test and avoids
-	// imposing upperdir/workdir feature requirements on the VM backing fs.
-	options := "lowerdir=" + lower
-	if err := unix.Mount("overlay", merged, "overlay", unix.MS_RDONLY, options); err != nil {
-		t.Fatalf("mount native lower-only overlay source: %v", err)
+	options := fmt.Sprintf(
+		"lowerdir=%s,upperdir=%s,workdir=%s",
+		lower,
+		upper,
+		work,
+	)
+	if err := unix.Mount("overlay", merged, "overlay", 0, options); err != nil {
+		t.Fatalf("mount native overlay source on tmpfs backing: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := unix.Unmount(merged, unix.MNT_DETACH); err != nil {
