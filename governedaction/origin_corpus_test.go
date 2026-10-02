@@ -106,6 +106,7 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	executedApproval := 0
 	executedCredential := 0
 	executedTaint := 0
+	nativeEnforcement := 0
 
 	for _, tc := range corpus.Cases {
 		if tc.ID == "" || tc.Name == "" || tc.Class == "" || tc.Coverage == "" || tc.Gate == "" || tc.Expect == "" {
@@ -193,6 +194,12 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 			err := executeTaintScenario(*tc.TaintScenario)
 			assertMuseExpectation(t, tc, err)
 			executedTaint++
+
+		case "enforcement":
+			if tc.ID != "M15" || tc.Coverage != "NATIVE_EXECUTABLE" {
+				t.Fatalf("%s enforcement case must be native executable, got %s", tc.ID, tc.Coverage)
+			}
+			nativeEnforcement++
 		}
 	}
 
@@ -214,10 +221,14 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	if executedTaint != 3 {
 		t.Fatalf("executed taint cases=%d; want 3", executedTaint)
 	}
+	if nativeEnforcement != 1 {
+		t.Fatalf("native enforcement cases=%d; want 1", nativeEnforcement)
+	}
 	if coverage["EXECUTABLE_NOW"] != 10 ||
+		coverage["NATIVE_EXECUTABLE"] != 1 ||
 		coverage["PLANNED"] != 0 ||
 		coverage["EXISTING_COVERAGE"] != 4 ||
-		coverage["PARTIAL_EXISTING"] != 2 {
+		coverage["PARTIAL_EXISTING"] != 1 {
 		t.Fatalf("unexpected coverage accounting: %+v", coverage)
 	}
 }
