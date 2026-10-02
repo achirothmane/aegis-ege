@@ -16,6 +16,7 @@ permissions:
 jobs:
   native-taint:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -49,16 +50,43 @@ jobs:
             go test -count=1 -tags=taintnative \
               -run "^(TestNativeTaintReadForkFileAndEgress|TestTaintNativeHelper)$" \
               -v ./internal/kernelfabric
-      - name: Record unsupported runner without claiming proof
+      - name: Record unsupported host kernel
         if: steps.probe.outputs.supported != 'true'
         shell: bash
         run: |
           {
-            echo "## Native taint proof: UNPROVEN ON THIS RUNNER"
+            echo "## Host kernel cannot run the native proof directly"
             echo
-            echo "The GitHub-hosted runner does not expose every prerequisite required by the privileged BPF-LSM test."
-            echo "This workflow intentionally does not convert an unsupported host into a passing native-proof claim."
+            echo "The GitHub-hosted kernel does not expose every prerequisite required by the privileged BPF-LSM test."
+            echo "A VM fallback will now boot a BPF selftests kernel instead of treating this as proof."
             echo
             echo "Probe reasons:"
             printf "%s\n" "${{ steps.probe.outputs.reasons }}"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install VM fallback dependencies
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+          go install lmb.io/vimto@latest
+          if [ -e /dev/kvm ]; then
+            sudo chmod 0666 /dev/kvm
+          fi
+      - name: Compile taint BPF object for VM fallback
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          mkdir -p .taint-native
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o "$PWD/.taint-native/aegis_taint.bpf.o"
+      - name: Execute native taint falsification in BPF selftests VM
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          "$(go env GOPATH)/bin/vimto" -kernel :stable-selftests -- \
+            bash scripts/run-taint-native-vm.sh "$PWD/.taint-native/aegis_taint.bpf.o"
