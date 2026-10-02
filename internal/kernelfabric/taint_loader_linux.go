@@ -326,9 +326,9 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		programType ebpf.ProgramType
 		attachType  ebpf.AttachType
 	}{
-		"aegis_fperm":   {ebpf.LSM, ebpf.AttachLSMMac},
-		"aegis_fork":    {ebpf.RawTracepoint, ebpf.AttachNone},
-		"aegis_trename": {ebpf.LSM, ebpf.AttachLSMMac},
+		"aegis_fperm":    {ebpf.LSM, ebpf.AttachLSMMac},
+		"aegis_fork":     {ebpf.RawTracepoint, ebpf.AttachNone},
+		"aegis_trename":  {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tunlink":  {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tmount":   {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tumount":  {ebpf.LSM, ebpf.AttachLSMMac},
@@ -336,7 +336,7 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		"aegis_tmove":    {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tpivot":   {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tconn4":   {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet4Connect},
-		"aegis_tconn6":  {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
+		"aegis_tconn6":   {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
 	}
 	for name, expected := range expectedProgramTypes {
 		program := spec.Programs[name]
@@ -420,9 +420,9 @@ func ensureTaintPinsVacant(programDir, mapDir, linkDir string) error {
 func attestTaintPrograms(collection *ebpf.Collection) ([]PinnedProgramAttestation, error) {
 	out := make([]PinnedProgramAttestation, 0, len(taintBootstrapPrograms))
 	expectedTypes := map[string]ebpf.ProgramType{
-		"aegis_fperm":   ebpf.LSM,
-		"aegis_fork":    ebpf.RawTracepoint,
-		"aegis_trename": ebpf.LSM,
+		"aegis_fperm":    ebpf.LSM,
+		"aegis_fork":     ebpf.RawTracepoint,
+		"aegis_trename":  ebpf.LSM,
 		"aegis_tunlink":  ebpf.LSM,
 		"aegis_tmount":   ebpf.LSM,
 		"aegis_tumount":  ebpf.LSM,
@@ -430,7 +430,7 @@ func attestTaintPrograms(collection *ebpf.Collection) ([]PinnedProgramAttestatio
 		"aegis_tmove":    ebpf.LSM,
 		"aegis_tpivot":   ebpf.LSM,
 		"aegis_tconn4":   ebpf.CGroupSockAddr,
-		"aegis_tconn6":  ebpf.CGroupSockAddr,
+		"aegis_tconn6":   ebpf.CGroupSockAddr,
 	}
 	for _, expected := range taintBootstrapPrograms {
 		program := collection.Programs[expected.Name]
