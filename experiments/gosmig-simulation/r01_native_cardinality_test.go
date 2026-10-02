@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
