@@ -39,6 +39,17 @@ struct sched_process_fork_args {
 	__s32 child_pid;
 };
 
+struct taint_emit_input {
+	__u64 cgroup_id;
+	__u64 file_device;
+	__u64 file_inode;
+	__u64 labels;
+	__u32 tgid;
+	__u32 related_tgid;
+	__u32 event_type;
+	__u32 operation;
+};
+
 static void *(*bpf_map_lookup_elem)(const void *map, const void *key) =
 	(void *)BPF_FUNC_map_lookup_elem;
 static long (*bpf_map_update_elem)(const void *map, const void *key,
@@ -57,7 +68,9 @@ static void *(*bpf_ringbuf_reserve)(void *ringbuf, __u64 size, __u64 flags) =
 static void (*bpf_ringbuf_submit)(void *data, __u64 flags) =
 	(void *)BPF_FUNC_ringbuf_submit;
 
-#define BPF_CORE_READ_INTO(dst, src, field) 	bpf_probe_read_kernel((dst), sizeof(*(dst)), 		__builtin_preserve_access_index(&((src)->field)))
+#define BPF_CORE_READ_INTO(dst, src, field) \
+	bpf_probe_read_kernel((dst), sizeof(*(dst)), \
+		__builtin_preserve_access_index(&((src)->field)))
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -134,14 +147,7 @@ static __always_inline void mark_failure(__u64 cgroup_id)
 		bpf_map_update_elem(&aegis_tfail, &cgroup_id, &one, BPF_ANY);
 }
 
-static __always_inline void emit_event(
-	__u64 cgroup_id,
-	__u32 tgid,
-	__u32 related_tgid,
-	const struct aegis_taint_file_key *file_key,
-	__u64 labels,
-	__u32 event_type,
-	__u32 operation)
+static __always_inline void emit_event(const struct taint_emit_input *input)
 {
 	__u32 zero = 0;
 	struct aegis_taint_accounting *accounting =
@@ -159,14 +165,14 @@ static __always_inline void emit_event(
 
 	event->sequence = sequence;
 	event->observed_at_mono_ns = bpf_ktime_get_ns();
-	event->cgroup_id = cgroup_id;
-	event->file_device = file_key ? file_key->device : 0;
-	event->file_inode = file_key ? file_key->inode : 0;
-	event->labels = labels;
-	event->tgid = tgid;
-	event->related_tgid = related_tgid;
-	event->event_type = event_type;
-	event->operation = operation;
+	event->cgroup_id = input->cgroup_id;
+	event->file_device = input->file_device;
+	event->file_inode = input->file_inode;
+	event->labels = input->labels;
+	event->tgid = input->tgid;
+	event->related_tgid = input->related_tgid;
+	event->event_type = input->event_type;
+	event->operation = input->operation;
 	event->abi_version = AEGIS_TAINT_ABI_VERSION;
 	event->reserved = 0;
 
@@ -204,8 +210,7 @@ static __always_inline int union_process_taint(
 	__u32 tgid,
 	__u64 labels,
 	const struct aegis_taint_file_key *file_key,
-	__u32 event_type,
-	__u32 operation)
+	__u32 event_type)
 {
 	if (!labels)
 		return 0;
@@ -217,12 +222,29 @@ static __always_inline int union_process_taint(
 
 	if (bpf_map_update_elem(&aegis_ptaint, &tgid, &next, BPF_ANY)) {
 		mark_failure(cgroup_id);
-		emit_event(cgroup_id, tgid, 0, file_key, labels,
-			   AEGIS_TAINT_EVENT_PROPAGATION_FAILURE, operation);
+		struct taint_emit_input failed = {
+			.cgroup_id = cgroup_id,
+			.file_device = file_key ? file_key->device : 0,
+			.file_inode = file_key ? file_key->inode : 0,
+			.labels = labels,
+			.tgid = tgid,
+			.event_type = AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
+			.operation = AEGIS_TAINT_OP_READ,
+		};
+		emit_event(&failed);
 		return -13;
 	}
 
-	emit_event(cgroup_id, tgid, 0, file_key, next, event_type, operation);
+	struct taint_emit_input propagated = {
+		.cgroup_id = cgroup_id,
+		.file_device = file_key ? file_key->device : 0,
+		.file_inode = file_key ? file_key->inode : 0,
+		.labels = next,
+		.tgid = tgid,
+		.event_type = event_type,
+		.operation = AEGIS_TAINT_OP_READ,
+	};
+	emit_event(&propagated);
 	return 0;
 }
 
@@ -239,8 +261,12 @@ int aegis_fperm(struct file *file, int mask, int ret)
 	struct aegis_taint_file_key file_key = {};
 	if (file_key_from_file(file, &file_key)) {
 		mark_failure(cgroup_id);
-		emit_event(cgroup_id, current_tgid(), 0, 0, 0,
-			   AEGIS_TAINT_EVENT_PROPAGATION_FAILURE, 0);
+		struct taint_emit_input failed = {
+			.cgroup_id = cgroup_id,
+			.tgid = current_tgid(),
+			.event_type = AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
+		};
+		emit_event(&failed);
 		return -13;
 	}
 
@@ -255,14 +281,28 @@ int aegis_fperm(struct file *file, int mask, int ret)
 				next |= *file_labels;
 			if (bpf_map_update_elem(&aegis_ftaint, &file_key, &next, BPF_ANY)) {
 				mark_failure(cgroup_id);
-				emit_event(cgroup_id, tgid, 0, &file_key, next,
-					   AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
-					   AEGIS_TAINT_OP_WRITE);
+				struct taint_emit_input failed = {
+					.cgroup_id = cgroup_id,
+					.file_device = file_key.device,
+					.file_inode = file_key.inode,
+					.labels = next,
+					.tgid = tgid,
+					.event_type = AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
+					.operation = AEGIS_TAINT_OP_WRITE,
+				};
+				emit_event(&failed);
 				return -13;
 			}
-			emit_event(cgroup_id, tgid, 0, &file_key, next,
-				   AEGIS_TAINT_EVENT_PROPAGATED_WRITE,
-				   AEGIS_TAINT_OP_WRITE);
+			struct taint_emit_input propagated = {
+				.cgroup_id = cgroup_id,
+				.file_device = file_key.device,
+				.file_inode = file_key.inode,
+				.labels = next,
+				.tgid = tgid,
+				.event_type = AEGIS_TAINT_EVENT_PROPAGATED_WRITE,
+				.operation = AEGIS_TAINT_OP_WRITE,
+			};
+			emit_event(&propagated);
 		}
 	}
 
@@ -280,8 +320,7 @@ int aegis_fperm(struct file *file, int mask, int ret)
 				AEGIS_TAINT_EVENT_SOURCE_READ :
 				AEGIS_TAINT_EVENT_PROPAGATED_READ;
 			int rc = union_process_taint(
-				cgroup_id, tgid, labels, &file_key,
-				event_type, AEGIS_TAINT_OP_READ);
+				cgroup_id, tgid, labels, &file_key, event_type);
 			if (rc)
 				return rc;
 		}
@@ -306,15 +345,27 @@ int aegis_fork(struct sched_process_fork_args *ctx)
 	__u64 inherited = *labels;
 	if (bpf_map_update_elem(&aegis_ptaint, &child_tgid, &inherited, BPF_ANY)) {
 		mark_failure(cgroup_id);
-		emit_event(cgroup_id, parent_tgid, child_tgid, 0, inherited,
-			   AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
-			   AEGIS_TAINT_OP_FORK);
+		struct taint_emit_input failed = {
+			.cgroup_id = cgroup_id,
+			.labels = inherited,
+			.tgid = parent_tgid,
+			.related_tgid = child_tgid,
+			.event_type = AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
+			.operation = AEGIS_TAINT_OP_FORK,
+		};
+		emit_event(&failed);
 		return 0;
 	}
 
-	emit_event(cgroup_id, parent_tgid, child_tgid, 0, inherited,
-		   AEGIS_TAINT_EVENT_FORK_PROPAGATION,
-		   AEGIS_TAINT_OP_FORK);
+	struct taint_emit_input propagated = {
+		.cgroup_id = cgroup_id,
+		.labels = inherited,
+		.tgid = parent_tgid,
+		.related_tgid = child_tgid,
+		.event_type = AEGIS_TAINT_EVENT_FORK_PROPAGATION,
+		.operation = AEGIS_TAINT_OP_FORK,
+	};
+	emit_event(&propagated);
 	return 0;
 }
 
@@ -330,11 +381,21 @@ static __always_inline int enforce_taint_egress(void)
 	if (process_labels)
 		labels = *process_labels;
 
+	/*
+	 * A protected cgroup is not ready for taint-governed egress until trusted
+	 * userspace has initialized its propagation-failure counter. Missing
+	 * uncertainty state therefore fails closed.
+	 */
 	__u64 *failures = bpf_map_lookup_elem(&aegis_tfail, &cgroup_id);
-	if (failures && *failures) {
-		emit_event(cgroup_id, tgid, 0, 0, labels,
-			   AEGIS_TAINT_EVENT_EGRESS_DENY,
-			   AEGIS_TAINT_OP_CONNECT);
+	if (!failures || *failures) {
+		struct taint_emit_input denied = {
+			.cgroup_id = cgroup_id,
+			.labels = labels,
+			.tgid = tgid,
+			.event_type = AEGIS_TAINT_EVENT_EGRESS_DENY,
+			.operation = AEGIS_TAINT_OP_CONNECT,
+		};
+		emit_event(&denied);
 		return 0;
 	}
 
@@ -344,15 +405,25 @@ static __always_inline int enforce_taint_egress(void)
 		allowed = *allowed_ptr;
 
 	if (labels & ~allowed) {
-		emit_event(cgroup_id, tgid, 0, 0, labels,
-			   AEGIS_TAINT_EVENT_EGRESS_DENY,
-			   AEGIS_TAINT_OP_CONNECT);
+		struct taint_emit_input denied = {
+			.cgroup_id = cgroup_id,
+			.labels = labels,
+			.tgid = tgid,
+			.event_type = AEGIS_TAINT_EVENT_EGRESS_DENY,
+			.operation = AEGIS_TAINT_OP_CONNECT,
+		};
+		emit_event(&denied);
 		return 0;
 	}
 
-	emit_event(cgroup_id, tgid, 0, 0, labels,
-		   AEGIS_TAINT_EVENT_EGRESS_ALLOW,
-		   AEGIS_TAINT_OP_CONNECT);
+	struct taint_emit_input allowed_event = {
+		.cgroup_id = cgroup_id,
+		.labels = labels,
+		.tgid = tgid,
+		.event_type = AEGIS_TAINT_EVENT_EGRESS_ALLOW,
+		.operation = AEGIS_TAINT_OP_CONNECT,
+	};
+	emit_event(&allowed_event);
 	return 1;
 }
 
