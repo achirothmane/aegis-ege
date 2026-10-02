@@ -81,7 +81,7 @@ struct {
 	__uint(max_entries, 16384);
 	__type(key, struct aegis_taint_probe_key);
 	__type(value, __u64);
-} aegis_tprobe_results SEC(".maps");
+} aegis_tprobe_r SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -308,7 +308,7 @@ int aegis_fperm(__u64 *ctx)
 		};
 		__u64 token = *probe_token;
 		if (bpf_map_update_elem(
-				&aegis_tprobe_results,
+				&aegis_tprobe_r,
 				&probe_key,
 				&token,
 				BPF_ANY))
