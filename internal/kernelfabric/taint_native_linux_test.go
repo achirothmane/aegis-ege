@@ -256,6 +256,27 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatal("protected-cgroup activation is not observable after activation")
 	}
 
+	// Falsification: replace the enrolled OverlayFS path from outside the
+	// protected cgroup after activation. The logical source path remains the
+	// same while its backing identity changes. A safe design must either carry
+	// the source label forward or make protected egress fail closed.
+	replacementPath := filepath.Join(filepath.Dir(secretPath), "replacement.txt")
+	if err := os.WriteFile(replacementPath, []byte("classified-replacement"), 0o600); err != nil {
+		t.Fatalf("write overlay replacement source: %v", err)
+	}
+	if err := os.Rename(replacementPath, secretPath); err != nil {
+		t.Fatalf("atomically replace enrolled overlay source: %v", err)
+	}
+	replacementKey, err := ResolveTaintFileKey(secretPath)
+	if err != nil {
+		t.Fatalf("resolve replacement overlay identity: %v", err)
+	}
+	t.Logf(
+		"overlay source replaced after activation: enrolled userspace=%+v replacement userspace=%+v",
+		statKey,
+		replacementKey,
+	)
+
 	reader, err := OpenPinnedTaintEvidenceReader(bpffsRoot)
 	if err != nil {
 		t.Fatalf("open taint evidence reader: %v", err)
