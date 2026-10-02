@@ -21,15 +21,19 @@ type TaintSourceBinding struct {
 }
 
 type TaintActivationPlan struct {
-	CgroupPath    string               `json:"cgroup_path"`
-	AllowedLabels uint64               `json:"allowed_labels"`
-	Sources       []TaintSourceBinding `json:"sources"`
+	CgroupPath       string               `json:"cgroup_path"`
+	MountNamespaceID uint64               `json:"mount_namespace_id"`
+	AllowedLabels    uint64               `json:"allowed_labels"`
+	Sources          []TaintSourceBinding `json:"sources"`
 }
 
 func ValidateTaintActivationPlan(plan TaintActivationPlan) error {
 	cgroup := filepath.Clean(strings.TrimSpace(plan.CgroupPath))
 	if cgroup == "." || !filepath.IsAbs(cgroup) {
 		return fmt.Errorf("%w: cgroup_path must be absolute", ErrTaintActivationPlan)
+	}
+	if plan.MountNamespaceID == 0 {
+		return fmt.Errorf("%w: mount_namespace_id must be non-zero", ErrTaintActivationPlan)
 	}
 	if len(plan.Sources) == 0 {
 		return fmt.Errorf("%w: at least one sensitive source is required", ErrTaintActivationPlan)
