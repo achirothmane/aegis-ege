@@ -463,6 +463,15 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		statKey,
 		replacementKey,
 	)
+	dirty, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source identity continuity after replacement: %v", err)
+	}
+	if dirty == 0 {
+		t.Fatal("source replacement did not dirty kernel source identity continuity")
+	}
+	t.Logf("source identity continuity dirty count=%d", dirty)
+
 	if _, err := replacementStdin.Write([]byte("go")); err != nil {
 		t.Fatal(err)
 	}
