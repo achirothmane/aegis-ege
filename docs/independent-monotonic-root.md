@@ -264,3 +264,31 @@ A second proof deletes and redefines the same NV counter handle. The newly initi
 ### Claim boundary
 
 The TPM backend protects against rollback of application/filesystem state while the TPM anti-rollback property remains trusted. It does not claim protection after physical replacement of the TPM, compromise of the TPM implementation itself, or migration to another device without an explicit root-transfer protocol.
+
+
+## Executable crash-window proof
+
+The TPM root recovery protocol is exercised at the three consequential interruption boundaries:
+
+```text
+1. pending(C+1) durable
+   TPM still C
+   process dies
+   -> restart discards uncommitted pending
+   -> committed Tn remains current
+
+2. pending(C+1) durable
+   TPM increments to C+1
+   process dies before promotion
+   -> restart promotes pending
+   -> Tn+1 remains current
+   -> old Tn is still superseded at Effect Boundary
+
+3. TPM increments to C+1
+   pending(C+1) is unavailable/lost
+   -> restart cannot reconstruct authority safely
+   -> CAPABILITY_ROOT_ROLLBACK_DETECTED
+   -> mutation controller calls = 0
+```
+
+The third case is deliberately fail-closed. A counter value proves that a newer root transition occurred, but without the durable pending snapshot Aegis does not invent or infer which authority snapshot was committed.
