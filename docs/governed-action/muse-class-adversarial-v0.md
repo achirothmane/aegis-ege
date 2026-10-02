@@ -2,9 +2,10 @@
 
 Status: **EXPERIMENTAL — non-normative hardening work**
 
-This work does not change the frozen governed-action v1 oracle. It adds three
+This work does not change the frozen governed-action v1 oracle. It adds four
 experimental hardening relations—execution-origin trust, bounded approval use,
-and opaque credential-use binding—plus a synthetic HTTP secret-broker experiment.
+opaque credential-use binding, and taint-aware egress—plus synthetic secret-broker
+and taint-propagation experiments.
 
 The purpose is not to reproduce Meta Muse or to claim parity with its runtime.
 The purpose is to use the same class of hostile assumptions against the
@@ -155,7 +156,56 @@ domain. A production implementation still requires a separate broker
 process/VM, authenticated IPC, protected bootstrap secret storage and complete
 mediation.
 
-## 5. Muse-class adversarial corpus
+## 5. Experimental relation: taint-aware egress
+
+`governedaction.CheckTaintEgress` binds an egress decision to a trusted taint
+monitor identity and epoch:
+
+```text
+subject_ref
+monitor_ref
+monitor_epoch
+allowed_labels
+```
+
+The observed evidence contains only:
+
+```text
+subject_ref
+monitor_ref
+monitor_epoch
+labels
+```
+
+No sensitive payload is carried. Every observed label must be explicitly
+admitted; an empty `allowed_labels` set means clean-only egress.
+
+The companion `governedaction/taintflow` package is deliberately a synthetic,
+monotonic propagation model for the adversarial corpus:
+
+```text
+sensitive read
+  -> process taint
+
+fork
+  -> child inherits full parent taint set
+
+process writes file/IPC channel
+  -> channel accumulates process taint
+
+process reads file/IPC channel
+  -> reader accumulates channel taint
+```
+
+Labels are additive. A clean writer cannot erase an already-tainted channel.
+
+This is **not** yet Linux kernel taint enforcement. The repository's current BPF
+implementation is a cgroup network-connect adapter; the existing documentation
+explicitly keeps BPF-LSM filesystem/process adapters as future work. Therefore
+M01-M03 now prove the relation and propagation model in executable tests, not
+complete mediation against a hostile Linux process.
+
+## 6. Muse-class adversarial corpus
 
 The machine-readable corpus is:
 
@@ -169,10 +219,10 @@ Current accounting is explicit:
 
 | Coverage | Cases | Meaning |
 |---|---:|---|
-| EXECUTABLE_NOW | 7 | M00/M04/M05 use `CheckOrigin`; M06/M07 use `CheckApprovalUse`; M08/M09 use `CheckCredentialUse` plus broker tests |
+| EXECUTABLE_NOW | 10 | M00/M04/M05 origin; M06/M07 approval; M08/M09 credential; M01/M02/M03 taint and propagation |
 | EXISTING_COVERAGE | 4 | Existing kernel/recovery/anti-rollback work already exercises the class, but not through this new origin check |
 | PARTIAL_EXISTING | 2 | Relevant machinery exists, but the full Muse-class property is not yet proved |
-| PLANNED | 3 | Registered as attack classes only; they do not count as implemented controls |
+| PLANNED | 0 | No M00-M15 case remains documentation-only; some remain existing/partial rather than newly executable |
 
 ### Registered cases
 
@@ -193,7 +243,7 @@ Current accounting is explicit:
 - **M14** provider acceptance contradicts the observed postcondition.
 - **M15** a compromised actor attempts to disable the guard.
 
-## 6. Current executable claims
+## 7. Current executable claims
 
 Only the following new claims are earned by this change:
 
@@ -212,11 +262,16 @@ Only the following new claims are earned by this change:
 10. replay of the same handle under a different EffectIdentity is rejected before network dispatch;
 11. credential audience substitution is rejected before network dispatch;
 12. the synthetic HTTP broker injects a bearer credential only after the bound checks, rejects caller credential headers, does not follow redirects with the credential, and sanitizes the returned request metadata;
-13. M00/M04/M05/M06/M07/M08/M09 are machine-registered and executed.
+13. unbound taint labels fail closed at the egress relation;
+14. forked children inherit the parent's complete synthetic taint set;
+15. file/IPC-style channel transfer propagates taint to a previously clean reader;
+16. a clean writer cannot erase channel taint;
+17. M00-M09 are machine-registered and executable, while M10-M15 retain their
+    existing/partial classifications.
 
 This change does **not** yet prove:
 
-- process/data taint propagation;
+- production Linux process/data taint observation and complete mediation;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
 - atomic concurrent approval consumption without an adapter-native transaction/CAS/fence;
@@ -225,7 +280,7 @@ This change does **not** yet prove:
 - a Muse-compatible runtime;
 - production-grade agent containment.
 
-## 7. Next implementation order
+## 8. Next implementation order
 
 Do not add all planned controls at once.
 
@@ -238,7 +293,9 @@ Approval binding/replay corpus
     ↓
 Credential-surrogate broker experiment
     ↓
-Taint evidence producer
+Synthetic taint evidence + propagation
+    ↓
+Linux BPF-LSM/process/filesystem evidence producer
     ↓
 Hostile-agent harness
 ```
@@ -247,7 +304,7 @@ Each step must add a failing attack schedule first, then an executable control,
 then preserve the original positive path. A planned corpus entry must never be
 counted as a passed control merely because it is documented.
 
-## 8. Kill condition
+## 9. Kill condition
 
 This hardening effort is useful only if the same relation survives different
 domains without embedding their business semantics.
