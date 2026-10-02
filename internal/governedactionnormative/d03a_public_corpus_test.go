@@ -227,8 +227,8 @@ func TestD03APublicCorpusPinsFrozenOracleAndCannotClaimD03Pass(t *testing.T) {
 
 func TestD03APublicCorpusSourcesAreExternalClosedAndGrounded(t *testing.T) {
 	corpus := loadD03ACorpus(t)
-	if len(corpus.Incidents) < 10 {
-		t.Fatalf("D03-A v1 expected at least 10 grounded reference mappings, got %d", len(corpus.Incidents))
+	if len(corpus.Incidents) < 11 {
+		t.Fatalf("D03-A v1 expected at least 11 grounded reference mappings, got %d", len(corpus.Incidents))
 	}
 
 	seen := map[string]bool{}
@@ -317,6 +317,37 @@ func TestD03AArgoStaleWorkflowCaseRequiresCurrentState(t *testing.T) {
 	}
 	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
 		t.Fatalf("Argo fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
+	}
+}
+
+
+func TestD03ATerraformOrphanedEffectCaseRequiresPriorEffectReconciliation(t *testing.T) {
+	corpus := loadD03ACorpus(t)
+	var found *d03AIncident
+	for i := range corpus.Incidents {
+		if corpus.Incidents[i].ID == "D03A-TFAWS-49231" {
+			found = &corpus.Incidents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("missing D03A-TFAWS-49231 infrastructure-provisioning incident")
+	}
+	if found.Repository != "hashicorp/terraform-provider-aws" || found.Domain != "infrastructure-provisioning-state" {
+		t.Fatalf("unexpected Terraform incident identity: %+v", found)
+	}
+	if found.GroundTruth.Fix.MergeCommit != "079f694ee03602059af6e534d3b14297907ad639" {
+		t.Fatalf("Terraform fix provenance drifted: %s", found.GroundTruth.Fix.MergeCommit)
+	}
+	h := found.KernelMapping.HistoricalOverrides
+	if !h["possible_effect_exists"] || !h["substitution_requested"] || h["safe_substitution_proven"] {
+		t.Fatalf("historical Terraform mapping must represent an unreconciled possible prior effect: %+v", h)
+	}
+	if found.KernelMapping.HistoricalExpected != "REJECT_SECOND_EFFECT" {
+		t.Fatalf("unexpected Terraform historical disposition %q", found.KernelMapping.HistoricalExpected)
+	}
+	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
+		t.Fatalf("Terraform fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
 	}
 }
 
