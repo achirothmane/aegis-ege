@@ -137,6 +137,13 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				ValueSize:  4,
 				MaxEntries: 1,
 			},
+			"aegis_tepoch": {
+				Name:       "aegis_tepoch",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  8,
+				MaxEntries: 1,
+			},
 			"aegis_tevents": {
 				Name:       "aegis_tevents",
 				Type:       ebpf.RingBuf,
