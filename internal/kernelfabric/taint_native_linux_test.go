@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	taintNativeHelperEnv   = "AEGIS_TAINT_NATIVE_HELPER"
-	taintNativeHelperMode  = "AEGIS_TAINT_NATIVE_HELPER_MODE"
-	taintNativeHelperAddr  = "AEGIS_TAINT_NATIVE_HELPER_ADDR"
+	taintNativeHelperEnv    = "AEGIS_TAINT_NATIVE_HELPER"
+	taintNativeHelperMode   = "AEGIS_TAINT_NATIVE_HELPER_MODE"
+	taintNativeHelperAddr   = "AEGIS_TAINT_NATIVE_HELPER_ADDR"
 	taintNativeHelperBridge = "AEGIS_TAINT_NATIVE_HELPER_BRIDGE"
 )
 
