@@ -134,6 +134,13 @@ struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
+	__type(value, __u64);
+} aegis_tclean SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
 	__type(value, __u32);
 } aegis_tarmed SEC(".maps");
 
@@ -697,8 +704,10 @@ static __always_inline int enforce_taint_egress(void)
 	 */
 	__u32 zero = 0;
 	__u64 *source_dirty = bpf_map_lookup_elem(&aegis_tdirty, &zero);
+	__u64 *source_clean = bpf_map_lookup_elem(&aegis_tclean, &zero);
 	__u64 *failures = bpf_map_lookup_elem(&aegis_tfail, &cgroup_id);
-	if (!source_dirty || *source_dirty || !failures || *failures) {
+	if (!source_dirty || !source_clean || *source_dirty != *source_clean ||
+	    !failures || *failures) {
 		struct taint_emit_input denied = {
 			.cgroup_id = cgroup_id,
 			.labels = labels,
