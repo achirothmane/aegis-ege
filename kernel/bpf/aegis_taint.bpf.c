@@ -24,20 +24,10 @@ struct file {
 	struct inode *f_inode;
 } __attribute__((preserve_access_index));
 
-struct trace_entry_min {
-	__u16 type;
-	__u8 flags;
-	__u8 preempt_count;
-	__s32 pid;
-};
-
-struct sched_process_fork_args {
-	struct trace_entry_min ent;
-	char parent_comm[16];
-	__s32 parent_pid;
-	char child_comm[16];
-	__s32 child_pid;
-};
+struct task_struct {
+	int pid;
+	int tgid;
+} __attribute__((preserve_access_index));
 
 struct taint_emit_input {
 	__u64 cgroup_id;
@@ -339,15 +329,30 @@ int aegis_fperm(__u64 *ctx)
 	return 0;
 }
 
-SEC("tracepoint/sched/sched_process_fork")
-int aegis_fork(struct sched_process_fork_args *ctx)
+SEC("raw_tracepoint/sched_process_fork")
+int aegis_fork(struct bpf_raw_tracepoint_args *ctx)
 {
 	__u64 cgroup_id = bpf_get_current_cgroup_id();
 	if (!protected_cgroup(cgroup_id))
 		return 0;
 
 	__u32 parent_tgid = current_tgid();
-	__u32 child_tgid = (__u32)ctx->child_pid;
+	struct task_struct *child = (struct task_struct *)ctx->args[1];
+	int child_tgid_raw = 0;
+	if (!child || BPF_CORE_READ_INTO(&child_tgid_raw, child, tgid) ||
+	    child_tgid_raw <= 0) {
+		mark_failure(cgroup_id);
+		struct taint_emit_input failed = {
+			.cgroup_id = cgroup_id,
+			.tgid = parent_tgid,
+			.event_type = AEGIS_TAINT_EVENT_PROPAGATION_FAILURE,
+			.operation = AEGIS_TAINT_OP_FORK,
+		};
+		emit_event(&failed);
+		return 0;
+	}
+	__u32 child_tgid = (__u32)child_tgid_raw;
+
 	__u64 *labels = bpf_map_lookup_elem(&aegis_ptaint, &parent_tgid);
 	if (!labels || !*labels)
 		return 0;
