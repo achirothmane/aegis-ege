@@ -1,13 +1,17 @@
 package kernelfabric
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -141,4 +145,195 @@ func sameBootstrapMaps(got, want []BootstrapMap) bool {
 		}
 	}
 	return true
+}
+
+
+type TaintPinnedLinkAttestation struct {
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	ProgramPin string `json:"program_pin"`
+	AttachType string `json:"attach_type"`
+}
+
+type TaintBootstrapReceipt struct {
+	Version             string                      `json:"version"`
+	ManifestDigest      string                      `json:"manifest_digest"`
+	ManifestSignerKeyID string                      `json:"manifest_signer_key_id"`
+	ArtifactSHA256      string                      `json:"artifact_sha256"`
+	ArtifactSize        int64                       `json:"artifact_size"`
+	Host                BootstrapHostSnapshot       `json:"host"`
+	CgroupPath          string                      `json:"cgroup_path"`
+	Programs            []PinnedProgramAttestation  `json:"programs"`
+	Maps                []PinnedMapAttestation      `json:"maps"`
+	Links               []TaintPinnedLinkAttestation `json:"links"`
+	CompletedAt         time.Time                   `json:"completed_at"`
+}
+
+type SignedTaintBootstrapReceipt struct {
+	Receipt   TaintBootstrapReceipt `json:"receipt"`
+	KeyID     string                `json:"key_id"`
+	Signature string                `json:"signature"`
+}
+
+func SignTaintBootstrapReceipt(
+	receipt TaintBootstrapReceipt,
+	privateKey ed25519.PrivateKey,
+) (SignedTaintBootstrapReceipt, error) {
+	if err := ValidateTaintBootstrapReceipt(receipt); err != nil {
+		return SignedTaintBootstrapReceipt{}, err
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return SignedTaintBootstrapReceipt{}, errors.New("invalid Ed25519 taint-bootstrap attestation key")
+	}
+	payload, err := canonicalTaintBootstrapReceiptPayload(receipt)
+	if err != nil {
+		return SignedTaintBootstrapReceipt{}, err
+	}
+	keyID, err := BootstrapKeyID(privateKey.Public().(ed25519.PublicKey))
+	if err != nil {
+		return SignedTaintBootstrapReceipt{}, err
+	}
+	return SignedTaintBootstrapReceipt{
+		Receipt:   receipt,
+		KeyID:     keyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
+	}, nil
+}
+
+func VerifySignedTaintBootstrapReceipt(
+	signed SignedTaintBootstrapReceipt,
+	publicKey ed25519.PublicKey,
+) error {
+	if err := ValidateTaintBootstrapReceipt(signed.Receipt); err != nil {
+		return err
+	}
+	expectedKeyID, err := BootstrapKeyID(publicKey)
+	if err != nil {
+		return err
+	}
+	if expectedKeyID != signed.KeyID {
+		return ErrBootstrapSignatureInvalid
+	}
+	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
+	if err != nil {
+		return ErrBootstrapSignatureInvalid
+	}
+	payload, err := canonicalTaintBootstrapReceiptPayload(signed.Receipt)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return ErrBootstrapSignatureInvalid
+	}
+	return nil
+}
+
+func ValidateTaintBootstrapReceipt(receipt TaintBootstrapReceipt) error {
+	if receipt.Version != TaintBootstrapReceiptVersion {
+		return fmt.Errorf("unsupported taint bootstrap receipt version %q", receipt.Version)
+	}
+	if _, err := ParseSHA256Digest(receipt.ManifestDigest); err != nil {
+		return fmt.Errorf("taint bootstrap manifest digest: %w", err)
+	}
+	if strings.TrimSpace(receipt.ManifestSignerKeyID) == "" {
+		return errors.New("taint bootstrap manifest signer key id is required")
+	}
+	if _, err := ParseSHA256Digest(receipt.ArtifactSHA256); err != nil {
+		return fmt.Errorf("taint bootstrap artifact digest: %w", err)
+	}
+	if receipt.ArtifactSize <= 0 {
+		return errors.New("taint bootstrap artifact size must be positive")
+	}
+	if _, err := ParseSHA256Digest(receipt.Host.BootIDHash); err != nil {
+		return fmt.Errorf("taint bootstrap boot id hash: %w", err)
+	}
+	if strings.TrimSpace(receipt.Host.KernelRelease) == "" ||
+		strings.TrimSpace(receipt.Host.BPFFSRoot) == "" ||
+		strings.TrimSpace(receipt.CgroupPath) == "" {
+		return errors.New("taint bootstrap host/cgroup binding is incomplete")
+	}
+	if receipt.CompletedAt.IsZero() {
+		return errors.New("taint bootstrap completed_at is required")
+	}
+	if len(receipt.Programs) != len(taintBootstrapPrograms) ||
+		len(receipt.Maps) != len(taintBootstrapMaps) ||
+		len(receipt.Links) != len(taintBootstrapPrograms) {
+		return errors.New("taint bootstrap receipt object cardinality is incomplete")
+	}
+
+	programPins := make(map[string]struct{}, len(receipt.Programs))
+	for _, program := range receipt.Programs {
+		if program.ID == 0 ||
+			strings.TrimSpace(program.PinName) == "" ||
+			strings.TrimSpace(program.Name) == "" ||
+			strings.TrimSpace(program.Type) == "" ||
+			strings.TrimSpace(program.Tag) == "" ||
+			strings.TrimSpace(program.AttachType) == "" {
+			return errors.New("taint bootstrap receipt contains incomplete program attestation")
+		}
+		if _, exists := programPins[program.PinName]; exists {
+			return fmt.Errorf("duplicate taint bootstrap program pin %q", program.PinName)
+		}
+		programPins[program.PinName] = struct{}{}
+	}
+
+	mapNames := make(map[string]struct{}, len(receipt.Maps))
+	for _, m := range receipt.Maps {
+		if m.ID == 0 || strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Type) == "" {
+			return errors.New("taint bootstrap receipt contains incomplete map attestation")
+		}
+		if _, exists := mapNames[m.Name]; exists {
+			return fmt.Errorf("duplicate taint bootstrap map %q", m.Name)
+		}
+		mapNames[m.Name] = struct{}{}
+	}
+
+	linkNames := make(map[string]struct{}, len(receipt.Links))
+	for _, link := range receipt.Links {
+		if strings.TrimSpace(link.Name) == "" ||
+			strings.TrimSpace(link.Path) == "" ||
+			strings.TrimSpace(link.ProgramPin) == "" ||
+			strings.TrimSpace(link.AttachType) == "" {
+			return errors.New("taint bootstrap receipt contains incomplete link attestation")
+		}
+		if _, exists := linkNames[link.Name]; exists {
+			return fmt.Errorf("duplicate taint bootstrap link %q", link.Name)
+		}
+		linkNames[link.Name] = struct{}{}
+	}
+	return nil
+}
+
+func canonicalTaintBootstrapReceiptPayload(receipt TaintBootstrapReceipt) ([]byte, error) {
+	normalized := receipt
+	normalized.CompletedAt = normalized.CompletedAt.UTC()
+	normalized.Programs = append([]PinnedProgramAttestation(nil), normalized.Programs...)
+	normalized.Maps = append([]PinnedMapAttestation(nil), normalized.Maps...)
+	normalized.Links = append([]TaintPinnedLinkAttestation(nil), normalized.Links...)
+	sort.Slice(normalized.Programs, func(i, j int) bool {
+		return normalized.Programs[i].PinName < normalized.Programs[j].PinName
+	})
+	sort.Slice(normalized.Maps, func(i, j int) bool {
+		return normalized.Maps[i].Name < normalized.Maps[j].Name
+	})
+	sort.Slice(normalized.Links, func(i, j int) bool {
+		return normalized.Links[i].Name < normalized.Links[j].Name
+	})
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal taint bootstrap receipt: %w", err)
+	}
+	return append([]byte("aegis-ege/taint-bpf-bootstrap-receipt/v0\x00"), body...), nil
+}
+
+func WriteSignedTaintBootstrapReceipt(path string, signed SignedTaintBootstrapReceipt) error {
+	payload, err := json.MarshalIndent(signed, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal signed taint bootstrap receipt: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		return fmt.Errorf("write signed taint bootstrap receipt: %w", err)
+	}
+	return nil
 }
