@@ -227,13 +227,21 @@ symlink and then atomically redirects that symlink to an unenrolled directory.
 Symlink rename/unlink now invalidates the same continuity state, so the clean
 reader remains untainted while protected egress still fails closed.
 
+The inode-lifetime proof is split across two executable environments rather than
+assuming that `(device,inode)` is permanent. On the Linux host, an inode-starved
+ext4 fixture directly forces a future file to reuse the retired source's exact
+numeric identity. In the BPF-LSM VM, unlinking an enrolled source advances
+`aegis_tdirty` before a future allocation, the dirty state remains sticky, and
+a clean child that never reads the future object is still denied egress. The
+bounded safety claim is therefore continuity revocation before reuse, not unique
+object identity from inode numbers alone.
+
 It does **not** yet prove:
 
 - source continuity across every filesystem-specific copy-up implementation,
   mount namespace propagation edge case, or source-lifetime cleanup schedule;
-- allocator-level same-number inode reuse as a directly forced native schedule;
-  the current bounded guarantee is that registered-source unlink/rename makes
-  continuity DIRTY before such reuse can be trusted;
+- safe reset/re-enrollment of source-continuity DIRTY after a lifetime change,
+  including restart/reload with stale enrollment state;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
