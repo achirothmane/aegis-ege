@@ -12,10 +12,10 @@ import (
 
 func main() {
 	var (
-		planPath       = flag.String("plan", "", "taint activation plan JSON")
-		receiptPath    = flag.String("bootstrap-receipt", "", "signed taint bootstrap receipt")
-		attestKeyPath  = flag.String("attestation-public-key", "", "base64 Ed25519 bootstrap attestation public key")
-		bpffsRoot      = flag.String("bpffs-root", kernelfabric.DefaultTaintBPFFSRoot, "taint bpffs root")
+		planPath      = flag.String("plan", "", "taint activation plan JSON")
+		receiptPath   = flag.String("bootstrap-receipt", "", "signed taint bootstrap receipt")
+		attestKeyPath = flag.String("attestation-public-key", "", "base64 Ed25519 bootstrap attestation public key")
+		bpffsRoot     = flag.String("bpffs-root", kernelfabric.DefaultTaintBPFFSRoot, "taint bpffs root")
 	)
 	flag.Parse()
 
