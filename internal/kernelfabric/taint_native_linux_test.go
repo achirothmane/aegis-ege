@@ -28,13 +28,13 @@ import (
 var nativeTaintBPFObject []byte
 
 const (
-	taintNativeHelperEnv    = "AEGIS_TAINT_NATIVE_HELPER"
-	taintNativeHelperMode   = "AEGIS_TAINT_NATIVE_HELPER_MODE"
-	taintNativeHelperAddr   = "AEGIS_TAINT_NATIVE_HELPER_ADDR"
+	taintNativeHelperEnv          = "AEGIS_TAINT_NATIVE_HELPER"
+	taintNativeHelperMode         = "AEGIS_TAINT_NATIVE_HELPER_MODE"
+	taintNativeHelperAddr         = "AEGIS_TAINT_NATIVE_HELPER_ADDR"
 	taintNativeHelperBridge       = "AEGIS_TAINT_NATIVE_HELPER_BRIDGE"
-	taintNativeHelperBPFFSRoot     = "AEGIS_TAINT_NATIVE_HELPER_BPFFS_ROOT"
-	taintNativeHelperEscapeCgroup  = "AEGIS_TAINT_NATIVE_HELPER_ESCAPE_CGROUP"
-	taintNativeHelperCgroupID      = "AEGIS_TAINT_NATIVE_HELPER_CGROUP_ID"
+	taintNativeHelperBPFFSRoot    = "AEGIS_TAINT_NATIVE_HELPER_BPFFS_ROOT"
+	taintNativeHelperEscapeCgroup = "AEGIS_TAINT_NATIVE_HELPER_ESCAPE_CGROUP"
+	taintNativeHelperCgroupID     = "AEGIS_TAINT_NATIVE_HELPER_CGROUP_ID"
 )
 
 func TestTaintNativeHelper(t *testing.T) {
