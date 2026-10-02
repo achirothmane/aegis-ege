@@ -1,0 +1,64 @@
+name: Native taint falsification
+
+on:
+  pull_request:
+    paths:
+      - "kernel/bpf/aegis_taint.bpf.c"
+      - "kernel/bpf/include/aegis_taint_abi.h"
+      - "internal/kernelfabric/taint_*.go"
+      - "scripts/taint-native-probe.sh"
+      - ".github/workflows/taint-native-falsification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-taint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Probe native BPF LSM environment
+        id: probe
+        shell: bash
+        run: |
+          bash scripts/taint-native-probe.sh | tee "$RUNNER_TEMP/taint-native-probe.txt"
+          cat "$RUNNER_TEMP/taint-native-probe.txt" >> "$GITHUB_STEP_SUMMARY"
+      - name: Compile taint BPF object for native test
+        if: steps.probe.outputs.supported == 'true'
+        shell: bash
+        run: |
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o "$RUNNER_TEMP/aegis_taint.bpf.o"
+      - name: Execute privileged native taint falsification
+        if: steps.probe.outputs.supported == 'true'
+        shell: bash
+        run: |
+          sudo -E env \
+            "PATH=$PATH" \
+            "AEGIS_TAINT_BPF_OBJECT=$RUNNER_TEMP/aegis_taint.bpf.o" \
+            go test -count=1 -tags=taintnative \
+              -run "^(TestNativeTaintReadForkFileAndEgress|TestTaintNativeHelper)$" \
+              -v ./internal/kernelfabric
+      - name: Record unsupported runner without claiming proof
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Native taint proof: UNPROVEN ON THIS RUNNER"
+            echo
+            echo "The GitHub-hosted runner does not expose every prerequisite required by the privileged BPF-LSM test."
+            echo "This workflow intentionally does not convert an unsupported host into a passing native-proof claim."
+            echo
+            echo "Probe reasons:"
+            printf "%s\n" "${{ steps.probe.outputs.reasons }}"
+          } >> "$GITHUB_STEP_SUMMARY"
