@@ -369,6 +369,7 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		"aegis_tclean":   {ebpf.Array, 4, 8, 1},
 		"aegis_tarmed":   {ebpf.Array, 4, 4, 1},
 		"aegis_tepoch":   {ebpf.Array, 4, 8, 1},
+		"aegis_trecover": {ebpf.Array, 4, 32, 1},
 		"aegis_tevents":  {ebpf.RingBuf, 0, 0, 1 << 20},
 		"aegis_tacct":    {ebpf.Array, 4, TaintAccountingSize, 1},
 	}
