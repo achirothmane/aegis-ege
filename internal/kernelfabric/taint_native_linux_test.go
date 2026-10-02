@@ -89,7 +89,30 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	}
 	defer removeNativeTaintPins(bpffsRoot)
 
-	workDir := t.TempDir()
+	workDir := filepath.Join(t.TempDir(), "taintfs")
+	if err := os.Mkdir(workDir, 0o700); err != nil {
+		t.Fatalf("create native taint tmpfs mountpoint: %v", err)
+	}
+	if err := unix.Mount(
+		"aegis-taint-native",
+		workDir,
+		"tmpfs",
+		0,
+		"mode=0700,size=16m",
+	); err != nil {
+		t.Fatalf("mount native taint tmpfs: %v", err)
+	}
+	defer func() {
+		if err := unix.Unmount(workDir, unix.MNT_DETACH); err != nil {
+			t.Logf("unmount native taint tmpfs: %v", err)
+		}
+	}()
+
+	// Keep the first privileged proof on a non-stacked filesystem. The previous
+	// run falsified the assumption that stat(2) device identity always matches
+	// every file_permission identity observed through a stacked guest rootfs.
+	// Stacked-filesystem source registration remains a separate fail-closed
+	// claim boundary; this test proves the kernel hooks and propagation path.
 	artifact := filepath.Join(workDir, "aegis_taint.bpf.o")
 	if err := os.WriteFile(artifact, nativeTaintBPFObject, 0o600); err != nil {
 		t.Fatalf("materialize embedded taint BPF object: %v", err)
