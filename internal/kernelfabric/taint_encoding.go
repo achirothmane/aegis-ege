@@ -31,7 +31,7 @@ func DecodeTaintEvent(payload []byte) (TaintEvent, error) {
 	if event.Sequence == 0 || event.CgroupID == 0 || event.TGID == 0 {
 		return TaintEvent{}, fmt.Errorf("%w: taint event identity is incomplete", ErrTaintABIInvalid)
 	}
-	if event.EventType < TaintEventSourceRead || event.EventType > TaintEventEgressDeny {
+	if event.EventType < TaintEventSourceRead || event.EventType > TaintEventFileReadObserved {
 		return TaintEvent{}, fmt.Errorf("%w: unsupported event type %d", ErrTaintABIInvalid, event.EventType)
 	}
 	if event.Operation < TaintOperationRead || event.Operation > TaintOperationConnect {
