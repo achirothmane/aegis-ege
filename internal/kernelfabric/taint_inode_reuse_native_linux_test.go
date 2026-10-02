@@ -613,6 +613,113 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	recoveryDir := t.TempDir()
+	recoveryPlanPath := filepath.Join(recoveryDir, "plan.json")
+	if err := WriteTaintActivationPlan(recoveryPlanPath, recoveryPlan); err != nil {
+		t.Fatalf("write crash recovery plan: %v", err)
+	}
+	recoveryAuthPath := filepath.Join(recoveryDir, "authorization.json")
+	recoveryAuthPayload, err := json.Marshal(signedRecovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recoveryAuthPath, recoveryAuthPayload, 0o600); err != nil {
+		t.Fatalf("write crash recovery authorization: %v", err)
+	}
+	expectedCommitment, err := TaintRecoveryCommitmentDigest(signedRecovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanBeforeCrash, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	crash := exec.Command(os.Args[0], "-test.run=^TestTaintRecoveryCrashHelper$")
+	crash.Env = append(os.Environ(),
+		taintRecoveryCrashHelperEnv+"=1",
+		taintRecoveryPlanEnv+"="+recoveryPlanPath,
+		taintRecoveryAuthEnv+"="+recoveryAuthPath,
+		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
+		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
+		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
+	)
+	crash.Stdout = os.Stdout
+	crash.Stderr = os.Stderr
+	err = crash.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 86 {
+		t.Fatalf("recovery controller did not die at epoch/CLEAN boundary: %v", err)
+	}
+
+	epochAfterCrash, err := TaintEnrollmentEpoch(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epochAfterCrash != recoveryAuth.ToEpoch {
+		t.Fatalf("crash boundary did not persist epoch: got=%d want=%d", epochAfterCrash, recoveryAuth.ToEpoch)
+	}
+	dirtyAfterCrash, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanAfterCrash, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirtyAfterCrash != recoveryAuth.ExpectedDirty || cleanAfterCrash != cleanBeforeCrash || dirtyAfterCrash <= cleanAfterCrash {
+		t.Fatalf(
+			"crash boundary did not remain fail-closed: dirty=%d clean=%d expected_dirty=%d clean_before=%d",
+			dirtyAfterCrash,
+			cleanAfterCrash,
+			recoveryAuth.ExpectedDirty,
+			cleanBeforeCrash,
+		)
+	}
+	pendingAfterCrash, err := TaintRecoveryCommitmentState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingAfterCrash != expectedCommitment {
+		t.Fatal("crash boundary lost exact in-flight recovery commitment")
+	}
+
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move workload into protected cgroup after recovery crash: %v", err)
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("recovery crash reopened egress before CLEAN commit: %v", err)
+	}
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("move recovery controller back outside protected cgroup: %v", err)
+	}
+
+	// A separately signed authorization with identical numeric state is not an
+	// in-flight resume. Only the exact pinned commitment may finish the transition.
+	otherAuth := recoveryAuth
+	otherAuth.AuthorizationID = "different-authority-at-same-recovery-state"
+	signedOther, err := SignTaintRecoveryAuthorization(otherAuth, recoveryPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            bpffsRoot,
+		Plan:                 recoveryPlan,
+		SignedAuthorization:  signedOther,
+		RecoveryAuthorityKey: recoveryPublic,
+		Now:                  now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
+		t.Fatalf("different authorization resumed crashed recovery: %v", err)
+	}
+	pendingAfterWrongResume, err := TaintRecoveryCommitmentState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingAfterWrongResume != expectedCommitment {
+		t.Fatal("rejected recovery authorization mutated in-flight commitment")
+	}
+
 	recovered, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
@@ -621,7 +728,15 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Now:                  now,
 	})
 	if err != nil {
-		t.Fatalf("recover source continuity from fresh evidence: %v", err)
+		t.Fatalf("resume exact in-flight recovery after controller crash: %v", err)
+	}
+	var emptyCommitment [32]byte
+	pendingAfterRecovery, err := TaintRecoveryCommitmentState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingAfterRecovery != emptyCommitment {
+		t.Fatal("successful recovery left an in-flight commitment behind")
 	}
 	if recovered.PreviousEpoch != 1 ||
 		recovered.EnrollmentEpoch != 2 ||
@@ -723,7 +838,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err == nil {
 		t.Fatal("stale epoch-1 recovery authorization was replayed after epoch-2 invalidation")
 	}
-	if !strings.Contains(err.Error(), "epoch mismatch") {
+	if !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("stale recovery replay failed for an unexpected reason: %v", err)
 	}
 	dirtyAfterReplay, err := TaintSourceIdentityDirtyState(bpffsRoot)
@@ -756,7 +871,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 
 	t.Logf(
-		"watermark recovery advanced epoch and stale replay failed closed: first_dirty=%d clean=%d recovered_epoch=%d second_dirty=%d replay_epoch=%d",
+		"recovery crash resumed exact commitment and stale replay failed closed: first_dirty=%d clean=%d recovered_epoch=%d second_dirty=%d replay_epoch=%d",
 		dirtyAfterRecovery,
 		cleanAfterRecovery,
 		epochAfterRecovery,
