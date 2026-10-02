@@ -47,7 +47,7 @@ lifecycle, scheduler, policy engine, identity service or credential.
 
 ## Experimental execution-origin hardening
 
-`CheckOrigin` is an additive, non-normative hardening relation. It does **not**
+`CheckOrigin` and `CheckApprovalUse` are additive, non-normative hardening relations. They do **not**
 change the frozen K01-K05 oracle.
 
 It binds an admitted execution origin to the current origin by exact:
@@ -68,9 +68,15 @@ Caller-provided labels, self-reported digests or a matching artifact hash alone
 are not authority.
 
 The machine-readable Muse-class adversarial corpus lives at
-`testdata/muse-class/corpus-v0.json`. Only M00/M04/M05 are newly executable
-through this origin check; planned cases are deliberately not credited as
-implemented controls.
+`testdata/muse-class/corpus-v0.json`. M00/M04/M05 are executable through
+`CheckOrigin`; M06/M07 are executable through `CheckApprovalUse`. Planned
+cases are deliberately not credited as implemented controls.
+
+`CheckApprovalUse` consumes an already-authenticated approval reference and
+binds it to exact action revision, effect identity, target, scope, nonce, effect
+limit and expiry. Replay protection is only as strong as the adapter's durable
+use accounting and native transaction/CAS/fencing; this package does not create
+a universal approval store.
 
 See
 [ Muse-class adversarial hardening v0 ](../docs/governed-action/muse-class-adversarial-v0.md).
