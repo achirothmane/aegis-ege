@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -22,8 +24,13 @@ import (
 )
 
 const (
-	taintInodeReuseHelperEnv = "AEGIS_TAINT_INODE_REUSE_HELPER"
-	taintRestartObserverEnv  = "AEGIS_TAINT_RESTART_OBSERVER"
+	taintInodeReuseHelperEnv    = "AEGIS_TAINT_INODE_REUSE_HELPER"
+	taintRestartObserverEnv     = "AEGIS_TAINT_RESTART_OBSERVER"
+	taintRecoveryCrashHelperEnv = "AEGIS_TAINT_RECOVERY_CRASH_HELPER"
+	taintRecoveryPlanEnv        = "AEGIS_TAINT_RECOVERY_PLAN"
+	taintRecoveryAuthEnv        = "AEGIS_TAINT_RECOVERY_AUTH"
+	taintRecoveryKeyEnv         = "AEGIS_TAINT_RECOVERY_KEY"
+	taintRecoveryNowEnv         = "AEGIS_TAINT_RECOVERY_NOW"
 )
 
 func TestTaintRestartObserver(t *testing.T) {
@@ -53,6 +60,51 @@ func TestTaintRestartObserver(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("fresh process recovered pinned fail-closed state: cgroup=%d dirty=%d", cgroupID, dirty)
+}
+
+func TestTaintRecoveryCrashHelper(t *testing.T) {
+	if os.Getenv(taintRecoveryCrashHelperEnv) != "1" {
+		return
+	}
+
+	plan, err := LoadTaintActivationPlan(os.Getenv(taintRecoveryPlanEnv))
+	if err != nil {
+		t.Fatalf("load crash recovery plan: %v", err)
+	}
+	payload, err := os.ReadFile(os.Getenv(taintRecoveryAuthEnv))
+	if err != nil {
+		t.Fatalf("read crash recovery authorization: %v", err)
+	}
+	var signed SignedTaintRecoveryAuthorization
+	if err := json.Unmarshal(payload, &signed); err != nil {
+		t.Fatalf("decode crash recovery authorization: %v", err)
+	}
+	keyBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryKeyEnv))
+	if err != nil {
+		t.Fatalf("decode crash recovery key: %v", err)
+	}
+	if len(keyBytes) != ed25519.PublicKeySize {
+		t.Fatalf("crash recovery key size=%d want=%d", len(keyBytes), ed25519.PublicKeySize)
+	}
+	now, err := time.Parse(time.RFC3339Nano, os.Getenv(taintRecoveryNowEnv))
+	if err != nil {
+		t.Fatalf("parse crash recovery time: %v", err)
+	}
+
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            os.Getenv(taintNativeHelperBPFFSRoot),
+		Plan:                 plan,
+		SignedAuthorization:  signed,
+		RecoveryAuthorityKey: ed25519.PublicKey(keyBytes),
+		Now:                  now,
+		afterEpochCommit: func() {
+			os.Exit(86)
+		},
+	})
+	if err != nil {
+		t.Fatalf("recovery failed before crash boundary: %v", err)
+	}
+	t.Fatal("recovery returned past crash boundary")
 }
 
 func TestTaintInodeReuseHelper(t *testing.T) {
