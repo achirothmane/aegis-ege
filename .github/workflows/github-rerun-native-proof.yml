@@ -1,0 +1,126 @@
+name: GitHub Native Rerun Kernel Proof
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  native-rerun-proof:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'proof/github-native-rerun-kernel')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Wait for sacrificial first attempt to fail
+        shell: bash
+        run: |
+          set -euo pipefail
+          victim_id=""
+          for _ in $(seq 1 90); do
+            victim_id="$(
+              gh api "/repos/$GITHUB_REPOSITORY/actions/runs?event=$GITHUB_EVENT_NAME&head_sha=$GITHUB_SHA&per_page=100"                 --jq '.workflow_runs[] | select(.name == "GitHub Rerun Native Victim" and .run_attempt == 1 and .status == "completed" and .conclusion == "failure") | .id'                 | head -n 1
+            )"
+            if [ -n "$victim_id" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$victim_id" ]; then
+            echo "no completed failing victim run found for sha=$GITHUB_SHA" >&2
+            exit 1
+          fi
+          echo "VICTIM_RUN_ID=$victim_id" >> "$GITHUB_ENV"
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$victim_id" > "$RUNNER_TEMP/github-run-before.json"
+          jq '{id,head_sha,status,conclusion,run_attempt}' "$RUNNER_TEMP/github-run-before.json"
+
+      - name: Admit exact state and retain effect custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          until="$(date -u -d '+10 minutes' '+%Y-%m-%dT%H:%M:%SZ')"
+          go run ./cmd/github-rerun-proof prepare             --repo "$GITHUB_REPOSITORY"             --snapshot "$RUNNER_TEMP/github-run-before.json"             --expected-head "$GITHUB_SHA"             --initial-attempt 1             --authority-until "$until"             --custody "$RUNNER_TEMP/github-rerun-custody.json"
+
+      - name: Revalidate at the native effect boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$VICTIM_RUN_ID" > "$RUNNER_TEMP/github-run-boundary.json"
+          go run ./cmd/github-rerun-proof boundary             --custody "$RUNNER_TEMP/github-rerun-custody.json"             --snapshot "$RUNNER_TEMP/github-run-boundary.json"             --boundary-out "$RUNNER_TEMP/github-rerun-boundary.json"
+
+      - name: Dispatch exactly once then lose executor process
+        shell: bash
+        run: |
+          set -uo pipefail
+          test -s "$RUNNER_TEMP/github-rerun-boundary.json"
+          set +e
+          (
+            gh api --method POST "/repos/$GITHUB_REPOSITORY/actions/runs/$VICTIM_RUN_ID/rerun-failed-jobs" >/dev/null
+            api_rc=$?
+            if [ "$api_rc" -ne 0 ]; then
+              exit "$api_rc"
+            fi
+            exit 93
+          )
+          rc=$?
+          set -e
+          if [ "$rc" -ne 93 ]; then
+            echo "effect executor did not reach the injected post-dispatch process loss: rc=$rc" >&2
+            exit 1
+          fi
+          echo "effect executor exited after the one native dispatch; no result was persisted"
+
+      - name: New executor observes without replaying
+        shell: bash
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 120); do
+            gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$VICTIM_RUN_ID" > "$RUNNER_TEMP/github-run-after.json"
+            attempt="$(jq -r '.run_attempt' "$RUNNER_TEMP/github-run-after.json")"
+            status="$(jq -r '.status' "$RUNNER_TEMP/github-run-after.json")"
+            if [ "$attempt" -gt 2 ]; then
+              echo "duplicate rerun observed: run_attempt=$attempt" >&2
+              exit 1
+            fi
+            if [ "$attempt" -eq 2 ] && [ "$status" = "completed" ]; then
+              break
+            fi
+            sleep 2
+          done
+          jq '{id,head_sha,status,conclusion,run_attempt}' "$RUNNER_TEMP/github-run-after.json"
+          test "$(jq -r '.run_attempt' "$RUNNER_TEMP/github-run-after.json")" -eq 2
+          test "$(jq -r '.status' "$RUNNER_TEMP/github-run-after.json")" = "completed"
+
+      - name: Reconcile same effect to CLOSED or UNKNOWN
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/github-rerun-proof reconcile             --custody "$RUNNER_TEMP/github-rerun-custody.json"             --boundary "$RUNNER_TEMP/github-rerun-boundary.json"             --observation "$RUNNER_TEMP/github-run-after.json"             --evidence-out "$RUNNER_TEMP/github-rerun-native-evidence.json"
+
+      - name: Run unchanged K07 evaluator against native evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_RERUN_NATIVE_EVIDENCE="$RUNNER_TEMP/github-rerun-native-evidence.json"             go test ./internal/governedactionnormative               -run '^TestGitHubRerunNativeEvidenceUsesUnchangedK07Evaluator$'               -count=1 -v
+
+      - name: Preserve proof evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-native-rerun-proof-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/github-run-before.json
+            ${{ runner.temp }}/github-run-boundary.json
+            ${{ runner.temp }}/github-rerun-custody.json
+            ${{ runner.temp }}/github-rerun-boundary.json
+            ${{ runner.temp }}/github-run-after.json
+            ${{ runner.temp }}/github-rerun-native-evidence.json
