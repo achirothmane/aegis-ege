@@ -292,7 +292,7 @@
       "id": "M15",
       "name": "compromised agent attempts to disable its guard",
       "class": "enforcement-separation",
-      "coverage": "PARTIAL_EXISTING",
+      "coverage": "NATIVE_EXECUTABLE",
       "gate": "enforcement",
       "expect": "ACTOR_CANNOT_DISABLE_ENFORCER"
     }
