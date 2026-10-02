@@ -34,8 +34,8 @@ evidence.
 
 ## v1 corpus
 
-The corpus currently contains ten reference mappings sourced from nine
-closed public issues across six external repositories:
+The corpus currently contains eleven reference mappings sourced from ten
+closed public issues across seven external repositories:
 
 - OpenMeter: migration-baseline completeness and concurrent billing-result
   attribution;
@@ -46,6 +46,8 @@ closed public issues across six external repositories:
   controller object would otherwise regenerate and overwrite an existing credential;
 - Argo Workflows: stale workflow reconciliation after completion, where an older
   resourceVersion could otherwise recreate a pod for an already-finished execution;
+- Terraform AWS Provider: an external AWS effect created successfully but lost from
+  Terraform state, so re-apply could create another orphaned effect;
 - Tortoise #3442: two deliberately separated facets from one investigation:
   a **positive execution-boundary case** where the failed job acquired no runner
   and executed zero steps, and a **negative selection-integrity case** where a
@@ -164,6 +166,32 @@ The unchanged frozen evaluator must therefore return `REJECT_BEFORE_EFFECT`
 when `relevant_state_current=false`. The fixed counterpart remains a useful
 `ALLOW_BOUND_EFFECT` path when current state is bound and an effect is actually
 required.
+
+## Reference case — Terraform AWS Provider #49231 / PR #49250
+
+`aws_bedrockagentcore_memory_strategy` could call AWS successfully and create a
+strategy, then fail locally while asserting a single result from the unfiltered
+strategy list. Terraform therefore returned an error after the real external
+effect had already occurred.
+
+The consequence is exactly the dangerous boundary D03-A wants to pressure:
+the new strategy remained active in AWS but was absent from Terraform state.
+A subsequent apply did not reconcile the first effect; it created another
+strategy and failed again, accumulating orphaned external state.
+
+D03-A maps the historical trace to `EffectIdentity` / `ExecutionAttempt` /
+`ClosureObligation`: after a possible prior effect exists, a second create is
+not a safe retry merely because the local state write failed.
+
+The unchanged frozen evaluator must therefore return `REJECT_SECOND_EFFECT`
+when `possible_effect_exists=true`, substitution is requested, and no safe
+substitution/idempotency proof exists.
+
+PR #49250 merged as
+`079f694ee03602059af6e534d3b14297907ad639`. It filters the returned
+strategy set before asserting a single result, allowing the successful external
+effect to be identified and recorded instead of being misclassified as a failed
+creation. The fixed counterpart remains a useful `ALLOW_BOUND_EFFECT` path.
 
 ## Reference case — Tortoise #3442 / PR #5474
 
