@@ -47,7 +47,7 @@ lifecycle, scheduler, policy engine, identity service or credential.
 
 ## Experimental execution-origin hardening
 
-`CheckOrigin` and `CheckApprovalUse` are additive, non-normative hardening relations. They do **not**
+`CheckOrigin`, `CheckApprovalUse`, and `CheckCredentialUse` are additive, non-normative hardening relations. They do **not**
 change the frozen K01-K05 oracle.
 
 It binds an admitted execution origin to the current origin by exact:
@@ -69,14 +69,24 @@ are not authority.
 
 The machine-readable Muse-class adversarial corpus lives at
 `testdata/muse-class/corpus-v0.json`. M00/M04/M05 are executable through
-`CheckOrigin`; M06/M07 are executable through `CheckApprovalUse`. Planned
-cases are deliberately not credited as implemented controls.
+`CheckOrigin`; M06/M07 through `CheckApprovalUse`; M08/M09 through
+`CheckCredentialUse` plus broker tests. Planned cases are deliberately not
+credited as implemented controls.
 
 `CheckApprovalUse` consumes an already-authenticated approval reference and
 binds it to exact action revision, effect identity, target, scope, nonce, effect
 limit and expiry. Replay protection is only as strong as the adapter's durable
 use accounting and native transaction/CAS/fencing; this package does not create
 a universal approval store.
+
+`CheckCredentialUse` binds an opaque credential handle to exact action revision,
+effect identity, audience, destination, scope, trust epoch and expiry. Raw
+credential bytes are deliberately absent. The synthetic HTTP broker experiment
+lives in `internal/secretbroker`: it resolves the handle in trusted bootstrap
+state, checks the binding, injects a bearer credential at the outbound boundary,
+rejects caller credential headers, and refuses to follow redirects with the
+injected credential. This proves interface behavior, not cross-process secret
+isolation.
 
 See
 [ Muse-class adversarial hardening v0 ](../docs/governed-action/muse-class-adversarial-v0.md).
