@@ -20,10 +20,11 @@ type TaintRecoveryRequest struct {
 	RecoveryAuthorityKey ed25519.PublicKey
 	Now                  time.Time
 
-	// afterEpochCommit is an internal crash-boundary test hook. External callers
-	// cannot set it. Native tests use os.Exit here so deferred rollback does not
-	// run, matching a real controller death after the epoch commit.
+	// Crash-boundary hooks are internal to native falsification. External callers
+	// cannot set them. Tests use os.Exit so deferred rollback does not run,
+	// matching a real controller death at the selected commit boundary.
 	afterEpochCommit func()
+	afterCleanCommit func()
 }
 
 type TaintRecoveryResult struct {
@@ -285,6 +286,9 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	admitted := auth.ExpectedDirty
 	if err := cleanMap.Update(&zeroKey, &admitted, ebpf.UpdateAny); err != nil {
 		return TaintRecoveryResult{}, fmt.Errorf("advance taint source continuity watermark: %w", err)
+	}
+	if req.afterCleanCommit != nil {
+		req.afterCleanCommit()
 	}
 
 	rollbackSources = false
