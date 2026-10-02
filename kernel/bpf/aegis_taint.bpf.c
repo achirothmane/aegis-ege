@@ -286,6 +286,8 @@ int aegis_fperm(__u64 *ctx)
 		__u64 *probe_token = bpf_map_lookup_elem(&aegis_tprobe, &tid);
 		if (probe_token && (mask & AEGIS_TAINT_MAY_READ))
 			return -13;
+		if (!protected_cgroup(cgroup_id))
+			return 0;
 		mark_failure(cgroup_id);
 		struct taint_emit_input failed = {
 			.cgroup_id = cgroup_id,
