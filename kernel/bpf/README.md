@@ -130,19 +130,46 @@ zero-valued uncertainty entry and denies when the counter is non-zero.
 
 ### Claim boundary
 
-CI now compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf`
-and the Go side mirrors/decodes its fixed ABI. This proves source-level build and
-ABI compatibility only.
+CI compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf` and
+the Go side mirrors/decodes its fixed ABI.
+
+The repository now also contains a signed two-phase install path:
+
+```text
+aegis-taint-bpf-sign
+  -> exact signed taint manifest
+
+aegis-taint-bpf-loader
+  -> verify signature + digest + exact ELF surface
+  -> load and attach all four hooks
+  -> pin programs/maps/links
+  -> signed local bootstrap receipt
+  -> cgroup still NOT protected
+
+aegis-taint-plan
+  -> resolve regular-file device/inode identities without following symlinks
+  -> emit explicit source-label/allow-mask plan
+
+aegis-taint-activate
+  -> verify signed bootstrap receipt + current boot + pinned links
+  -> initialize source labels / allow-mask / uncertainty counter
+  -> set protected-cgroup flag LAST
+```
+
+This improves crash safety: a partial install is inert for the target cgroup.
+Activation has one explicit final effect boundary, and its state can be observed
+after a lost reply via the protected-cgroup map.
 
 It does **not** yet prove:
 
-- that the target Linux kernel enables BPF LSM and accepts the programs;
-- that the signed loader attaches and pins all four programs atomically;
+- that a real target Linux kernel enables BPF LSM and accepts all four programs;
+- a privileged native end-to-end file-read/fork/file/connect attack schedule;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
 - safe lifetime cleanup for TGID/inode reuse without weakening fail-closed
   behavior.
 
-Until a signed native attach test exists, M01-M03 remain kernel-artifact
-candidates plus executable semantic tests, not production Linux taint claims.
+Until the privileged native attach-and-attack test passes, M01-M03 remain
+kernel-artifact + signed-install candidates and executable semantic tests, not
+production Linux taint claims.
