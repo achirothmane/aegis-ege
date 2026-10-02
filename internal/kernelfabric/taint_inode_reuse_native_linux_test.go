@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 )
 
@@ -888,6 +889,26 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		secondDirty,
 		epochAfterReplay,
 	)
+}
+
+func nativeTaintSourceSnapshot(t *testing.T, bpffsRoot string) map[TaintFileKey]uint64 {
+	t.Helper()
+	m, err := openExactTaintMap(
+		filepath.Join(bpffsRoot, "maps", "aegis_tsrc"),
+		ebpf.Hash,
+		16,
+		8,
+		32768,
+	)
+	if err != nil {
+		t.Fatalf("open taint source map for snapshot: %v", err)
+	}
+	defer m.Close()
+	snapshot, err := snapshotTaintSourceMap(m)
+	if err != nil {
+		t.Fatalf("snapshot taint source map: %v", err)
+	}
+	return snapshot
 }
 
 func attachNativeLoopDevice(t *testing.T, imagePath string) (string, func()) {
