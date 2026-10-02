@@ -41,9 +41,14 @@ func main() {
 		fatalf("parse -allowed-labels: %v", err)
 	}
 
+	mountNamespaceID, err := kernelfabric.ResolveCurrentMountNamespaceID()
+	if err != nil {
+		fatalf("resolve current mount namespace: %v", err)
+	}
 	plan := kernelfabric.TaintActivationPlan{
-		CgroupPath:    *cgroupPath,
-		AllowedLabels: allowedMask,
+		CgroupPath:       *cgroupPath,
+		MountNamespaceID: mountNamespaceID,
+		AllowedLabels:    allowedMask,
 	}
 	sourceBindings := make(map[kernelfabric.TaintFileKey]kernelfabric.TaintSourceBinding)
 	for _, raw := range sources {
@@ -106,6 +111,7 @@ func main() {
 
 	fmt.Printf("taint activation plan written to %s\n", *output)
 	fmt.Printf("plan digest: %s\n", digest)
+	fmt.Printf("mount namespace: %d\n", plan.MountNamespaceID)
 	fmt.Printf("sources: %d\n", len(plan.Sources))
 }
 
