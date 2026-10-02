@@ -10,10 +10,9 @@ import (
 	"github.com/achirothmane/aegis-ege/governedaction"
 )
 
-// nativeShipmentBoundary models the adapter-owned durable destination fence:
-// EffectIdentity is unique at the destination. The mutex stands for the
-// destination transaction/CAS critical section, not process-local admission.
-// The mutation count is the externally durable shipment effect.
+// nativeShipmentBoundary is only a process-local concurrency sanity fixture.
+// It must never be cited as durable/native R01 evidence. The PostgreSQL
+// subprocess experiment owns the actual R01-04 proof.
 type nativeShipmentBoundary struct {
 	mu      sync.Mutex
 	effects map[string]struct{}
@@ -31,7 +30,7 @@ func (b *nativeShipmentBoundary) create(effectID string) bool {
 	return true
 }
 
-func TestR01DuplicateCallbacksInsideValidAuthorityProduceOneNativeEffect(t *testing.T) {
+func TestR01DuplicateCallbacksProcessLocalSanityOnly(t *testing.T) {
 	const effectID = "effect:r01:e3"
 	boundary := &nativeShipmentBoundary{effects: map[string]struct{}{}}
 	validUntil := time.Now().Add(time.Minute)
