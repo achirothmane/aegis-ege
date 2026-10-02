@@ -132,38 +132,51 @@ func (l TaintBootstrapLoader) LoadAndAttach(
 	attached := make(map[string]link.Link, len(taintBootstrapPrograms))
 	closeAttached := func() {
 		for _, attachedLink := range attached {
-			_ = attachedLink.Close()
+			if attachedLink != nil {
+				_ = attachedLink.Close()
+			}
 		}
 	}
 	defer closeAttached()
 
-	if attached["aegis_fperm"], err = link.AttachLSM(link.LSMOptions{
+	lsmLink, err := link.AttachLSM(link.LSMOptions{
 		Program: collection.Programs["aegis_fperm"],
-	}); err != nil {
+	})
+	if err != nil {
 		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint BPF LSM file_permission: %w", err)
 	}
-	if attached["aegis_fork"], err = link.Tracepoint(
+	attached["aegis_fperm"] = lsmLink
+
+	forkLink, err := link.Tracepoint(
 		"sched",
 		"sched_process_fork",
 		collection.Programs["aegis_fork"],
 		nil,
-	); err != nil {
+	)
+	if err != nil {
 		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint fork tracepoint: %w", err)
 	}
-	if attached["aegis_tconn4"], err = link.AttachCgroup(link.CgroupOptions{
+	attached["aegis_fork"] = forkLink
+
+	connect4Link, err := link.AttachCgroup(link.CgroupOptions{
 		Path:    cgroupPath,
 		Attach:  ebpf.AttachCGroupInet4Connect,
 		Program: collection.Programs["aegis_tconn4"],
-	}); err != nil {
+	})
+	if err != nil {
 		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint IPv4 connect guard: %w", err)
 	}
-	if attached["aegis_tconn6"], err = link.AttachCgroup(link.CgroupOptions{
+	attached["aegis_tconn4"] = connect4Link
+
+	connect6Link, err := link.AttachCgroup(link.CgroupOptions{
 		Path:    cgroupPath,
 		Attach:  ebpf.AttachCGroupInet6Connect,
 		Program: collection.Programs["aegis_tconn6"],
-	}); err != nil {
+	})
+	if err != nil {
 		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint IPv6 connect guard: %w", err)
 	}
+	attached["aegis_tconn6"] = connect6Link
 
 	var pinned []string
 	cleanupPins := func() {
