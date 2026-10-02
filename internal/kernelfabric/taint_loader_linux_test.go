@@ -130,6 +130,13 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				ValueSize:  8,
 				MaxEntries: 1,
 			},
+			"aegis_tclean": {
+				Name:       "aegis_tclean",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  8,
+				MaxEntries: 1,
+			},
 			"aegis_tarmed": {
 				Name:       "aegis_tarmed",
 				Type:       ebpf.Array,
