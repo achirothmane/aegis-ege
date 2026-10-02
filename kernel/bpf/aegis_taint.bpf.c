@@ -18,6 +18,7 @@ struct super_block {
 struct inode {
 	struct super_block *i_sb;
 	unsigned long i_ino;
+	__u16 i_mode;
 } __attribute__((preserve_access_index));
 
 struct file {
@@ -304,6 +305,22 @@ static __always_inline void invalidate_source_topology(void)
 	invalidate_source_continuity(0, 0, 0);
 }
 
+static __always_inline int dentry_is_directory(struct dentry *dentry)
+{
+	if (!dentry)
+		return 0;
+
+	struct inode *inode = 0;
+	if (BPF_CORE_READ_INTO(&inode, dentry, d_inode) || !inode)
+		return 0;
+
+	__u16 mode = 0;
+	if (BPF_CORE_READ_INTO(&mode, inode, i_mode))
+		return 0;
+
+	return (mode & 0170000) == 0040000;
+}
+
 static __always_inline int union_process_taint(
 	__u64 cgroup_id,
 	__u32 tgid,
@@ -496,6 +513,13 @@ int aegis_trename(__u64 *ctx)
 	key.inode = 0;
 	if (!file_key_from_dentry(new_dentry, &key))
 		invalidate_source_identity(&key);
+
+	// A registered source path can be substituted without mutating the source
+	// inode itself by moving one of its ancestor directories and replacing that
+	// directory name. Once source lifetime is armed, any directory rename makes
+	// the path-resolution topology no longer provable and therefore fails closed.
+	if (dentry_is_directory(old_dentry) || dentry_is_directory(new_dentry))
+		invalidate_source_topology();
 
 	return 0;
 }
