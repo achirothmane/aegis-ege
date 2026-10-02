@@ -94,12 +94,15 @@ For the trust model, TOCTOU staging, post-load verification, partial-attach roll
 M01-M03 hardening work. It does **not** replace the signed network DecisionCapsule
 adapter and it is not yet part of the production bootstrap manifest.
 
-The artifact compiles four programs:
+The artifact compiles six programs:
 
 - `lsm/file_permission` — observes configured sensitive-source reads and
   propagates taint through file reads/writes;
 - `raw_tracepoint/sched_process_fork` — propagates the parent's process taint
   to a child process;
+- `lsm/inode_rename`;
+- `lsm/inode_unlink` — invalidate source-identity continuity when a registered
+  source inode participates in rename/replacement or unlink;
 - `cgroup/connect4`;
 - `cgroup/connect6` — fail closed when a protected cgroup has propagation
   uncertainty or when the current process carries labels not admitted by that
@@ -120,6 +123,7 @@ aegis_tprobe_r   kernel-observed (TID, device, inode) -> probe token
 aegis_tcgroups  protected cgroup IDs
 aegis_tallow    admitted egress label mask per cgroup
 aegis_tfail     propagation uncertainty count per cgroup
+aegis_tdirty    global source-identity invalidation counter
 aegis_tevents   ring-buffer evidence stream
 aegis_tacct     stream loss accounting
 ```
@@ -133,7 +137,9 @@ zero-valued uncertainty entry and denies when the counter is non-zero.
 ### Claim boundary
 
 CI compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf` and
-the Go side mirrors/decodes its fixed ABI.
+the Go side mirrors/decodes its fixed ABI. Protected egress now also requires
+`aegis_tdirty == 0`; any registered-source rename/replacement or unlink moves
+source identity continuity to fail-closed DIRTY.
 
 The repository now also contains a signed two-phase install path:
 
@@ -143,7 +149,7 @@ aegis-taint-bpf-sign
 
 aegis-taint-bpf-loader
   -> verify signature + digest + exact ELF surface
-  -> load and attach all four hooks
+  -> load and attach all six hooks
   -> pin programs/maps/links
   -> signed local bootstrap receipt
   -> cgroup still NOT protected
@@ -174,10 +180,16 @@ read/fork/file/connect enforcement end-to-end. In the proof run, userspace
 and underlying identity; both were enrolled and the later read tainted the
 process.
 
+The same native fixture then atomically replaced the enrolled merged-path source
+after activation. Its userspace identity changed from device 38/inode 6 to
+device 38/inode 11. The `inode_rename` hook observed the registered target
+identity, incremented `aegis_tdirty` to 1, and a clean child remained unable to
+egress even though the replacement inode itself was not enrolled.
+
 It does **not** yet prove:
 
-- that every Linux stacked-filesystem implementation exposes stable identities
-  under all rename/copy-up/replacement schedules;
+- source continuity across every copy-up, live remount, inode-reuse, or
+  pre-activation mutation schedule;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
@@ -187,4 +199,6 @@ It does **not** yet prove:
 The native result earns a bounded claim: a regular sensitive source can be
 registered from the identities the loaded LSM actually observes, including a
 tested OverlayFS merged-path read, without activating the target cgroup first.
+After activation, atomic replacement/unlink-style identity invalidation is
+fail-closed rather than silently treating the new inode as clean.
 Production-complete Linux taint containment remains outside this claim.
