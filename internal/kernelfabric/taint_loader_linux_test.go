@@ -20,6 +20,16 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				Name: "aegis_fork",
 				Type: ebpf.RawTracepoint,
 			},
+			"aegis_trename": {
+				Name:       "aegis_trename",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
+			"aegis_tunlink": {
+				Name:       "aegis_tunlink",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
 			"aegis_tconn4": {
 				Name:       "aegis_tconn4",
 				Type:       ebpf.CGroupSockAddr,
@@ -87,6 +97,13 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				KeySize:    8,
 				ValueSize:  8,
 				MaxEntries: 4096,
+			},
+			"aegis_tdirty": {
+				Name:       "aegis_tdirty",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  8,
+				MaxEntries: 1,
 			},
 			"aegis_tevents": {
 				Name:       "aegis_tevents",
