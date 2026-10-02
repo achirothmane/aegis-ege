@@ -222,9 +222,14 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("read configured sensitive source: %v", err)
 	}
 	if err := assertNativeProcessTaint(bpffsRoot, uint32(os.Getpid()), 1); err != nil {
-		diagnostic := diagnoseNativeReadKey(reader, activated.CgroupID, uint32(os.Getpid()))
+		diagnostic := diagnoseNativeReadKeys(
+			reader,
+			activated.CgroupID,
+			uint32(os.Getpid()),
+			sourceKey,
+		)
 		t.Fatalf(
-			"sensitive read did not produce process taint: %v; kernel read observation: %s; configured source: device=%d inode=%d",
+			"sensitive read did not produce process taint: %v; kernel read observations: %s; configured source: device=%d inode=%d",
 			err,
 			diagnostic,
 			sourceKey.Device,
@@ -466,27 +471,43 @@ func assertNativeFileTaint(bpffsRoot string, key TaintFileKey, want uint64) erro
 	return nil
 }
 
-func diagnoseNativeReadKey(
+func diagnoseNativeReadKeys(
 	reader *TaintEvidenceReader,
 	cgroupID uint64,
 	tgid uint32,
+	source TaintFileKey,
 ) string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	for {
+
+	observations := make([]string, 0, 8)
+	for len(observations) < 32 {
 		event, _, err := reader.ReadContext(ctx)
 		if err != nil {
-			return "unavailable: " + err.Error()
+			if len(observations) == 0 {
+				return "unavailable: " + err.Error()
+			}
+			break
 		}
-		if event.CgroupID == cgroupID &&
-			event.TGID == tgid &&
-			event.EventType == TaintEventFileReadObserved {
-			return fmt.Sprintf(
-				"device=%d inode=%d labels=%#x",
-				event.FileDevice,
-				event.FileInode,
-				event.Labels,
-			)
+		if event.CgroupID != cgroupID ||
+			event.TGID != tgid ||
+			event.EventType != TaintEventFileReadObserved {
+			continue
+		}
+		match := event.FileDevice == source.Device && event.FileInode == source.Inode
+		observations = append(observations, fmt.Sprintf(
+			"device=%d inode=%d labels=%#x source_match=%t",
+			event.FileDevice,
+			event.FileInode,
+			event.Labels,
+			match,
+		))
+		if match {
+			break
 		}
 	}
+	if len(observations) == 0 {
+		return "none"
+	}
+	return strings.Join(observations, "; ")
 }
