@@ -9,6 +9,7 @@
 #define AEGIS_TAINT_OP_WRITE 2
 #define AEGIS_TAINT_OP_FORK 3
 #define AEGIS_TAINT_OP_CONNECT 4
+#define AEGIS_TAINT_OP_IDENTITY_CHANGE 5
 
 #define AEGIS_TAINT_EVENT_SOURCE_READ 1
 #define AEGIS_TAINT_EVENT_PROPAGATED_READ 2
@@ -18,11 +19,19 @@
 #define AEGIS_TAINT_EVENT_EGRESS_ALLOW 6
 #define AEGIS_TAINT_EVENT_EGRESS_DENY 7
 #define AEGIS_TAINT_EVENT_FILE_READ_OBSERVED 8
+#define AEGIS_TAINT_EVENT_SOURCE_INVALIDATED 9
 
 #define AEGIS_TAINT_MAY_WRITE 2
 #define AEGIS_TAINT_MAY_READ 4
 
 struct aegis_taint_file_key {
+	__u64 device;
+	__u64 inode;
+};
+
+struct aegis_taint_probe_key {
+	__u32 tid;
+	__u32 reserved;
 	__u64 device;
 	__u64 inode;
 };
@@ -49,6 +58,7 @@ struct aegis_taint_accounting {
 };
 
 _Static_assert(sizeof(struct aegis_taint_file_key) == 16, "aegis_taint_file_key ABI drift");
+_Static_assert(sizeof(struct aegis_taint_probe_key) == 24, "aegis_taint_probe_key ABI drift");
 _Static_assert(sizeof(struct aegis_taint_event) == 72, "aegis_taint_event ABI drift");
 _Static_assert(sizeof(struct aegis_taint_accounting) == 24, "aegis_taint_accounting ABI drift");
 

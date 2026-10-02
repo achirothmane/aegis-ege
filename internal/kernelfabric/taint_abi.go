@@ -12,10 +12,11 @@ import (
 const (
 	TaintABIVersion uint32 = 1
 
-	TaintOperationRead    uint32 = 1
-	TaintOperationWrite   uint32 = 2
-	TaintOperationFork    uint32 = 3
-	TaintOperationConnect uint32 = 4
+	TaintOperationRead           uint32 = 1
+	TaintOperationWrite          uint32 = 2
+	TaintOperationFork           uint32 = 3
+	TaintOperationConnect        uint32 = 4
+	TaintOperationIdentityChange uint32 = 5
 
 	TaintEventSourceRead         uint32 = 1
 	TaintEventPropagatedRead     uint32 = 2
@@ -25,8 +26,10 @@ const (
 	TaintEventEgressAllow        uint32 = 6
 	TaintEventEgressDeny         uint32 = 7
 	TaintEventFileReadObserved   uint32 = 8
+	TaintEventSourceInvalidated  uint32 = 9
 
 	TaintFileKeySize    = 16
+	TaintProbeKeySize   = 24
 	TaintEventSize      = 72
 	TaintAccountingSize = 24
 )
@@ -40,6 +43,13 @@ var (
 type TaintFileKey struct {
 	Device uint64
 	Inode  uint64
+}
+
+type TaintProbeKey struct {
+	TID      uint32
+	Reserved uint32
+	Device   uint64
+	Inode    uint64
 }
 
 type TaintEvent struct {

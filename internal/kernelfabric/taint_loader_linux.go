@@ -147,6 +147,22 @@ func (l TaintBootstrapLoader) LoadAndAttach(
 	}
 	attached["aegis_fperm"] = lsmLink
 
+	renameLink, err := link.AttachLSM(link.LSMOptions{
+		Program: collection.Programs["aegis_trename"],
+	})
+	if err != nil {
+		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint BPF LSM inode_rename: %w", err)
+	}
+	attached["aegis_trename"] = renameLink
+
+	unlinkLink, err := link.AttachLSM(link.LSMOptions{
+		Program: collection.Programs["aegis_tunlink"],
+	})
+	if err != nil {
+		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint BPF LSM inode_unlink: %w", err)
+	}
+	attached["aegis_tunlink"] = unlinkLink
+
 	forkLink, err := link.AttachRawTracepoint(link.RawTracepointOptions{
 		Name:    "sched_process_fork",
 		Program: collection.Programs["aegis_fork"],
@@ -270,10 +286,12 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		programType ebpf.ProgramType
 		attachType  ebpf.AttachType
 	}{
-		"aegis_fperm":  {ebpf.LSM, ebpf.AttachLSMMac},
-		"aegis_fork":   {ebpf.RawTracepoint, ebpf.AttachNone},
-		"aegis_tconn4": {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet4Connect},
-		"aegis_tconn6": {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
+		"aegis_fperm":   {ebpf.LSM, ebpf.AttachLSMMac},
+		"aegis_fork":    {ebpf.RawTracepoint, ebpf.AttachNone},
+		"aegis_trename": {ebpf.LSM, ebpf.AttachLSMMac},
+		"aegis_tunlink": {ebpf.LSM, ebpf.AttachLSMMac},
+		"aegis_tconn4":  {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet4Connect},
+		"aegis_tconn6":  {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
 	}
 	for name, expected := range expectedProgramTypes {
 		program := spec.Programs[name]
@@ -297,9 +315,12 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		"aegis_tsrc":     {ebpf.Hash, 16, 8, 32768},
 		"aegis_ftaint":   {ebpf.Hash, 16, 8, 65536},
 		"aegis_ptaint":   {ebpf.Hash, 4, 8, 65536},
+		"aegis_tprobe":   {ebpf.Hash, 4, 8, 4096},
+		"aegis_tprobe_r": {ebpf.Hash, TaintProbeKeySize, 8, 16384},
 		"aegis_tcgroups": {ebpf.Hash, 8, 4, 4096},
 		"aegis_tallow":   {ebpf.Hash, 8, 8, 4096},
 		"aegis_tfail":    {ebpf.Hash, 8, 8, 4096},
+		"aegis_tdirty":   {ebpf.Array, 4, 8, 1},
 		"aegis_tevents":  {ebpf.RingBuf, 0, 0, 1 << 20},
 		"aegis_tacct":    {ebpf.Array, 4, TaintAccountingSize, 1},
 	}
@@ -353,10 +374,12 @@ func ensureTaintPinsVacant(programDir, mapDir, linkDir string) error {
 func attestTaintPrograms(collection *ebpf.Collection) ([]PinnedProgramAttestation, error) {
 	out := make([]PinnedProgramAttestation, 0, len(taintBootstrapPrograms))
 	expectedTypes := map[string]ebpf.ProgramType{
-		"aegis_fperm":  ebpf.LSM,
-		"aegis_fork":   ebpf.RawTracepoint,
-		"aegis_tconn4": ebpf.CGroupSockAddr,
-		"aegis_tconn6": ebpf.CGroupSockAddr,
+		"aegis_fperm":   ebpf.LSM,
+		"aegis_fork":    ebpf.RawTracepoint,
+		"aegis_trename": ebpf.LSM,
+		"aegis_tunlink": ebpf.LSM,
+		"aegis_tconn4":  ebpf.CGroupSockAddr,
+		"aegis_tconn6":  ebpf.CGroupSockAddr,
 	}
 	for _, expected := range taintBootstrapPrograms {
 		program := collection.Programs[expected.Name]

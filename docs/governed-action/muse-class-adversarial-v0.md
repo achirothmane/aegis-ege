@@ -204,7 +204,7 @@ It contains:
 
 ```text
 lsm/file_permission
-tracepoint/sched/sched_process_fork
+raw_tracepoint/sched_process_fork
 cgroup/connect4
 cgroup/connect6
 ```
@@ -249,8 +249,16 @@ initialized. A crash around that final boundary can be reconciled by reading the
 protected-cgroup map.
 
 A privileged native falsification now boots a BPF selftests Linux kernel when
-the GitHub-hosted kernel lacks BPF-LSM. On a dedicated non-stacked tmpfs source
-filesystem it has shown the full in-kernel path:
+the GitHub-hosted kernel lacks BPF-LSM. Source enrollment no longer derives the
+kernel key from userspace `stat(2)` alone. Before activation, trusted userspace
+arms a random per-thread probe, performs one controlled read on the already-open
+regular-file fd, and collects every file identity observed by the LSM for that
+read. The probe is disarmed before the activation plan is installed.
+
+The native harness mounts a real OverlayFS fixture. One proof run observed the
+merged file as device 38/inode 6 in userspace while the LSM observed both
+device 37/inode 6 and device 38/inode 6. Both kernel identities were enrolled,
+and the full in-kernel path then succeeded:
 
 ```text
 sensitive file read
@@ -261,6 +269,15 @@ sensitive file read
   -> protected cgroup connect
   -> kernel DENY
 ```
+
+A second schedule then atomically replaced that enrolled OverlayFS source after
+activation. The logical path remained the same while the userspace inode changed
+from 6 to 11. New `lsm/inode_rename` / `lsm/inode_unlink` guards treat
+mutation of a registered source identity as evidence-continuity loss:
+`aegis_tdirty` becomes non-zero, and every protected connect fails closed.
+The native run observed `aegis_tdirty=1` and a clean pre-existing child could
+not egress after reading the replacement object.
+
 
 The same native harness also exercises M15 in two stages. M15a runs an
 unprivileged hostile process in the protected cgroup. M15b launches the hostile
@@ -350,22 +367,32 @@ Only the following new claims are earned by this change:
     propagation-uncertainty counter are installed before the protected-cgroup
     bit can be written;
 23. a BPF-LSM-enabled Linux test kernel has accepted the native hooks and
-    executed read -> fork/file propagation -> connect denial in-kernel on a
-    dedicated non-stacked tmpfs;
-24. a hostile unprivileged process cannot remove the pinned guard, mutate the
+    executed read -> fork/file propagation -> connect denial in-kernel;
+24. pre-activation source enrollment can bind every file identity observed by
+    the LSM for one controlled per-thread read, rather than assuming the
+    userspace stat device is the sole kernel identity;
+25. a real OverlayFS fixture has demonstrated the motivating mismatch and then
+    succeeded after both observed identities were enrolled;
+26. a hostile unprivileged process cannot remove the pinned guard, mutate the
     protected-cgroup state, escape the protected cgroup, or regain network
     egress in the native harness;
-25. `linux_isolation=user-namespace-v1` is bound into the signed workload-spec
+27. `linux_isolation=user-namespace-v1` is bound into the signed workload-spec
     digest and maps workload-root to non-root host UID/GID before executing the
     M15b hostile workload;
-26. the M15b actor cannot join the host mount namespace or disable host-side
+28. the M15b actor cannot join the host mount namespace or disable host-side
     enforcement, and the parent independently observes that activation remains
-    present after the actor exits.
+    present after the actor exits;
+29. atomic replacement of a registered OverlayFS source after activation is
+    detected by the kernel rename guard and increments source identity
+    continuity state;
+30. once source identity continuity is dirty, protected network egress fails
+    closed even for a clean process reading an unenrolled replacement inode.
 
 This change does **not** yet prove:
 
 - production Linux process/data taint observation and complete mediation;
-- reliable source-file identity registration across stacked/overlay filesystems;
+- source continuity across every copy-up, live-remount, inode-reuse and
+  pre-activation mutation schedule;
 - containment of an attacker that already controls the host initial user namespace or host root;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
@@ -400,6 +427,10 @@ Privileged native hook test on BPF-LSM-enabled kernel
 Hostile-agent harness / signed user-namespace separation
     ↓
 Stacked-filesystem source identity proof
+    ↓
+Post-activation rename / replacement invalidation
+    ↓
+Copy-up + pre-activation mutation / enrollment TOCTOU
     ↓
 Unmodelled IPC / namespace / effect-surface falsification
 ```

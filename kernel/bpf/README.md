@@ -94,12 +94,15 @@ For the trust model, TOCTOU staging, post-load verification, partial-attach roll
 M01-M03 hardening work. It does **not** replace the signed network DecisionCapsule
 adapter and it is not yet part of the production bootstrap manifest.
 
-The artifact compiles four programs:
+The artifact compiles six programs:
 
 - `lsm/file_permission` — observes configured sensitive-source reads and
   propagates taint through file reads/writes;
-- `tracepoint/sched/sched_process_fork` — propagates the parent's process taint
+- `raw_tracepoint/sched_process_fork` — propagates the parent's process taint
   to a child process;
+- `lsm/inode_rename`;
+- `lsm/inode_unlink` — invalidate source-identity continuity when a registered
+  source inode participates in rename/replacement or unlink;
 - `cgroup/connect4`;
 - `cgroup/connect6` — fail closed when a protected cgroup has propagation
   uncertainty or when the current process carries labels not admitted by that
@@ -115,9 +118,12 @@ Pinned-map names reserved by the experiment are:
 aegis_tsrc      configured sensitive file identities -> labels
 aegis_ftaint    propagated file identities -> labels
 aegis_ptaint    process TGID -> labels
+aegis_tprobe     armed source-enrollment thread TID -> random probe token
+aegis_tprobe_r   kernel-observed (TID, device, inode) -> probe token
 aegis_tcgroups  protected cgroup IDs
 aegis_tallow    admitted egress label mask per cgroup
 aegis_tfail     propagation uncertainty count per cgroup
+aegis_tdirty    global source-identity invalidation counter
 aegis_tevents   ring-buffer evidence stream
 aegis_tacct     stream loss accounting
 ```
@@ -131,7 +137,9 @@ zero-valued uncertainty entry and denies when the counter is non-zero.
 ### Claim boundary
 
 CI compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf` and
-the Go side mirrors/decodes its fixed ABI.
+the Go side mirrors/decodes its fixed ABI. Protected egress now also requires
+`aegis_tdirty == 0`; any registered-source rename/replacement or unlink moves
+source identity continuity to fail-closed DIRTY.
 
 The repository now also contains a signed two-phase install path:
 
@@ -141,13 +149,17 @@ aegis-taint-bpf-sign
 
 aegis-taint-bpf-loader
   -> verify signature + digest + exact ELF surface
-  -> load and attach all four hooks
+  -> load and attach all six hooks
   -> pin programs/maps/links
   -> signed local bootstrap receipt
   -> cgroup still NOT protected
 
 aegis-taint-plan
-  -> resolve regular-file device/inode identities without following symlinks
+  -> open each regular source without following symlinks
+  -> arm a random per-thread kernel identity probe
+  -> perform one controlled read on the already-open fd
+  -> collect every device/inode identity observed by BPF-LSM
+  -> disarm before activation
   -> emit explicit source-label/allow-mask plan
 
 aegis-taint-activate
@@ -160,16 +172,33 @@ This improves crash safety: a partial install is inert for the target cgroup.
 Activation has one explicit final effect boundary, and its state can be observed
 after a lost reply via the protected-cgroup map.
 
+The privileged native workflow now boots a BPF selftests kernel when the
+GitHub-hosted kernel lacks BPF-LSM. It mounts a real OverlayFS source fixture,
+kernel-enrolls the merged-path secret before activation, then proves
+read/fork/file/connect enforcement end-to-end. In the proof run, userspace
+`stat(2)` exposed one overlay identity while the LSM observed both the overlay
+and underlying identity; both were enrolled and the later read tainted the
+process.
+
+The same native fixture then atomically replaced the enrolled merged-path source
+after activation. Its userspace identity changed from device 38/inode 6 to
+device 38/inode 11. The `inode_rename` hook observed the registered target
+identity, incremented `aegis_tdirty` to 1, and a clean child remained unable to
+egress even though the replacement inode itself was not enrolled.
+
 It does **not** yet prove:
 
-- that a real target Linux kernel enables BPF LSM and accepts all four programs;
-- a privileged native end-to-end file-read/fork/file/connect attack schedule;
+- source continuity across every copy-up, live remount, inode-reuse, or
+  pre-activation mutation schedule;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
 - safe lifetime cleanup for TGID/inode reuse without weakening fail-closed
   behavior.
 
-Until the privileged native attach-and-attack test passes, M01-M03 remain
-kernel-artifact + signed-install candidates and executable semantic tests, not
-production Linux taint claims.
+The native result earns a bounded claim: a regular sensitive source can be
+registered from the identities the loaded LSM actually observes, including a
+tested OverlayFS merged-path read, without activating the target cgroup first.
+After activation, atomic replacement/unlink-style identity invalidation is
+fail-closed rather than silently treating the new inode as clean.
+Production-complete Linux taint containment remains outside this claim.

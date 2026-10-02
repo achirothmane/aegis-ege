@@ -7,16 +7,16 @@ func TestTaintActivationPlanDigestIsOrderIndependent(t *testing.T) {
 		CgroupPath:    "/sys/fs/cgroup/aegis",
 		AllowedLabels: 0,
 		Sources: []TaintSourceBinding{
-			{File: TaintFileKey{Device: 8, Inode: 22}, Labels: 1 << 3},
-			{File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1 << 0},
+			{Path: "/var/lib/aegis/source-b", File: TaintFileKey{Device: 8, Inode: 22}, Labels: 1 << 3},
+			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1 << 0},
 		},
 	}
 	b := TaintActivationPlan{
 		CgroupPath:    "/sys/fs/cgroup/aegis",
 		AllowedLabels: 0,
 		Sources: []TaintSourceBinding{
-			{File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1 << 0},
-			{File: TaintFileKey{Device: 8, Inode: 22}, Labels: 1 << 3},
+			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1 << 0},
+			{Path: "/var/lib/aegis/source-b", File: TaintFileKey{Device: 8, Inode: 22}, Labels: 1 << 3},
 		},
 	}
 	da, err := TaintActivationPlanDigest(a)
@@ -32,11 +32,39 @@ func TestTaintActivationPlanDigestIsOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestTaintActivationPlanDigestBindsSourcePath(t *testing.T) {
+	base := TaintActivationPlan{
+		CgroupPath: "/sys/fs/cgroup/aegis",
+		Sources: []TaintSourceBinding{
+			{
+				Path:   "/var/lib/aegis/source-a",
+				File:   TaintFileKey{Device: 8, Inode: 11},
+				Labels: 1,
+			},
+		},
+	}
+	first, err := TaintActivationPlanDigest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mutated := base
+	mutated.Sources = append([]TaintSourceBinding(nil), base.Sources...)
+	mutated.Sources[0].Path = "/var/lib/aegis/source-b"
+	second, err := TaintActivationPlanDigest(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("source path mutation did not change activation plan digest")
+	}
+}
+
 func TestTaintActivationPlanRejectsDuplicatesAndEmptyLabels(t *testing.T) {
 	base := TaintActivationPlan{
 		CgroupPath: "/sys/fs/cgroup/aegis",
 		Sources: []TaintSourceBinding{
-			{File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1},
+			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1},
 		},
 	}
 	if err := ValidateTaintActivationPlan(base); err != nil {
@@ -50,7 +78,7 @@ func TestTaintActivationPlanRejectsDuplicatesAndEmptyLabels(t *testing.T) {
 	}
 
 	empty := base
-	empty.Sources = []TaintSourceBinding{{File: TaintFileKey{Device: 8, Inode: 11}}}
+	empty.Sources = []TaintSourceBinding{{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}}}
 	if err := ValidateTaintActivationPlan(empty); err == nil {
 		t.Fatal("zero source label set accepted")
 	}
