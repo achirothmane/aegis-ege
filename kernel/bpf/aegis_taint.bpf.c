@@ -18,6 +18,7 @@ struct super_block {
 struct inode {
 	struct super_block *i_sb;
 	unsigned long i_ino;
+	__u16 i_mode;
 } __attribute__((preserve_access_index));
 
 struct file {
@@ -309,8 +310,8 @@ static __always_inline int dentry_is_directory(struct dentry *dentry)
 	if (!dentry)
 		return 0;
 
-	struct inode *inode = BPF_CORE_READ(dentry, d_inode);
-	if (!inode)
+	struct inode *inode = 0;
+	if (BPF_CORE_READ_INTO(&inode, dentry, d_inode) || !inode)
 		return 0;
 
 	__u16 mode = 0;
