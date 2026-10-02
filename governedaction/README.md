@@ -47,7 +47,7 @@ lifecycle, scheduler, policy engine, identity service or credential.
 
 ## Experimental execution-origin hardening
 
-`CheckOrigin`, `CheckApprovalUse`, and `CheckCredentialUse` are additive, non-normative hardening relations. They do **not**
+`CheckOrigin`, `CheckApprovalUse`, `CheckCredentialUse`, and `CheckTaintEgress` are additive, non-normative hardening relations. They do **not**
 change the frozen K01-K05 oracle.
 
 It binds an admitted execution origin to the current origin by exact:
@@ -70,8 +70,9 @@ are not authority.
 The machine-readable Muse-class adversarial corpus lives at
 `testdata/muse-class/corpus-v0.json`. M00/M04/M05 are executable through
 `CheckOrigin`; M06/M07 through `CheckApprovalUse`; M08/M09 through
-`CheckCredentialUse` plus broker tests. Planned cases are deliberately not
-credited as implemented controls.
+`CheckCredentialUse` plus broker tests; M01/M02/M03 through `CheckTaintEgress`
+and the synthetic `taintflow` propagation model. M10-M15 retain existing/partial
+classifications and are not relabeled by this work.
 
 `CheckApprovalUse` consumes an already-authenticated approval reference and
 binds it to exact action revision, effect identity, target, scope, nonce, effect
@@ -87,6 +88,12 @@ state, checks the binding, injects a bearer credential at the outbound boundary,
 rejects caller credential headers, and refuses to follow redirects with the
 injected credential. This proves interface behavior, not cross-process secret
 isolation.
+
+`CheckTaintEgress` requires every observed taint label to be explicitly admitted
+for the same subject and trusted monitor epoch. The `taintflow` subpackage is a
+synthetic monotonic model used by M01-M03: fork copies parent taint, and
+file/IPC-style write/read unions labels into the receiving process. It is not a
+BPF-LSM implementation or proof of hostile-process complete mediation.
 
 See
 [ Muse-class adversarial hardening v0 ](../docs/governed-action/muse-class-adversarial-v0.md).
