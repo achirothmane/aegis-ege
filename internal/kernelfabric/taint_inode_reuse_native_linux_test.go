@@ -540,6 +540,19 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Pre-issue a second stale authorization for the *next* invalidation
+	// generation while it still claims epoch 1. After the first recovery the
+	// source plan remains identical, and a topology-only invalidation will make
+	// its ExpectedDirty value correct. Epoch fencing must be the reason it fails.
+	staleFutureAuth := recoveryAuth
+	staleFutureAuth.AuthorizationID = "stale-preissued-recovery-epoch-1-dirty-next"
+	staleFutureAuth.ExpectedDirty = dirtyAfterRestart + 1
+	signedStaleFuture, err := SignTaintRecoveryAuthorization(staleFutureAuth, recoveryPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	recovered, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
@@ -550,15 +563,32 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recover source continuity from fresh evidence: %v", err)
 	}
-	if recovered.PreviousEpoch != 1 || recovered.EnrollmentEpoch != 2 {
-		t.Fatalf("unexpected recovery epoch transition: %+v", recovered)
+	if recovered.PreviousEpoch != 1 ||
+		recovered.EnrollmentEpoch != 2 ||
+		recovered.AdmittedDirtyGen != dirtyAfterRestart {
+		t.Fatalf("unexpected recovery transition: %+v", recovered)
 	}
 	dirtyAfterRecovery, err := TaintSourceIdentityDirtyState(bpffsRoot)
 	if err != nil {
-		t.Fatalf("read source continuity after recovery: %v", err)
+		t.Fatalf("read source invalidation generation after recovery: %v", err)
 	}
-	if dirtyAfterRecovery != 0 {
-		t.Fatalf("authorized recovery did not clear source continuity: %d", dirtyAfterRecovery)
+	if dirtyAfterRecovery != dirtyAfterRestart {
+		t.Fatalf(
+			"recovery reset monotonic invalidation generation: before=%d after=%d",
+			dirtyAfterRestart,
+			dirtyAfterRecovery,
+		)
+	}
+	cleanAfterRecovery, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read continuity watermark after recovery: %v", err)
+	}
+	if cleanAfterRecovery != dirtyAfterRecovery {
+		t.Fatalf(
+			"authorized recovery did not admit current generation: dirty=%d clean=%d",
+			dirtyAfterRecovery,
+			cleanAfterRecovery,
+		)
 	}
 	epochAfterRecovery, err := TaintEnrollmentEpoch(bpffsRoot)
 	if err != nil {
@@ -573,29 +603,57 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 	_ = conn.Close()
 
-	// Recreate the dangerous ABA shape: after successful recovery, invalidate
-	// the newly enrolled source. DIRTY returns to the same numeric value as the
-	// previous incident, but the kernel enrollment epoch is now 2. Replaying the
-	// old epoch-1 authorization must therefore fail even though ExpectedDirty
-	// matches again.
-	if err := os.Remove(sourcePath); err != nil {
-		t.Fatalf("unlink recovered source: %v", err)
+	// Create a new continuity loss without changing the enrolled source object.
+	// A bind mount elsewhere changes mount topology, so DIRTY advances while the
+	// fresh recovery plan remains valid. The pre-issued authorization now matches
+	// the exact DIRTY generation but still carries stale FromEpoch=1.
+	mountSource := filepath.Join(t.TempDir(), "topology-source")
+	mountTarget := filepath.Join(t.TempDir(), "topology-target")
+	if err := os.WriteFile(mountSource, []byte("topology-source"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(mountTarget, []byte("topology-target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount(mountSource, mountTarget, "", unix.MS_BIND, ""); err != nil {
+		t.Fatalf("bind mount topology invalidation: %v", err)
+	}
+	defer func() {
+		if err := unix.Unmount(mountTarget, unix.MNT_DETACH); err != nil {
+			t.Logf("unmount topology fixture: %v", err)
+		}
+	}()
+
 	secondDirty, err := TaintSourceIdentityDirtyState(bpffsRoot)
 	if err != nil {
 		t.Fatalf("read second source continuity loss: %v", err)
 	}
-	if secondDirty != dirtyAfterRestart {
+	if secondDirty != staleFutureAuth.ExpectedDirty {
 		t.Fatalf(
-			"second continuity loss did not recreate dirty-count ABA: first=%d second=%d",
-			dirtyAfterRestart,
+			"topology invalidation generation mismatch: got=%d want=%d",
 			secondDirty,
+			staleFutureAuth.ExpectedDirty,
 		)
 	}
+	cleanAfterSecondDirty, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleanAfterSecondDirty != cleanAfterRecovery || secondDirty <= cleanAfterSecondDirty {
+		t.Fatalf(
+			"second invalidation did not reopen fail-closed gap: dirty=%d clean=%d",
+			secondDirty,
+			cleanAfterSecondDirty,
+		)
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("second continuity loss did not deny egress: %v", err)
+	}
+
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedRecovery,
+		SignedAuthorization:  signedStaleFuture,
 		RecoveryAuthorityKey: recoveryPublic,
 		Now:                  now,
 	})
@@ -612,6 +670,17 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if dirtyAfterReplay != secondDirty {
 		t.Fatalf("stale recovery replay mutated DIRTY: before=%d after=%d", secondDirty, dirtyAfterReplay)
 	}
+	cleanAfterReplay, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleanAfterReplay != cleanAfterSecondDirty {
+		t.Fatalf(
+			"stale recovery replay mutated clean watermark: before=%d after=%d",
+			cleanAfterSecondDirty,
+			cleanAfterReplay,
+		)
+	}
 	epochAfterReplay, err := TaintEnrollmentEpoch(bpffsRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -624,8 +693,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 
 	t.Logf(
-		"authorized recovery advanced epoch and stale replay failed closed: first_dirty=%d recovered_epoch=%d second_dirty=%d replay_epoch=%d",
-		dirtyAfterRestart,
+		"watermark recovery advanced epoch and stale replay failed closed: first_dirty=%d clean=%d recovered_epoch=%d second_dirty=%d replay_epoch=%d",
+		dirtyAfterRecovery,
+		cleanAfterRecovery,
 		epochAfterRecovery,
 		secondDirty,
 		epochAfterReplay,
