@@ -30,6 +30,31 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				Type:       ebpf.LSM,
 				AttachType: ebpf.AttachLSMMac,
 			},
+			"aegis_tmount": {
+				Name:       "aegis_tmount",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
+			"aegis_tumount": {
+				Name:       "aegis_tumount",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
+			"aegis_tremount": {
+				Name:       "aegis_tremount",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
+			"aegis_tmove": {
+				Name:       "aegis_tmove",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
+			"aegis_tpivot": {
+				Name:       "aegis_tpivot",
+				Type:       ebpf.LSM,
+				AttachType: ebpf.AttachLSMMac,
+			},
 			"aegis_tconn4": {
 				Name:       "aegis_tconn4",
 				Type:       ebpf.CGroupSockAddr,
@@ -103,6 +128,13 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				Type:       ebpf.Array,
 				KeySize:    4,
 				ValueSize:  8,
+				MaxEntries: 1,
+			},
+			"aegis_tarmed": {
+				Name:       "aegis_tarmed",
+				Type:       ebpf.Array,
+				KeySize:    4,
+				ValueSize:  4,
 				MaxEntries: 1,
 			},
 			"aegis_tevents": {
