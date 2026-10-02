@@ -18,7 +18,7 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 			},
 			"aegis_fork": {
 				Name: "aegis_fork",
-				Type: ebpf.TracePoint,
+				Type: ebpf.RawTracepoint,
 			},
 			"aegis_tconn4": {
 				Name:       "aegis_tconn4",
