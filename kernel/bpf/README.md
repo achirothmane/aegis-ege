@@ -236,12 +236,20 @@ a clean child that never reads the future object is still denied egress. The
 bounded safety claim is therefore continuity revocation before reuse, not unique
 object identity from inode numbers alone.
 
+The same native schedule now crosses a userspace-restart boundary. A fresh
+process reopens the pinned maps after continuity loss and must observe both the
+protected cgroup and non-zero DIRTY state before its clean effect attempt is
+denied. A brand-new loader cannot overwrite the existing pinned substrate, and
+replaying the stale activation plan cannot restore ALLOW. This proves restart
+preservation under the current pinned-state contract; it does not define a
+recovery protocol.
+
 It does **not** yet prove:
 
 - source continuity across every filesystem-specific copy-up implementation,
   mount namespace propagation edge case, or source-lifetime cleanup schedule;
-- safe reset/re-enrollment of source-continuity DIRTY after a lifetime change,
-  including restart/reload with stale enrollment state;
+- safe explicit reset/re-enrollment of source-continuity DIRTY after a lifetime
+  change, host reboot recovery, or lifecycle garbage collection;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
