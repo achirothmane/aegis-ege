@@ -402,7 +402,6 @@ func TaintSourceContinuityWatermark(bpffsRoot string) (uint64, error) {
 	return clean, nil
 }
 
-
 func TaintRecoveryCommitmentState(bpffsRoot string) ([32]byte, error) {
 	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
 	if root == "." || root == "" {
