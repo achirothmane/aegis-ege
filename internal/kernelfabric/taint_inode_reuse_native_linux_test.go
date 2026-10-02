@@ -478,9 +478,17 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		dirtyAfterRestart,
 	)
 
+	// Recovery is a control-plane operation, not workload execution. Move this
+	// test controller back outside the protected cgroup before kernel re-probes;
+	// the probe path still observes source identity, but the controller must not
+	// acquire workload taint merely by proving the next source enrollment.
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("move recovery controller outside protected cgroup: %v", err)
+	}
+
 	// Recovery requires fresh kernel-observed evidence for the object that now
 	// occupies the governed source path. The stale activation plan above is not
-	// sufficient authority to clear DIRTY.
+	// sufficient authority to restore continuity.
 	initialEpoch, err := TaintEnrollmentEpoch(bpffsRoot)
 	if err != nil {
 		t.Fatalf("read initial enrollment epoch: %v", err)
@@ -596,6 +604,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 	if epochAfterRecovery != 2 {
 		t.Fatalf("recovery did not advance enrollment epoch: %d", epochAfterRecovery)
+	}
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("return test workload to protected cgroup after recovery: %v", err)
 	}
 	conn, err = net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
 	if err != nil {
