@@ -147,14 +147,12 @@ func (l TaintBootstrapLoader) LoadAndAttach(
 	}
 	attached["aegis_fperm"] = lsmLink
 
-	forkLink, err := link.Tracepoint(
-		"sched",
-		"sched_process_fork",
-		collection.Programs["aegis_fork"],
-		nil,
-	)
+	forkLink, err := link.AttachRawTracepoint(link.RawTracepointOptions{
+		Name:    "sched_process_fork",
+		Program: collection.Programs["aegis_fork"],
+	})
 	if err != nil {
-		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint fork tracepoint: %w", err)
+		return TaintBootstrapLoadResult{}, fmt.Errorf("attach taint fork raw tracepoint: %w", err)
 	}
 	attached["aegis_fork"] = forkLink
 
@@ -273,7 +271,7 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		attachType  ebpf.AttachType
 	}{
 		"aegis_fperm":  {ebpf.LSM, ebpf.AttachLSMMac},
-		"aegis_fork":   {ebpf.TracePoint, ebpf.AttachNone},
+		"aegis_fork":   {ebpf.RawTracepoint, ebpf.AttachNone},
 		"aegis_tconn4": {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet4Connect},
 		"aegis_tconn6": {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
 	}
@@ -356,7 +354,7 @@ func attestTaintPrograms(collection *ebpf.Collection) ([]PinnedProgramAttestatio
 	out := make([]PinnedProgramAttestation, 0, len(taintBootstrapPrograms))
 	expectedTypes := map[string]ebpf.ProgramType{
 		"aegis_fperm":  ebpf.LSM,
-		"aegis_fork":   ebpf.TracePoint,
+		"aegis_fork":   ebpf.RawTracepoint,
 		"aegis_tconn4": ebpf.CGroupSockAddr,
 		"aegis_tconn6": ebpf.CGroupSockAddr,
 	}
