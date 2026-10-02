@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -30,7 +31,10 @@ const (
 	taintNativeHelperEnv    = "AEGIS_TAINT_NATIVE_HELPER"
 	taintNativeHelperMode   = "AEGIS_TAINT_NATIVE_HELPER_MODE"
 	taintNativeHelperAddr   = "AEGIS_TAINT_NATIVE_HELPER_ADDR"
-	taintNativeHelperBridge = "AEGIS_TAINT_NATIVE_HELPER_BRIDGE"
+	taintNativeHelperBridge       = "AEGIS_TAINT_NATIVE_HELPER_BRIDGE"
+	taintNativeHelperBPFFSRoot     = "AEGIS_TAINT_NATIVE_HELPER_BPFFS_ROOT"
+	taintNativeHelperEscapeCgroup  = "AEGIS_TAINT_NATIVE_HELPER_ESCAPE_CGROUP"
+	taintNativeHelperCgroupID      = "AEGIS_TAINT_NATIVE_HELPER_CGROUP_ID"
 )
 
 func TestTaintNativeHelper(t *testing.T) {
@@ -48,6 +52,21 @@ func TestTaintNativeHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := os.ReadFile(os.Getenv(taintNativeHelperBridge)); err != nil {
+			t.Fatal(err)
+		}
+		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
+			t.Fatal(err)
+		}
+	case "hostile":
+		cgroupID, err := strconv.ParseUint(os.Getenv(taintNativeHelperCgroupID), 10, 64)
+		if err != nil {
+			t.Fatalf("parse hostile helper cgroup id: %v", err)
+		}
+		if err := attemptHostileGuardDisable(
+			os.Getenv(taintNativeHelperBPFFSRoot),
+			os.Getenv(taintNativeHelperEscapeCgroup),
+			cgroupID,
+		); err != nil {
 			t.Fatal(err)
 		}
 		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
@@ -289,6 +308,39 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("fork-propagation child escaped taint egress guard: %v", err)
 	}
 
+	// M15a: run the compromised workload as an unprivileged actor in the same
+	// protected cgroup. It may inspect its environment and create child
+	// processes, but it must not be able to remove BPF links, mutate the
+	// protected-cgroup map, escape the cgroup, unmount bpffs, or regain egress.
+	hostileChild := exec.Command(os.Args[0], "-test.run=^TestTaintNativeHelper$")
+	hostileChild.Env = append(os.Environ(),
+		taintNativeHelperEnv+"=1",
+		taintNativeHelperMode+"=hostile",
+		taintNativeHelperAddr+"="+listener.Addr().String(),
+		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
+		taintNativeHelperEscapeCgroup+"="+originalCgroup,
+		taintNativeHelperCgroupID+"="+strconv.FormatUint(activated.CgroupID, 10),
+	)
+	hostileChild.SysProcAttr = &syscall.SysProcAttr{
+		Credential: &syscall.Credential{
+			Uid:         65534,
+			Gid:         65534,
+			NoSetGroups: true,
+		},
+	}
+	hostileChild.Stdout = os.Stdout
+	hostileChild.Stderr = os.Stderr
+	if err := hostileChild.Run(); err != nil {
+		t.Fatalf("M15 hostile workload disabled or bypassed the taint guard: %v", err)
+	}
+	isActive, err = TaintCgroupActivationState(bpffsRoot, activated.CgroupID)
+	if err != nil {
+		t.Fatalf("observe M15 activation state: %v", err)
+	}
+	if !isActive {
+		t.Fatal("M15 hostile workload removed protected-cgroup activation")
+	}
+
 	// Release the child that was created while the parent was still clean.
 	// Reading the tainted bridge file must taint that child before its connect.
 	if _, err := stdin.Write([]byte("go")); err != nil {
@@ -304,6 +356,44 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if err := waitForNativeTaintEvidence(reader, activated.CgroupID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func attemptHostileGuardDisable(bpffsRoot, escapeCgroup string, cgroupID uint64) error {
+	for _, path := range []string{
+		filepath.Join(bpffsRoot, "links", "aegis_tconn4"),
+		filepath.Join(bpffsRoot, "links", "aegis_tconn6"),
+		filepath.Join(bpffsRoot, "links", "aegis_fperm"),
+		filepath.Join(bpffsRoot, "links", "aegis_fork"),
+	} {
+		if err := os.Remove(path); err == nil {
+			return fmt.Errorf("hostile actor removed pinned enforcement link %s", path)
+		}
+	}
+
+	mapPath := filepath.Join(bpffsRoot, "maps", "aegis_tcgroups")
+	if protected, err := ebpf.LoadPinnedMap(mapPath, nil); err == nil {
+		defer protected.Close()
+		if err := protected.Delete(&cgroupID); err == nil {
+			return errors.New("hostile actor deleted protected-cgroup state")
+		}
+		var disabled uint32
+		if err := protected.Update(&cgroupID, &disabled, ebpf.UpdateAny); err == nil {
+			return errors.New("hostile actor disabled protected-cgroup state")
+		}
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(escapeCgroup, "cgroup.procs"),
+		[]byte(strconv.Itoa(os.Getpid())),
+		0o600,
+	); err == nil {
+		return errors.New("hostile actor escaped the protected cgroup")
+	}
+
+	if err := unix.Unmount(bpffsRoot, unix.MNT_DETACH); err == nil {
+		return errors.New("hostile actor unmounted the enforcement bpffs")
+	}
+	return nil
 }
 
 func expectNativeDialDenied(address string) error {
