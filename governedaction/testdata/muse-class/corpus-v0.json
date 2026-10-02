@@ -164,17 +164,59 @@
       "id": "M08",
       "name": "surrogate credential is replayed outside its effect boundary",
       "class": "credential-surrogation",
-      "coverage": "PLANNED",
-      "gate": "secret-broker",
-      "expect": "SURROGATE_USELESS_OUTSIDE_BOUNDARY"
+      "coverage": "EXECUTABLE_NOW",
+      "gate": "credential",
+      "expect": "REJECT",
+      "at": "2026-10-02T02:59:00Z",
+      "admitted_credential": {
+        "handle_id": "credh_01",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "audience": "github-api",
+        "destination": "https://api.github.com",
+        "scope": "actions:write",
+        "trust_epoch": "credential-epoch-4",
+        "valid_until": "2026-10-02T03:00:00Z"
+      },
+      "current_credential": {
+        "handle_id": "credh_01",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-002",
+        "audience": "github-api",
+        "destination": "https://api.github.com",
+        "scope": "actions:write",
+        "trust_epoch": "credential-epoch-4",
+        "valid_until": "2026-10-02T03:00:00Z"
+      }
     },
     {
       "id": "M09",
       "name": "connector requests credential for a different audience",
       "class": "credential-confusion",
-      "coverage": "PLANNED",
-      "gate": "secret-broker",
-      "expect": "CREDENTIAL_AUDIENCE_MISMATCH_BLOCKED"
+      "coverage": "EXECUTABLE_NOW",
+      "gate": "credential",
+      "expect": "REJECT",
+      "at": "2026-10-02T02:59:00Z",
+      "admitted_credential": {
+        "handle_id": "credh_01",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "audience": "github-api",
+        "destination": "https://api.github.com",
+        "scope": "actions:write",
+        "trust_epoch": "credential-epoch-4",
+        "valid_until": "2026-10-02T03:00:00Z"
+      },
+      "current_credential": {
+        "handle_id": "credh_01",
+        "action_revision": "action-revision-abc",
+        "effect_id": "effect-001",
+        "audience": "calendar-api",
+        "destination": "https://api.github.com",
+        "scope": "actions:write",
+        "trust_epoch": "credential-epoch-4",
+        "valid_until": "2026-10-02T03:00:00Z"
+      }
     },
     {
       "id": "M10",
