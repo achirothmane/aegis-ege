@@ -24,6 +24,10 @@ struct file {
 	struct inode *f_inode;
 } __attribute__((preserve_access_index));
 
+struct dentry {
+	struct inode *d_inode;
+} __attribute__((preserve_access_index));
+
 struct task_struct {
 	int pid;
 	int tgid;
@@ -119,6 +123,13 @@ struct {
 } aegis_tfail SEC(".maps");
 
 struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} aegis_tdirty SEC(".maps");
+
+struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 1 << 20);
 } aegis_tevents SEC(".maps");
@@ -189,18 +200,15 @@ static __always_inline void emit_event(const struct taint_emit_input *input)
 	__sync_fetch_and_add(&accounting->emitted, 1);
 }
 
-static __always_inline int file_key_from_file(
-	struct file *file,
+static __always_inline int file_key_from_inode(
+	struct inode *inode,
 	struct aegis_taint_file_key *key)
 {
-	struct inode *inode = 0;
 	struct super_block *sb = 0;
 	unsigned long ino = 0;
 	__u32 dev = 0;
 
-	if (!file || !key)
-		return -1;
-	if (BPF_CORE_READ_INTO(&inode, file, f_inode) || !inode)
+	if (!inode || !key)
 		return -1;
 	if (BPF_CORE_READ_INTO(&ino, inode, i_ino))
 		return -1;
@@ -212,6 +220,59 @@ static __always_inline int file_key_from_file(
 	key->device = dev;
 	key->inode = (__u64)ino;
 	return 0;
+}
+
+static __always_inline int file_key_from_file(
+	struct file *file,
+	struct aegis_taint_file_key *key)
+{
+	struct inode *inode = 0;
+
+	if (!file || !key)
+		return -1;
+	if (BPF_CORE_READ_INTO(&inode, file, f_inode) || !inode)
+		return -1;
+	return file_key_from_inode(inode, key);
+}
+
+static __always_inline int file_key_from_dentry(
+	struct dentry *dentry,
+	struct aegis_taint_file_key *key)
+{
+	struct inode *inode = 0;
+
+	if (!dentry || !key)
+		return -1;
+	if (BPF_CORE_READ_INTO(&inode, dentry, d_inode) || !inode)
+		return -1;
+	return file_key_from_inode(inode, key);
+}
+
+static __always_inline void invalidate_source_identity(
+	const struct aegis_taint_file_key *key)
+{
+	if (!key)
+		return;
+
+	__u64 *labels = bpf_map_lookup_elem(&aegis_tsrc, key);
+	if (!labels || !*labels)
+		return;
+
+	__u32 zero = 0;
+	__u64 *dirty = bpf_map_lookup_elem(&aegis_tdirty, &zero);
+	if (dirty)
+		__sync_fetch_and_add(dirty, 1);
+
+	struct taint_emit_input invalidated = {
+		.cgroup_id = bpf_get_current_cgroup_id(),
+		.file_device = key->device,
+		.file_inode = key->inode,
+		.labels = *labels,
+		.tgid = current_tgid(),
+		.event_type = AEGIS_TAINT_EVENT_SOURCE_INVALIDATED,
+		.operation = AEGIS_TAINT_OP_IDENTITY_CHANGE,
+	};
+	emit_event(&invalidated);
 }
 
 static __always_inline int union_process_taint(
@@ -388,6 +449,44 @@ int aegis_fperm(__u64 *ctx)
 	return 0;
 }
 
+SEC("lsm/inode_rename")
+int aegis_trename(__u64 *ctx)
+{
+	struct dentry *old_dentry = (struct dentry *)ctx[1];
+	struct dentry *new_dentry = (struct dentry *)ctx[3];
+	int ret = (int)ctx[4];
+
+	if (ret)
+		return ret;
+
+	struct aegis_taint_file_key key = {};
+	if (!file_key_from_dentry(old_dentry, &key))
+		invalidate_source_identity(&key);
+
+	key.device = 0;
+	key.inode = 0;
+	if (!file_key_from_dentry(new_dentry, &key))
+		invalidate_source_identity(&key);
+
+	return 0;
+}
+
+SEC("lsm/inode_unlink")
+int aegis_tunlink(__u64 *ctx)
+{
+	struct dentry *dentry = (struct dentry *)ctx[1];
+	int ret = (int)ctx[2];
+
+	if (ret)
+		return ret;
+
+	struct aegis_taint_file_key key = {};
+	if (!file_key_from_dentry(dentry, &key))
+		invalidate_source_identity(&key);
+
+	return 0;
+}
+
 SEC("raw_tracepoint/sched_process_fork")
 int aegis_fork(struct bpf_raw_tracepoint_args *ctx)
 {
@@ -460,8 +559,10 @@ static __always_inline int enforce_taint_egress(void)
 	 * userspace has initialized its propagation-failure counter. Missing
 	 * uncertainty state therefore fails closed.
 	 */
+	__u32 zero = 0;
+	__u64 *source_dirty = bpf_map_lookup_elem(&aegis_tdirty, &zero);
 	__u64 *failures = bpf_map_lookup_elem(&aegis_tfail, &cgroup_id);
-	if (!failures || *failures) {
+	if (!source_dirty || *source_dirty || !failures || *failures) {
 		struct taint_emit_input denied = {
 			.cgroup_id = cgroup_id,
 			.labels = labels,
