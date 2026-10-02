@@ -2,9 +2,9 @@
 
 Status: **EXPERIMENTAL — non-normative hardening work**
 
-This work does not change the frozen governed-action v1 oracle. It adds two
-experimental hardening relations—execution-origin trust and bounded approval
-use—and registers a broader adversarial corpus for agent-runtime failure classes.
+This work does not change the frozen governed-action v1 oracle. It adds three
+experimental hardening relations—execution-origin trust, bounded approval use,
+and opaque credential-use binding—plus a synthetic HTTP secret-broker experiment.
 
 The purpose is not to reproduce Meta Muse or to claim parity with its runtime.
 The purpose is to use the same class of hostile assumptions against the
@@ -111,7 +111,51 @@ atomically charge approval use under its declared failure model and use native
 transactions/CAS/fencing where concurrent consumers could race. Two callers
 that both falsely present `effects_used=0` are outside the guarantee.
 
-## 4. Muse-class adversarial corpus
+## 4. Experimental relation: opaque credential use
+
+`governedaction.CheckCredentialUse` binds an opaque credential handle to:
+
+```text
+handle_id
+action_revision
+effect_id
+audience
+destination
+scope
+trust_epoch
+valid_until
+```
+
+Raw credential bytes are intentionally absent from this relation. A changed
+effect identity is treated as replay outside the admitted effect. Audience and
+destination are separate bindings so a connector cannot silently request a
+credential for another logical audience while retaining the same network
+endpoint.
+
+The experimental `internal/secretbroker.HTTPBroker` exercises the next layer:
+
+```text
+untrusted caller
+    ↓ opaque handle + bound request
+broker
+    ↓ CheckCredentialUse
+    ↓ exact destination check
+    ↓ JIT Authorization injection
+network
+```
+
+The caller-facing request has no raw-secret field. The broker rejects caller
+supplied Authorization/Proxy-Authorization headers, does not follow redirects
+with the injected credential, and sanitizes the returned response request so the
+injected Authorization value is not recoverable through `resp.Request`.
+
+This proves interface/boundary behavior in a synthetic HTTP process. It does not
+prove production secret isolation while actor and broker share an OS protection
+domain. A production implementation still requires a separate broker
+process/VM, authenticated IPC, protected bootstrap secret storage and complete
+mediation.
+
+## 5. Muse-class adversarial corpus
 
 The machine-readable corpus is:
 
@@ -125,10 +169,10 @@ Current accounting is explicit:
 
 | Coverage | Cases | Meaning |
 |---|---:|---|
-| EXECUTABLE_NOW | 5 | M00/M04/M05 execute against `CheckOrigin`; M06/M07 execute against `CheckApprovalUse` |
+| EXECUTABLE_NOW | 7 | M00/M04/M05 use `CheckOrigin`; M06/M07 use `CheckApprovalUse`; M08/M09 use `CheckCredentialUse` plus broker tests |
 | EXISTING_COVERAGE | 4 | Existing kernel/recovery/anti-rollback work already exercises the class, but not through this new origin check |
 | PARTIAL_EXISTING | 2 | Relevant machinery exists, but the full Muse-class property is not yet proved |
-| PLANNED | 5 | Registered as attack classes only; they do not count as implemented controls |
+| PLANNED | 3 | Registered as attack classes only; they do not count as implemented controls |
 
 ### Registered cases
 
@@ -149,7 +193,7 @@ Current accounting is explicit:
 - **M14** provider acceptance contradicts the observed postcondition.
 - **M15** a compromised actor attempts to disable the guard.
 
-## 5. Current executable claims
+## 6. Current executable claims
 
 Only the following new claims are earned by this change:
 
@@ -164,14 +208,16 @@ Only the following new claims are earned by this change:
    action/effect/target/scope/nonce/expiry/cardinality at the effect boundary;
 7. a one-time approval presented after one durably charged effect is rejected;
 8. approval target substitution is rejected;
-9. M00/M04/M05/M06/M07 are machine-registered and executed in the standalone
-   shared library test suite.
+9. an opaque credential handle is bound to exact action/effect/audience/destination/scope/trust epoch/expiry;
+10. replay of the same handle under a different EffectIdentity is rejected before network dispatch;
+11. credential audience substitution is rejected before network dispatch;
+12. the synthetic HTTP broker injects a bearer credential only after the bound checks, rejects caller credential headers, does not follow redirects with the credential, and sanitizes the returned request metadata;
+13. M00/M04/M05/M06/M07/M08/M09 are machine-registered and executed.
 
 This change does **not** yet prove:
 
 - process/data taint propagation;
-- secret surrogation or just-in-time credential injection;
-- credential audience isolation;
+- production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
 - atomic concurrent approval consumption without an adapter-native transaction/CAS/fence;
 - DNS/redirect final-destination mediation;
@@ -179,7 +225,7 @@ This change does **not** yet prove:
 - a Muse-compatible runtime;
 - production-grade agent containment.
 
-## 6. Next implementation order
+## 7. Next implementation order
 
 Do not add all planned controls at once.
 
@@ -201,7 +247,7 @@ Each step must add a failing attack schedule first, then an executable control,
 then preserve the original positive path. A planned corpus entry must never be
 counted as a passed control merely because it is documented.
 
-## 7. Kill condition
+## 8. Kill condition
 
 This hardening effort is useful only if the same relation survives different
 domains without embedding their business semantics.
