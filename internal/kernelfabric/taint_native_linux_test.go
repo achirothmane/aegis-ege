@@ -416,7 +416,6 @@ func ensureNativeFilesystem(path, fsType string, magic uint64) error {
 	return nil
 }
 
-
 func assertNativeProcessTaint(bpffsRoot string, tgid uint32, want uint64) error {
 	m, err := openExactTaintMap(
 		filepath.Join(bpffsRoot, "maps", "aegis_ptaint"),
@@ -466,7 +465,6 @@ func assertNativeFileTaint(bpffsRoot string, key TaintFileKey, want uint64) erro
 	}
 	return nil
 }
-
 
 func diagnoseNativeReadKey(
 	reader *TaintEvidenceReader,
