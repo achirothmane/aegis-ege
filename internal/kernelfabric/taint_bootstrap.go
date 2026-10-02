@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -261,6 +262,10 @@ func ValidateTaintBootstrapReceipt(receipt TaintBootstrapReceipt) error {
 		return errors.New("taint bootstrap receipt object cardinality is incomplete")
 	}
 
+	expectedPrograms := make(map[string]BootstrapProgram, len(taintBootstrapPrograms))
+	for _, expected := range taintBootstrapPrograms {
+		expectedPrograms[expected.PinName] = expected
+	}
 	programPins := make(map[string]struct{}, len(receipt.Programs))
 	for _, program := range receipt.Programs {
 		if program.ID == 0 ||
@@ -274,9 +279,20 @@ func ValidateTaintBootstrapReceipt(receipt TaintBootstrapReceipt) error {
 		if _, exists := programPins[program.PinName]; exists {
 			return fmt.Errorf("duplicate taint bootstrap program pin %q", program.PinName)
 		}
+		expected, ok := expectedPrograms[program.PinName]
+		if !ok ||
+			program.Name != expected.Name ||
+			program.Type != expected.Type ||
+			program.AttachType != expected.AttachType {
+			return fmt.Errorf("taint bootstrap program attestation differs from signed profile: %s", program.PinName)
+		}
 		programPins[program.PinName] = struct{}{}
 	}
 
+	expectedMaps := make(map[string]BootstrapMap, len(taintBootstrapMaps))
+	for _, expected := range taintBootstrapMaps {
+		expectedMaps[expected.Name] = expected
+	}
 	mapNames := make(map[string]struct{}, len(receipt.Maps))
 	for _, m := range receipt.Maps {
 		if m.ID == 0 || strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Type) == "" {
@@ -285,21 +301,32 @@ func ValidateTaintBootstrapReceipt(receipt TaintBootstrapReceipt) error {
 		if _, exists := mapNames[m.Name]; exists {
 			return fmt.Errorf("duplicate taint bootstrap map %q", m.Name)
 		}
+		expected, ok := expectedMaps[m.Name]
+		if !ok || m.Type != expected.Type {
+			return fmt.Errorf("taint bootstrap map attestation differs from signed profile: %s", m.Name)
+		}
 		mapNames[m.Name] = struct{}{}
 	}
 
 	linkNames := make(map[string]struct{}, len(receipt.Links))
-	for _, link := range receipt.Links {
-		if strings.TrimSpace(link.Name) == "" ||
-			strings.TrimSpace(link.Path) == "" ||
-			strings.TrimSpace(link.ProgramPin) == "" ||
-			strings.TrimSpace(link.AttachType) == "" {
+	for _, pinnedLink := range receipt.Links {
+		if strings.TrimSpace(pinnedLink.Name) == "" ||
+			strings.TrimSpace(pinnedLink.Path) == "" ||
+			strings.TrimSpace(pinnedLink.ProgramPin) == "" ||
+			strings.TrimSpace(pinnedLink.AttachType) == "" {
 			return errors.New("taint bootstrap receipt contains incomplete link attestation")
 		}
-		if _, exists := linkNames[link.Name]; exists {
-			return fmt.Errorf("duplicate taint bootstrap link %q", link.Name)
+		if _, exists := linkNames[pinnedLink.Name]; exists {
+			return fmt.Errorf("duplicate taint bootstrap link %q", pinnedLink.Name)
 		}
-		linkNames[link.Name] = struct{}{}
+		expected, ok := expectedPrograms[pinnedLink.Name]
+		if !ok ||
+			filepath.Base(pinnedLink.ProgramPin) != expected.PinName ||
+			filepath.Base(pinnedLink.Path) != expected.PinName ||
+			pinnedLink.AttachType != expected.AttachType {
+			return fmt.Errorf("taint bootstrap link attestation differs from signed profile: %s", pinnedLink.Name)
+		}
+		linkNames[pinnedLink.Name] = struct{}{}
 	}
 	return nil
 }
