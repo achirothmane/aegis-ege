@@ -182,7 +182,31 @@ func ResolveTaintFileKey(path string) (TaintFileKey, error) {
 	if stat.Mode&unix.S_IFMT != unix.S_IFREG {
 		return TaintFileKey{}, errors.New("taint source must be a regular file")
 	}
-	return TaintFileKey{Device: uint64(stat.Dev), Inode: stat.Ino}, nil
+	device, err := kernelDeviceID(uint64(stat.Dev))
+	if err != nil {
+		return TaintFileKey{}, err
+	}
+	return TaintFileKey{Device: device, Inode: stat.Ino}, nil
+}
+
+func kernelDeviceID(statDev uint64) (uint64, error) {
+	major := uint64(unix.Major(statDev))
+	minor := uint64(unix.Minor(statDev))
+	const (
+		majorMax = uint64(0xfff)
+		minorMax = uint64(0xfffff)
+	)
+	if major > majorMax || minor > minorMax {
+		return 0, fmt.Errorf(
+			"taint source device major/minor exceeds kernel dev_t bounds: major=%d minor=%d",
+			major,
+			minor,
+		)
+	}
+	// Linux kernel dev_t is MKDEV(major, minor) with 20 minor bits.
+	// stat(2) exposes the userspace-encoded dev_t representation, which must
+	// not be compared byte-for-byte with super_block.s_dev in BPF.
+	return (major << 20) | minor, nil
 }
 
 func openExactTaintMap(
