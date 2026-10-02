@@ -71,6 +71,20 @@ struct {
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 4096);
+	__type(key, __u32);
+	__type(value, __u64);
+} aegis_tprobe SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 16384);
+	__type(key, struct aegis_taint_probe_key);
+	__type(value, __u64);
+} aegis_tprobe_results SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 65536);
 	__type(key, struct aegis_taint_file_key);
 	__type(value, __u64);
@@ -119,6 +133,11 @@ struct {
 static __always_inline __u32 current_tgid(void)
 {
 	return (__u32)(bpf_get_current_pid_tgid() >> 32);
+}
+
+static __always_inline __u32 current_tid(void)
+{
+	return (__u32)bpf_get_current_pid_tgid();
 }
 
 static __always_inline int protected_cgroup(__u64 cgroup_id)
@@ -255,11 +274,18 @@ int aegis_fperm(__u64 *ctx)
 		return ret;
 
 	__u64 cgroup_id = bpf_get_current_cgroup_id();
-	if (!protected_cgroup(cgroup_id))
-		return 0;
 
 	struct aegis_taint_file_key file_key = {};
 	if (file_key_from_file(file, &file_key)) {
+		/*
+		 * A source-identity probe is armed only by trusted userspace for the
+		 * current Linux thread. If the kernel cannot derive the file identity
+		 * while that probe is armed, fail the controlled enrollment read.
+		 */
+		__u32 tid = current_tid();
+		__u64 *probe_token = bpf_map_lookup_elem(&aegis_tprobe, &tid);
+		if (probe_token && (mask & AEGIS_TAINT_MAY_READ))
+			return -13;
 		mark_failure(cgroup_id);
 		struct taint_emit_input failed = {
 			.cgroup_id = cgroup_id,
@@ -269,6 +295,26 @@ int aegis_fperm(__u64 *ctx)
 		emit_event(&failed);
 		return -13;
 	}
+
+	__u32 tid = current_tid();
+	__u64 *probe_token = bpf_map_lookup_elem(&aegis_tprobe, &tid);
+	if (probe_token && (mask & AEGIS_TAINT_MAY_READ)) {
+		struct aegis_taint_probe_key probe_key = {
+			.tid = tid,
+			.device = file_key.device,
+			.inode = file_key.inode,
+		};
+		__u64 token = *probe_token;
+		if (bpf_map_update_elem(
+				&aegis_tprobe_results,
+				&probe_key,
+				&token,
+				BPF_ANY))
+			return -13;
+	}
+
+	if (!protected_cgroup(cgroup_id))
+		return 0;
 
 	__u32 tgid = current_tgid();
 
