@@ -1,6 +1,6 @@
 # R01 Execution Status — Split-Brain Fulfillment
 
-Status: ACTIVE FALSIFICATION — NO FINAL VERDICT YET
+Status: ACTIVE FALSIFICATION — R01-04 CLOSED NATIVE; NO FINAL R01 VERDICT YET
 
 ## Frozen rule
 
@@ -31,7 +31,7 @@ Required compound truth:
 | R01-01 | possible E2 cannot be blindly replayed | frozen K07 CE3 projection + R01 independent vector |
 | R01-02 | expired/revoked authority cannot silently authorize later E3 | production `decision.ValidateAuthorization` composition |
 | R01-03 | stale worker cannot advance E3 without current exclusivity/authority | frozen K07 CE6 projection |
-| R01-04 | duplicate callback must not create duplicate E3 or false certainty | PostgreSQL native-cardinality experiment; CI evidence pending |
+| R01-04 | duplicate callback must not create duplicate E3 or false certainty | PASS — PostgreSQL native-cardinality run 37058606097, source head 9e42c149709ee7e0c2fc01e89aded040c3ca9f2a |
 | R01-05 | same aggregate value is not exact E2 lineage | frozen K07 CE7 projection |
 | R01-06 | independent reversal of E1 prevents compound success | frozen K07 exact-postcondition relation |
 | R01-07 | contradictory provider observations cannot mint authority or VERIFIED success | production `Evaluate` + `ReconcileContradiction` composition |
@@ -63,4 +63,16 @@ The earlier process-local concurrency test is only a sanity check and is not suf
 
 The previous branch's constant `SURVIVES_R01` assertion was intentionally not carried forward.
 
-The final R01 verdict remains open until native PostgreSQL evidence and all exact-head CI checks are green.
+R01-04 is now closed by native evidence:
+
+- workflow run: `37058606097`
+- source head: `9e42c149709ee7e0c2fc01e89aded040c3ca9f2a`
+- artifact id: `11249667178`
+- artifact digest: `sha256:585638e76c555cffc75779c1a71e407c93a498a28e1f98a4b4ec45e2148d3d1e`
+- both workers held current authority before the race and at the effect boundary
+- callback-a created no effect
+- callback-b created the effect
+- durable rows: 1
+- winners: 1
+
+The overall R01 verdict remains open. The remaining strongest falsification is one end-to-end R01-A compound schedule that composes E1, E2 uncertainty, authority revocation/takeover, duplicate callback, semantic ABA, E1 reversal and contradictory observation in one lineage. Per-vector evidence must not be silently promoted into a whole-trace claim.
