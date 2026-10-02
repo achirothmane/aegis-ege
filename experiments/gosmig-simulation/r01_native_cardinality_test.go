@@ -98,11 +98,8 @@ func TestR01ShipmentHelperProcess(t *testing.T) {
 	).Scan(&inserted)
 	if err == nil {
 		result.Created = inserted == result.EffectID
-	} else if !errors.Is(err, os.ErrNotExist) && !strings.Contains(err.Error(), "no rows") {
-		// database/sql reports sql.ErrNoRows without exposing a pg mutation error.
-		if err.Error() != "sql: no rows in result set" {
-			fail(err)
-		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		fail(err)
 	}
 	fail(tx.Commit())
 	fail(writeJSON(os.Getenv("R01_RESULT"), result))
