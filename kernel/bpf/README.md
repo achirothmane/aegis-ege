@@ -218,18 +218,19 @@ yet its connect is denied because source-path continuity is no longer provable.
 This closes the tested mount-substitution laundering path without pretending
 that `(device,inode)` is an eternal source identity.
 
-The source-lifetime corpus also attacks path ancestry without a mount change:
+The source-lifetime corpus also tests path ancestry without a mount change:
 an enrolled source remains alive while its parent directory is renamed away and
 a clean sibling directory is moved onto the original absolute pathname. The
-`inode_rename` guard now treats any directory rename after lifetime arming as a
-loss of path-resolution continuity. The clean child can read the unenrolled
-replacement and remains untainted, but protected egress still fails closed.
+`inode_rename` guard treats directory renames after lifetime arming as a loss
+of path-resolution continuity. A second schedule enrolls through an intermediate
+symlink and then atomically redirects that symlink to an unenrolled directory.
+Symlink rename/unlink now invalidates the same continuity state, so the clean
+reader remains untainted while protected egress still fails closed.
 
 It does **not** yet prove:
 
 - source continuity across every filesystem-specific copy-up implementation,
-  mount namespace propagation edge case, ancestor-symlink mutation, or
-  source-lifetime cleanup schedule;
+  mount namespace propagation edge case, or source-lifetime cleanup schedule;
 - allocator-level same-number inode reuse as a directly forced native schedule;
   the current bounded guarantee is that registered-source unlink/rename makes
   continuity DIRTY before such reuse can be trusted;
