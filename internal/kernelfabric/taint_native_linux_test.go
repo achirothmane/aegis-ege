@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 )
 
@@ -220,8 +221,18 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if _, err := os.ReadFile(secretPath); err != nil {
 		t.Fatalf("read configured sensitive source: %v", err)
 	}
+	if err := assertNativeProcessTaint(bpffsRoot, uint32(os.Getpid()), 1); err != nil {
+		t.Fatalf("sensitive read did not produce process taint: %v", err)
+	}
 	if err := os.WriteFile(bridgePath, []byte("launder-attempt"), 0o600); err != nil {
 		t.Fatalf("write bridge file: %v", err)
+	}
+	bridgeKey, err := ResolveTaintFileKey(bridgePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := assertNativeFileTaint(bpffsRoot, bridgeKey, 1); err != nil {
+		t.Fatalf("tainted write did not propagate into bridge file: %v", err)
 	}
 
 	// Direct tainted egress must fail.
@@ -394,6 +405,57 @@ func ensureNativeFilesystem(path, fsType string, magic uint64) error {
 	}
 	if uint64(stat.Type) != magic {
 		return fmt.Errorf("%s mounted with unexpected filesystem magic %#x", fsType, uint64(stat.Type))
+	}
+	return nil
+}
+
+
+func assertNativeProcessTaint(bpffsRoot string, tgid uint32, want uint64) error {
+	m, err := openExactTaintMap(
+		filepath.Join(bpffsRoot, "maps", "aegis_ptaint"),
+		ebpf.Hash,
+		4,
+		8,
+		65536,
+	)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+	var got uint64
+	if err := m.Lookup(&tgid, &got); err != nil {
+		return fmt.Errorf("lookup tgid %d: %w", tgid, err)
+	}
+	if got&want != want {
+		return fmt.Errorf("tgid %d labels=%#x want bits=%#x", tgid, got, want)
+	}
+	return nil
+}
+
+func assertNativeFileTaint(bpffsRoot string, key TaintFileKey, want uint64) error {
+	m, err := openExactTaintMap(
+		filepath.Join(bpffsRoot, "maps", "aegis_ftaint"),
+		ebpf.Hash,
+		16,
+		8,
+		65536,
+	)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+	var got uint64
+	if err := m.Lookup(&key, &got); err != nil {
+		return fmt.Errorf("lookup file device=%d inode=%d: %w", key.Device, key.Inode, err)
+	}
+	if got&want != want {
+		return fmt.Errorf(
+			"file device=%d inode=%d labels=%#x want bits=%#x",
+			key.Device,
+			key.Inode,
+			got,
+			want,
+		)
 	}
 	return nil
 }
