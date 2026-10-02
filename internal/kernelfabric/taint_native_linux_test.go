@@ -4,9 +4,9 @@ package kernelfabric
 
 import (
 	"context"
-	_ "embed"
 	"crypto/ed25519"
 	"crypto/rand"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
