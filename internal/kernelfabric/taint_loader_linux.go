@@ -291,7 +291,7 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		"aegis_trename": {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tunlink": {ebpf.LSM, ebpf.AttachLSMMac},
 		"aegis_tconn4":  {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet4Connect},
-		"aegis_tconn6": {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
+		"aegis_tconn6":  {ebpf.CGroupSockAddr, ebpf.AttachCGroupInet6Connect},
 	}
 	for name, expected := range expectedProgramTypes {
 		program := spec.Programs[name]
@@ -379,7 +379,7 @@ func attestTaintPrograms(collection *ebpf.Collection) ([]PinnedProgramAttestatio
 		"aegis_trename": ebpf.LSM,
 		"aegis_tunlink": ebpf.LSM,
 		"aegis_tconn4":  ebpf.CGroupSockAddr,
-		"aegis_tconn6": ebpf.CGroupSockAddr,
+		"aegis_tconn6":  ebpf.CGroupSockAddr,
 	}
 	for _, expected := range taintBootstrapPrograms {
 		program := collection.Programs[expected.Name]
