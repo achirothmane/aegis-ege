@@ -423,10 +423,8 @@ func mountNativeOverlaySource(t *testing.T) string {
 
 	root := t.TempDir()
 	lower := filepath.Join(root, "lower")
-	upper := filepath.Join(root, "upper")
-	work := filepath.Join(root, "work")
 	merged := filepath.Join(root, "merged")
-	for _, dir := range []string{lower, upper, work, merged} {
+	for _, dir := range []string{lower, merged} {
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatalf("create overlay directory %s: %v", dir, err)
 		}
@@ -434,14 +432,11 @@ func mountNativeOverlaySource(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(lower, "secret.txt"), []byte("classified"), 0o600); err != nil {
 		t.Fatalf("write overlay lower secret: %v", err)
 	}
-	options := fmt.Sprintf(
-		"lowerdir=%s,upperdir=%s,workdir=%s",
-		lower,
-		upper,
-		work,
-	)
-	if err := unix.Mount("overlay", merged, "overlay", 0, options); err != nil {
-		t.Fatalf("mount native overlay source: %v", err)
+	// A lower-only overlay is sufficient for the identity test and avoids
+	// imposing upperdir/workdir feature requirements on the VM backing fs.
+	options := "lowerdir=" + lower
+	if err := unix.Mount("overlay", merged, "overlay", unix.MS_RDONLY, options); err != nil {
+		t.Fatalf("mount native lower-only overlay source: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := unix.Unmount(merged, unix.MNT_DETACH); err != nil {
