@@ -321,6 +321,22 @@ static __always_inline int dentry_is_directory(struct dentry *dentry)
 	return (mode & 0170000) == 0040000;
 }
 
+static __always_inline int dentry_is_symlink(struct dentry *dentry)
+{
+	if (!dentry)
+		return 0;
+
+	struct inode *inode = 0;
+	if (BPF_CORE_READ_INTO(&inode, dentry, d_inode) || !inode)
+		return 0;
+
+	__u16 mode = 0;
+	if (BPF_CORE_READ_INTO(&mode, inode, i_mode))
+		return 0;
+
+	return (mode & 0170000) == 0120000;
+}
+
 static __always_inline int union_process_taint(
 	__u64 cgroup_id,
 	__u32 tgid,
@@ -518,7 +534,8 @@ int aegis_trename(__u64 *ctx)
 	// inode itself by moving one of its ancestor directories and replacing that
 	// directory name. Once source lifetime is armed, any directory rename makes
 	// the path-resolution topology no longer provable and therefore fails closed.
-	if (dentry_is_directory(old_dentry) || dentry_is_directory(new_dentry))
+	if (dentry_is_directory(old_dentry) || dentry_is_directory(new_dentry) ||
+	    dentry_is_symlink(old_dentry) || dentry_is_symlink(new_dentry))
 		invalidate_source_topology();
 
 	return 0;
@@ -536,6 +553,15 @@ int aegis_tunlink(__u64 *ctx)
 	struct aegis_taint_file_key key = {};
 	if (!file_key_from_dentry(dentry, &key))
 		invalidate_source_identity(&key);
+
+	/*
+	 * Intermediate symlink targets are part of absolute source-path meaning.
+	 * Replacing or removing an ancestor symlink can redirect the path while the
+	 * enrolled regular-file inode remains alive. Once lifetime is armed, losing
+	 * any symlink pathname component therefore invalidates source continuity.
+	 */
+	if (dentry_is_symlink(dentry))
+		invalidate_source_topology();
 
 	return 0;
 }
