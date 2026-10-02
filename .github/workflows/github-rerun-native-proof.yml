@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +30,7 @@ jobs:
           victim_id=""
           for _ in $(seq 1 90); do
             victim_id="$(
-              gh api "/repos/$GITHUB_REPOSITORY/actions/runs?event=$GITHUB_EVENT_NAME&head_sha=$GITHUB_SHA&per_page=100"                 --jq '.workflow_runs[] | select(.name == "GitHub Rerun Native Victim" and .run_attempt == 1 and .status == "completed" and .conclusion == "failure") | .id'                 | head -n 1
+              gh api "/repos/$GITHUB_REPOSITORY/actions/runs?event=$GITHUB_EVENT_NAME&head_sha=$PROOF_HEAD_SHA&per_page=100"                 --jq '.workflow_runs[] | select(.name == "GitHub Rerun Native Victim" and .run_attempt == 1 and .status == "completed" and .conclusion == "failure") | .id'                 | head -n 1
             )"
             if [ -n "$victim_id" ]; then
               break
@@ -37,7 +38,7 @@ jobs:
             sleep 2
           done
           if [ -z "$victim_id" ]; then
-            echo "no completed failing victim run found for sha=$GITHUB_SHA" >&2
+            echo "no completed failing victim run found for sha=$PROOF_HEAD_SHA" >&2
             exit 1
           fi
           echo "VICTIM_RUN_ID=$victim_id" >> "$GITHUB_ENV"
@@ -49,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           until="$(date -u -d '+10 minutes' '+%Y-%m-%dT%H:%M:%SZ')"
-          go run ./cmd/github-rerun-proof prepare             --repo "$GITHUB_REPOSITORY"             --snapshot "$RUNNER_TEMP/github-run-before.json"             --expected-head "$GITHUB_SHA"             --initial-attempt 1             --authority-until "$until"             --custody "$RUNNER_TEMP/github-rerun-custody.json"
+          go run ./cmd/github-rerun-proof prepare             --repo "$GITHUB_REPOSITORY"             --snapshot "$RUNNER_TEMP/github-run-before.json"             --expected-head "$PROOF_HEAD_SHA"             --initial-attempt 1             --authority-until "$until"             --custody "$RUNNER_TEMP/github-rerun-custody.json"
 
       - name: Revalidate at the native effect boundary
         shell: bash
