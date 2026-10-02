@@ -19,6 +19,11 @@ type TaintRecoveryRequest struct {
 	SignedAuthorization  SignedTaintRecoveryAuthorization
 	RecoveryAuthorityKey ed25519.PublicKey
 	Now                  time.Time
+
+	// afterEpochCommit is an internal crash-boundary test hook. External callers
+	// cannot set it. Native tests use os.Exit here so deferred rollback does not
+	// run, matching a real controller death after the epoch commit.
+	afterEpochCommit func()
 }
 
 type TaintRecoveryResult struct {
@@ -45,6 +50,10 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 		return TaintRecoveryResult{}, err
 	}
 	auth := req.SignedAuthorization.Authorization
+	commitment, err := TaintRecoveryCommitmentDigest(req.SignedAuthorization)
+	if err != nil {
+		return TaintRecoveryResult{}, fmt.Errorf("digest taint recovery commitment: %w", err)
+	}
 
 	root := filepath.Clean(strings.TrimSpace(req.BPFFSRoot))
 	if root == "." || root == "" {
@@ -107,6 +116,11 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 		return TaintRecoveryResult{}, err
 	}
 	defer epochMap.Close()
+	recoveryMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_trecover"), ebpf.Array, 4, 32, 1)
+	if err != nil {
+		return TaintRecoveryResult{}, err
+	}
+	defer recoveryMap.Close()
 	allowMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tallow"), ebpf.Hash, 8, 8, 4096)
 	if err != nil {
 		return TaintRecoveryResult{}, err
@@ -134,13 +148,11 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	if err := epochMap.Lookup(&zeroKey, &currentEpoch); err != nil {
 		return TaintRecoveryResult{}, fmt.Errorf("read taint enrollment epoch: %w", err)
 	}
-	if currentEpoch != auth.FromEpoch {
-		return TaintRecoveryResult{}, fmt.Errorf(
-			"taint recovery epoch mismatch: current=%d authorized_from=%d",
-			currentEpoch,
-			auth.FromEpoch,
-		)
+	var pending [32]byte
+	if err := recoveryMap.Lookup(&zeroKey, &pending); err != nil {
+		return TaintRecoveryResult{}, fmt.Errorf("read taint recovery commitment: %w", err)
 	}
+	var emptyCommitment [32]byte
 
 	currentDirty, err := taintSourceDirtyCount(dirtyMap)
 	if err != nil {
@@ -150,6 +162,40 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	if err := cleanMap.Lookup(&zeroKey, &currentClean); err != nil {
 		return TaintRecoveryResult{}, fmt.Errorf("read taint source continuity watermark: %w", err)
 	}
+
+	fresh := currentEpoch == auth.FromEpoch && pending == emptyCommitment
+	resumeBeforeEpoch := currentEpoch == auth.FromEpoch && pending == commitment
+	resumeAfterEpoch := currentEpoch == auth.ToEpoch && pending == commitment
+	completedPending := resumeAfterEpoch &&
+		currentDirty == auth.ExpectedDirty &&
+		currentClean == auth.ExpectedDirty
+
+	if !fresh && !resumeBeforeEpoch && !resumeAfterEpoch {
+		return TaintRecoveryResult{}, fmt.Errorf(
+			"taint recovery state mismatch: current_epoch=%d authorized=%d->%d pending_match=%t",
+			currentEpoch,
+			auth.FromEpoch,
+			auth.ToEpoch,
+			pending == commitment,
+		)
+	}
+
+	if completedPending {
+		if err := revalidateTaintSourceBindings(root, req.Plan.Sources); err != nil {
+			return TaintRecoveryResult{}, err
+		}
+		if err := recoveryMap.Update(&zeroKey, &emptyCommitment, ebpf.UpdateAny); err != nil {
+			return TaintRecoveryResult{}, fmt.Errorf("clear completed taint recovery commitment: %w", err)
+		}
+		return TaintRecoveryResult{
+			CgroupID:         cgroupID,
+			PlanDigest:       planDigest,
+			PreviousEpoch:    auth.FromEpoch,
+			EnrollmentEpoch:  auth.ToEpoch,
+			AdmittedDirtyGen: auth.ExpectedDirty,
+		}, nil
+	}
+
 	if currentDirty <= currentClean || currentDirty != auth.ExpectedDirty {
 		return TaintRecoveryResult{}, fmt.Errorf(
 			"taint recovery continuity mismatch: dirty=%d clean=%d authorized_dirty=%d",
@@ -210,12 +256,26 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 		)
 	}
 
+	// Persist the exact signed authorization before the epoch transition. This
+	// commitment is the only authority that may resume an interrupted recovery.
+	if pending == emptyCommitment {
+		if err := recoveryMap.Update(&zeroKey, &commitment, ebpf.UpdateAny); err != nil {
+			return TaintRecoveryResult{}, fmt.Errorf("persist taint recovery commitment: %w", err)
+		}
+	}
+
 	// Advance the fencing epoch before admitting the observed invalidation
-	// generation. A crash after this write remains fail-closed because the clean
-	// watermark still trails DIRTY; the old authorization is now fenced by epoch.
+	// generation. If the controller dies after this write, DIRTY still exceeds
+	// CLEAN and egress remains denied. The pinned commitment makes the transition
+	// resumable only by this exact signed authorization.
 	nextEpoch := auth.ToEpoch
-	if err := epochMap.Update(&zeroKey, &nextEpoch, ebpf.UpdateAny); err != nil {
-		return TaintRecoveryResult{}, fmt.Errorf("advance taint enrollment epoch: %w", err)
+	if currentEpoch == auth.FromEpoch {
+		if err := epochMap.Update(&zeroKey, &nextEpoch, ebpf.UpdateAny); err != nil {
+			return TaintRecoveryResult{}, fmt.Errorf("advance taint enrollment epoch: %w", err)
+		}
+		if req.afterEpochCommit != nil {
+			req.afterEpochCommit()
+		}
 	}
 
 	// Final recovery effect boundary. DIRTY is monotonic and is never reset.
@@ -228,6 +288,9 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	}
 
 	rollbackSources = false
+	if err := recoveryMap.Update(&zeroKey, &emptyCommitment, ebpf.UpdateAny); err != nil {
+		return TaintRecoveryResult{}, fmt.Errorf("clear taint recovery commitment: %w", err)
+	}
 	return TaintRecoveryResult{
 		CgroupID:         cgroupID,
 		PlanDigest:       planDigest,
