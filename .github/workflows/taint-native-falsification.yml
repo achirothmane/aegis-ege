@@ -87,8 +87,12 @@ jobs:
       - name: Execute native taint falsification in BPF selftests VM
         if: steps.probe.outputs.supported != 'true'
         shell: bash
+        env:
+          AEGIS_TAINT_BPF_OBJECT: .taint-native/aegis_taint.bpf.o
+          CGO_ENABLED: "0"
         run: |
           "$(go env GOPATH)/bin/vimto" \
-            -kernel ghcr.io/cilium/ci-kernels:stable-selftests \
-            exec -- \
-            bash scripts/run-taint-native-vm.sh "$PWD/.taint-native/aegis_taint.bpf.o"
+            -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
+            go test -count=1 -tags=taintnative \
+              -run "^(TestNativeTaintReadForkFileAndEgress|TestTaintNativeHelper)$" \
+              -v ./internal/kernelfabric
