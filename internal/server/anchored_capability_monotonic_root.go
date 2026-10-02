@@ -18,23 +18,44 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const anchoredCapabilityRootVersion = "aegis.ege/capability-monotonic-root/v1"
+const anchoredCapabilityRootVersion = "aegis.ege/capability-monotonic-root/v2"
 
 var (
-	ErrCapabilityRootRollback = errors.New("anchored capability root rollback detected")
-	ErrCapabilityRootCorrupt  = errors.New("anchored capability root ledger is corrupt")
-	ErrCapabilityRootMissing  = errors.New("anchored capability root has no state for scope")
+	ErrCapabilityRootRollback       = errors.New("anchored capability root rollback detected")
+	ErrCapabilityRootCorrupt        = errors.New("anchored capability root ledger is corrupt")
+	ErrCapabilityRootMissing        = errors.New("anchored capability root has no state for scope")
+	ErrCapabilityRootAnchorMismatch = errors.New("anchored capability root commitment mismatch")
 )
 
-type CapabilityMonotonicAnchor interface {
+// CapabilityRootAnchorState is the state that must live outside the mutable
+// coordination and local-ledger failure domain.
+//
+// Sequence prevents rollback to an older number of accepted root records.
+// Commitment binds the exact ledger head; sequence alone is insufficient
+// because a same-length ledger can otherwise be rewritten and re-hashed.
+type CapabilityRootAnchorState struct {
+	Sequence   uint64
+	Commitment string
+}
+
+// CapabilityRootAnchor is an independently protected compare-and-advance store.
+//
+// Current must return the protected sequence and exact head commitment.
+// Advance must atomically replace expected with next or fail. Implementations
+// that only expose a monotonic counter do not satisfy this contract.
+type CapabilityRootAnchor interface {
 	Identity(context.Context) (string, error)
-	Read(context.Context) (uint64, error)
-	Advance(context.Context, uint64) (uint64, error)
+	Current(context.Context) (CapabilityRootAnchorState, error)
+	Advance(
+		context.Context,
+		CapabilityRootAnchorState,
+		CapabilityRootAnchorState,
+	) (CapabilityRootAnchorState, error)
 }
 
 type AnchoredFileCapabilityMonotonicRoot struct {
 	path   string
-	anchor CapabilityMonotonicAnchor
+	anchor CapabilityRootAnchor
 }
 
 type capabilityRootRecord struct {
@@ -43,17 +64,20 @@ type capabilityRootRecord struct {
 	ScopeDigest        string
 	Snapshot           egeproto.CapabilityAuthoritySnapshot
 	AnchorID           string
-	AnchorValue        uint64
+	AnchorSequence     uint64
 	PreviousRecordHash string
 	RecordHash         string
 }
 
-func NewAnchoredFileCapabilityMonotonicRoot(path string, anchor CapabilityMonotonicAnchor) (*AnchoredFileCapabilityMonotonicRoot, error) {
+func NewAnchoredFileCapabilityMonotonicRoot(
+	path string,
+	anchor CapabilityRootAnchor,
+) (*AnchoredFileCapabilityMonotonicRoot, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("capability root ledger path is required")
 	}
 	if anchor == nil {
-		return nil, errors.New("capability monotonic anchor is required")
+		return nil, errors.New("capability root anchor is required")
 	}
 	return &AnchoredFileCapabilityMonotonicRoot{
 		path:   filepath.Clean(path),
@@ -67,14 +91,17 @@ func (r *AnchoredFileCapabilityMonotonicRoot) Advance(
 	observed egeproto.CapabilityAuthoritySnapshot,
 ) (egeproto.CapabilityAuthoritySnapshot, error) {
 	if err := validateCapabilityAuthoritySnapshot(observed); err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("invalid observed capability authority: %w", err)
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"invalid observed capability authority: %w",
+			err,
+		)
 	}
 	scopeDigest, err := capabilityRootScopeDigest(scope)
 	if err != nil {
 		return egeproto.CapabilityAuthoritySnapshot{}, err
 	}
 
-	file, records, anchorID, anchorValue, err := r.openVerified(ctx)
+	file, records, anchorID, anchorState, err := r.openVerified(ctx)
 	if err != nil {
 		return egeproto.CapabilityAuthoritySnapshot{}, err
 	}
@@ -94,29 +121,28 @@ func (r *AnchoredFileCapabilityMonotonicRoot) Advance(
 		}
 	}
 
-	if anchorValue == ^uint64(0) {
-		return egeproto.CapabilityAuthoritySnapshot{}, errors.New("capability monotonic anchor is exhausted")
-	}
-	nextAnchor, err := r.anchor.Advance(ctx, anchorValue)
-	if err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("advance capability monotonic anchor: %w", err)
+	if anchorState.Sequence == ^uint64(0) {
+		return egeproto.CapabilityAuthoritySnapshot{}, errors.New(
+			"capability root anchor sequence is exhausted",
+		)
 	}
 	expectedIndex := uint64(len(records) + 1)
-	if nextAnchor != anchorValue+1 || nextAnchor != expectedIndex {
+	if expectedIndex != anchorState.Sequence+1 {
 		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
-			"capability monotonic anchor advanced to %d; expected %d",
-			nextAnchor,
+			"%w: next ledger index=%d anchor sequence=%d",
+			ErrCapabilityRootAnchorMismatch,
 			expectedIndex,
+			anchorState.Sequence,
 		)
 	}
 
 	record := capabilityRootRecord{
-		Version:     anchoredCapabilityRootVersion,
-		Index:       expectedIndex,
-		ScopeDigest: scopeDigest,
-		Snapshot:    observed,
-		AnchorID:    anchorID,
-		AnchorValue: nextAnchor,
+		Version:        anchoredCapabilityRootVersion,
+		Index:          expectedIndex,
+		ScopeDigest:    scopeDigest,
+		Snapshot:       observed,
+		AnchorID:       anchorID,
+		AnchorSequence: expectedIndex,
 	}
 	if len(records) != 0 {
 		record.PreviousRecordHash = records[len(records)-1].RecordHash
@@ -125,21 +151,59 @@ func (r *AnchoredFileCapabilityMonotonicRoot) Advance(
 	if err != nil {
 		return egeproto.CapabilityAuthoritySnapshot{}, err
 	}
+
+	nextAnchor := CapabilityRootAnchorState{
+		Sequence:   expectedIndex,
+		Commitment: record.RecordHash,
+	}
+	advanced, err := r.anchor.Advance(ctx, anchorState, nextAnchor)
+	if err != nil {
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"advance capability root anchor: %w",
+			err,
+		)
+	}
+	if advanced != nextAnchor {
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"%w: anchor advanced to sequence=%d commitment=%q; expected sequence=%d commitment=%q",
+			ErrCapabilityRootAnchorMismatch,
+			advanced.Sequence,
+			advanced.Commitment,
+			nextAnchor.Sequence,
+			nextAnchor.Commitment,
+		)
+	}
+
 	payload, err := json.Marshal(record)
 	if err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("encode capability root record: %w", err)
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"encode capability root record: %w",
+			err,
+		)
 	}
 	if _, err := file.Seek(0, io.SeekEnd); err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("seek capability root ledger: %w", err)
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"seek capability root ledger: %w",
+			err,
+		)
 	}
 	if _, err := file.Write(append(payload, '\n')); err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("append capability root ledger: %w", err)
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"append capability root ledger: %w",
+			err,
+		)
 	}
 	if err := file.Sync(); err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("sync capability root ledger: %w", err)
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"sync capability root ledger: %w",
+			err,
+		)
 	}
 	if err := syncCapabilityRootDirectory(filepath.Dir(r.path)); err != nil {
-		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("sync capability root directory: %w", err)
+		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf(
+			"sync capability root directory: %w",
+			err,
+		)
 	}
 	return observed, nil
 }
@@ -167,25 +231,39 @@ func (r *AnchoredFileCapabilityMonotonicRoot) Current(
 
 func (r *AnchoredFileCapabilityMonotonicRoot) openVerified(
 	ctx context.Context,
-) (*os.File, []capabilityRootRecord, string, uint64, error) {
+) (*os.File, []capabilityRootRecord, string, CapabilityRootAnchorState, error) {
 	if r == nil || r.anchor == nil || strings.TrimSpace(r.path) == "" {
-		return nil, nil, "", 0, errors.New("anchored capability monotonic root is unavailable")
+		return nil, nil, "", CapabilityRootAnchorState{}, errors.New(
+			"anchored capability monotonic root is unavailable",
+		)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, nil, "", 0, err
+		return nil, nil, "", CapabilityRootAnchorState{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o700); err != nil {
-		return nil, nil, "", 0, fmt.Errorf("create capability root directory: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"create capability root directory: %w",
+			err,
+		)
 	}
 
-	fd, err := unix.Open(r.path, unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	fd, err := unix.Open(
+		r.path,
+		unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		0o600,
+	)
 	if err != nil {
-		return nil, nil, "", 0, fmt.Errorf("open capability root ledger: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"open capability root ledger: %w",
+			err,
+		)
 	}
 	file := os.NewFile(uintptr(fd), r.path)
 	if file == nil {
 		_ = unix.Close(fd)
-		return nil, nil, "", 0, errors.New("wrap capability root ledger file descriptor")
+		return nil, nil, "", CapabilityRootAnchorState{}, errors.New(
+			"wrap capability root ledger file descriptor",
+		)
 	}
 	cleanup := func() {
 		_ = unix.Flock(fd, unix.LOCK_UN)
@@ -194,74 +272,126 @@ func (r *AnchoredFileCapabilityMonotonicRoot) openVerified(
 
 	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
 		_ = file.Close()
-		return nil, nil, "", 0, fmt.Errorf("lock capability root ledger: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"lock capability root ledger: %w",
+			err,
+		)
 	}
 	if err := unix.Fchmod(fd, 0o600); err != nil {
 		cleanup()
-		return nil, nil, "", 0, fmt.Errorf("restrict capability root ledger permissions: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"restrict capability root ledger permissions: %w",
+			err,
+		)
 	}
 	info, err := file.Stat()
 	if err != nil {
 		cleanup()
-		return nil, nil, "", 0, fmt.Errorf("stat capability root ledger: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"stat capability root ledger: %w",
+			err,
+		)
 	}
 	if !info.Mode().IsRegular() {
 		cleanup()
-		return nil, nil, "", 0, errors.New("capability root ledger is not a regular file")
+		return nil, nil, "", CapabilityRootAnchorState{}, errors.New(
+			"capability root ledger is not a regular file",
+		)
 	}
 
 	records, err := readCapabilityRootRecords(file)
 	if err != nil {
 		cleanup()
-		return nil, nil, "", 0, err
+		return nil, nil, "", CapabilityRootAnchorState{}, err
 	}
 	anchorID, err := r.anchor.Identity(ctx)
 	if err != nil {
 		cleanup()
-		return nil, nil, "", 0, fmt.Errorf("read capability monotonic anchor identity: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"read capability root anchor identity: %w",
+			err,
+		)
 	}
 	if strings.TrimSpace(anchorID) == "" {
 		cleanup()
-		return nil, nil, "", 0, errors.New("capability monotonic anchor returned empty identity")
+		return nil, nil, "", CapabilityRootAnchorState{}, errors.New(
+			"capability root anchor returned empty identity",
+		)
 	}
-	anchorValue, err := r.anchor.Read(ctx)
+	anchorState, err := r.anchor.Current(ctx)
 	if err != nil {
 		cleanup()
-		return nil, nil, "", 0, fmt.Errorf("read capability monotonic anchor: %w", err)
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"read capability root anchor: %w",
+			err,
+		)
+	}
+	if err := validateCapabilityRootAnchorState(anchorState); err != nil {
+		cleanup()
+		return nil, nil, "", CapabilityRootAnchorState{}, err
 	}
 
 	if len(records) == 0 {
-		if anchorValue != 0 {
+		if anchorState.Sequence != 0 || anchorState.Commitment != "" {
 			cleanup()
-			return nil, nil, "", 0, fmt.Errorf(
-				"%w: empty ledger with anchor value %d",
+			return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+				"%w: empty ledger with anchor sequence=%d commitment=%q",
 				ErrCapabilityRootRollback,
-				anchorValue,
+				anchorState.Sequence,
+				anchorState.Commitment,
 			)
 		}
-		return file, records, anchorID, anchorValue, nil
+		return file, records, anchorID, anchorState, nil
 	}
 
 	last := records[len(records)-1]
 	if last.AnchorID != anchorID {
 		cleanup()
-		return nil, nil, "", 0, fmt.Errorf(
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
 			"%w: anchor identity changed from %q to %q",
 			ErrCapabilityRootCorrupt,
 			last.AnchorID,
 			anchorID,
 		)
 	}
-	if anchorValue != last.AnchorValue {
+	if anchorState.Sequence != last.Index {
 		cleanup()
-		return nil, nil, "", 0, fmt.Errorf(
-			"%w: anchor=%d ledger=%d",
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"%w: anchor sequence=%d ledger index=%d",
 			ErrCapabilityRootRollback,
-			anchorValue,
-			last.AnchorValue,
+			anchorState.Sequence,
+			last.Index,
 		)
 	}
-	return file, records, anchorID, anchorValue, nil
+	if anchorState.Commitment != last.RecordHash {
+		cleanup()
+		return nil, nil, "", CapabilityRootAnchorState{}, fmt.Errorf(
+			"%w: anchor head=%q ledger head=%q",
+			ErrCapabilityRootAnchorMismatch,
+			anchorState.Commitment,
+			last.RecordHash,
+		)
+	}
+	return file, records, anchorID, anchorState, nil
+}
+
+func validateCapabilityRootAnchorState(state CapabilityRootAnchorState) error {
+	if state.Sequence == 0 {
+		if state.Commitment != "" {
+			return fmt.Errorf(
+				"%w: zero sequence with non-empty commitment",
+				ErrCapabilityRootAnchorMismatch,
+			)
+		}
+		return nil
+	}
+	if !isCapabilityRootDigest(state.Commitment) {
+		return fmt.Errorf(
+			"%w: non-zero sequence requires sha256 commitment",
+			ErrCapabilityRootAnchorMismatch,
+		)
+	}
+	return nil
 }
 
 func readCapabilityRootRecords(file *os.File) ([]capabilityRootRecord, error) {
@@ -274,16 +404,30 @@ func readCapabilityRootRecords(file *os.File) ([]capabilityRootRecord, error) {
 	for line := 1; scanner.Scan(); line++ {
 		payload := bytes.TrimSpace(scanner.Bytes())
 		if len(payload) == 0 {
-			return nil, fmt.Errorf("%w: empty record at line %d", ErrCapabilityRootCorrupt, line)
+			return nil, fmt.Errorf(
+				"%w: empty record at line %d",
+				ErrCapabilityRootCorrupt,
+				line,
+			)
 		}
 		var record capabilityRootRecord
 		decoder := json.NewDecoder(bytes.NewReader(payload))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&record); err != nil {
-			return nil, fmt.Errorf("%w: line %d: %v", ErrCapabilityRootCorrupt, line, err)
+			return nil, fmt.Errorf(
+				"%w: line %d: %v",
+				ErrCapabilityRootCorrupt,
+				line,
+				err,
+			)
 		}
 		if err := validateCapabilityRootRecord(records, record); err != nil {
-			return nil, fmt.Errorf("%w: line %d: %v", ErrCapabilityRootCorrupt, line, err)
+			return nil, fmt.Errorf(
+				"%w: line %d: %v",
+				ErrCapabilityRootCorrupt,
+				line,
+				err,
+			)
 		}
 		records = append(records, record)
 	}
@@ -293,17 +437,21 @@ func readCapabilityRootRecords(file *os.File) ([]capabilityRootRecord, error) {
 	return records, nil
 }
 
-func validateCapabilityRootRecord(previous []capabilityRootRecord, record capabilityRootRecord) error {
+func validateCapabilityRootRecord(
+	previous []capabilityRootRecord,
+	record capabilityRootRecord,
+) error {
 	if record.Version != anchoredCapabilityRootVersion {
 		return fmt.Errorf("unsupported capability root record version %q", record.Version)
 	}
-	if record.Index == 0 || record.AnchorValue != record.Index {
-		return errors.New("record index and anchor value must be equal and non-zero")
+	if record.Index == 0 || record.AnchorSequence != record.Index {
+		return errors.New("record index and anchor sequence must be equal and non-zero")
 	}
 	if strings.TrimSpace(record.AnchorID) == "" {
 		return errors.New("anchor identity is required")
 	}
-	if !isCapabilityRootDigest(record.ScopeDigest) || !isCapabilityRootDigest(record.RecordHash) {
+	if !isCapabilityRootDigest(record.ScopeDigest) ||
+		!isCapabilityRootDigest(record.RecordHash) {
 		return errors.New("scope digest and record hash must be sha256 digests")
 	}
 	if err := validateCapabilityAuthoritySnapshot(record.Snapshot); err != nil {
@@ -384,7 +532,7 @@ func capabilityRootRecordHash(record capabilityRootRecord) (string, error) {
 		return "", fmt.Errorf("encode capability root record hash input: %w", err)
 	}
 	h := sha256.New()
-	h.Write([]byte("aegis-ege/capability-root-record/v1\x00"))
+	h.Write([]byte("aegis-ege/capability-root-record/v2\x00"))
 	h.Write(payload)
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
