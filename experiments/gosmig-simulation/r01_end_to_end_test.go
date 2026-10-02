@@ -18,9 +18,9 @@ type r01EndToEndEvidence struct {
 	ActionRef     string `json:"action_ref"`
 	Amount        int64  `json:"amount"`
 	E1            struct {
-		EffectID        string `json:"effect_id"`
-		InitiallyExact  bool   `json:"initially_exact"`
-		FinalState      string `json:"final_state"`
+		EffectID       string `json:"effect_id"`
+		InitiallyExact bool   `json:"initially_exact"`
+		FinalState     string `json:"final_state"`
 	} `json:"e1"`
 	E2 struct {
 		EffectID                string `json:"effect_id"`
@@ -33,10 +33,10 @@ type r01EndToEndEvidence struct {
 		AggregateCapturedAmount int64  `json:"aggregate_captured_amount"`
 	} `json:"e2"`
 	Authority struct {
-		OldExpiresAt  time.Time `json:"old_expires_at"`
-		OldExpired    bool      `json:"old_expired"`
-		CurrentOwner  string    `json:"current_owner"`
-		CurrentFence  int64     `json:"current_fence"`
+		OldExpiresAt time.Time `json:"old_expires_at"`
+		OldExpired   bool      `json:"old_expired"`
+		CurrentOwner string    `json:"current_owner"`
+		CurrentFence int64     `json:"current_fence"`
 	} `json:"authority"`
 	E3 struct {
 		EffectID          string `json:"effect_id"`
@@ -243,8 +243,8 @@ func TestR01EndToEndCompoundSchedule(t *testing.T) {
 
 	ev.ExactPostcondition =
 		ev.E1.FinalState == "RESERVED" &&
-		ev.E2.APIValue == "CAPTURED" &&
-		ev.E3.DurableRows == 1
+			ev.E2.APIValue == "CAPTURED" &&
+			ev.E3.DurableRows == 1
 
 	if !ev.E1.InitiallyExact ||
 		ev.E1.FinalState != "REVERSED" ||
