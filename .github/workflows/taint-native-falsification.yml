@@ -89,5 +89,6 @@ jobs:
         shell: bash
         run: |
           "$(go env GOPATH)/bin/vimto" \
-            -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
+            -kernel ghcr.io/cilium/ci-kernels:stable-selftests \
+            exec -- \
             bash scripts/run-taint-native-vm.sh "$PWD/.taint-native/aegis_taint.bpf.o"
