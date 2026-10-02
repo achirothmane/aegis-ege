@@ -94,7 +94,7 @@ For the trust model, TOCTOU staging, post-load verification, partial-attach roll
 M01-M03 hardening work. It does **not** replace the signed network DecisionCapsule
 adapter and it is not yet part of the production bootstrap manifest.
 
-The artifact compiles six programs:
+The artifact compiles eleven programs:
 
 - `lsm/file_permission` — observes configured sensitive-source reads and
   propagates taint through file reads/writes;
@@ -103,6 +103,10 @@ The artifact compiles six programs:
 - `lsm/inode_rename`;
 - `lsm/inode_unlink` — invalidate source-identity continuity when a registered
   source inode participates in rename/replacement or unlink;
+- `lsm/sb_mount`, `lsm/sb_umount`, `lsm/sb_remount`, `lsm/move_mount`,
+  `lsm/sb_pivotroot` — once source lifetime is armed, conservatively invalidate
+  source continuity on mount-topology mutation attempts that can change what a
+  bound source path resolves to without touching the enrolled inode;
 - `cgroup/connect4`;
 - `cgroup/connect6` — fail closed when a protected cgroup has propagation
   uncertainty or when the current process carries labels not admitted by that
@@ -124,6 +128,7 @@ aegis_tcgroups  protected cgroup IDs
 aegis_tallow    admitted egress label mask per cgroup
 aegis_tfail     propagation uncertainty count per cgroup
 aegis_tdirty    global source-identity invalidation counter
+aegis_tarmed    source-lifetime topology guard arm state
 aegis_tevents   ring-buffer evidence stream
 aegis_tacct     stream loss accounting
 ```
@@ -138,8 +143,9 @@ zero-valued uncertainty entry and denies when the counter is non-zero.
 
 CI compiles the BPF-LSM/tracepoint/cgroup object with `clang -target bpf` and
 the Go side mirrors/decodes its fixed ABI. Protected egress now also requires
-`aegis_tdirty == 0`; any registered-source rename/replacement or unlink moves
-source identity continuity to fail-closed DIRTY.
+`aegis_tdirty == 0`; registered-source rename/replacement/unlink and armed
+mount-topology mutation attempts move source identity continuity to fail-closed
+DIRTY.
 
 The repository now also contains a signed two-phase install path:
 
@@ -149,7 +155,7 @@ aegis-taint-bpf-sign
 
 aegis-taint-bpf-loader
   -> verify signature + digest + exact ELF surface
-  -> load and attach all six hooks
+  -> load and attach all eleven hooks
   -> pin programs/maps/links
   -> signed local bootstrap receipt
   -> cgroup still NOT protected
@@ -165,6 +171,7 @@ aegis-taint-plan
 aegis-taint-activate
   -> verify signed bootstrap receipt + current boot + pinned links
   -> install enrolled source identities while target cgroup is still inactive
+  -> arm mount-topology source-lifetime invalidation
   -> kernel-probe every bound source path again
   -> require exact enrolled/current identity-set equality
   -> require source-identity DIRTY counter == 0
@@ -203,10 +210,21 @@ userspace inode 12 becomes inode 13. The rename guard advances
 clean child remains unable to egress even though the replacement inode itself
 was never enrolled.
 
+A separate privileged schedule bind-mounts a different regular file directly
+onto an enrolled source path after activation. The original inode is neither
+renamed nor unlinked, but the armed `sb_mount` lifetime guard advances
+`aegis_tdirty`. A clean child reads the substituted file and remains untainted,
+yet its connect is denied because source-path continuity is no longer provable.
+This closes the tested mount-substitution laundering path without pretending
+that `(device,inode)` is an eternal source identity.
+
 It does **not** yet prove:
 
-- source continuity across every live-remount, inode-reuse, filesystem-specific
-  copy-up implementation, or source-lifetime cleanup schedule;
+- source continuity across every filesystem-specific copy-up implementation,
+  mount namespace propagation edge case, or source-lifetime cleanup schedule;
+- allocator-level same-number inode reuse as a directly forced native schedule;
+  the current bounded guarantee is that registered-source unlink/rename makes
+  continuity DIRTY before such reuse can be trusted;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
