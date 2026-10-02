@@ -672,6 +672,8 @@ func attemptNamespacedHostileGuardDisable(
 		filepath.Join(bpffsRoot, "links", "aegis_tconn6"),
 		filepath.Join(bpffsRoot, "links", "aegis_fperm"),
 		filepath.Join(bpffsRoot, "links", "aegis_fork"),
+		filepath.Join(bpffsRoot, "links", "aegis_trename"),
+		filepath.Join(bpffsRoot, "links", "aegis_tunlink"),
 	} {
 		if err := os.Remove(path); err == nil {
 			return fmt.Errorf("namespaced hostile actor removed host enforcement link %s", path)
@@ -833,7 +835,14 @@ func movePIDToCgroup(path string, pid int) error {
 }
 
 func removeNativeTaintPins(root string) {
-	for _, name := range []string{"aegis_fperm", "aegis_fork", "aegis_tconn4", "aegis_tconn6"} {
+	for _, name := range []string{
+		"aegis_fperm",
+		"aegis_fork",
+		"aegis_trename",
+		"aegis_tunlink",
+		"aegis_tconn4",
+		"aegis_tconn6",
+	} {
 		_ = os.Remove(filepath.Join(root, "links", name))
 	}
 	_ = os.RemoveAll(root)
