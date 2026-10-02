@@ -239,7 +239,6 @@ func TestNativeTaintBindMountSubstitutionFailsClosed(t *testing.T) {
 	}
 }
 
-
 // TestNativeTaintAncestorRenameSubstitutionFailsClosed attacks the distinction
 // between object identity and path identity. The enrolled source inode remains
 // alive, but its parent directory is renamed and a clean sibling directory is
