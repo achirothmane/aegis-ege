@@ -29,8 +29,8 @@ func TestBuildTaintBootstrapManifestPinsExactSurface(t *testing.T) {
 	if len(manifest.Programs) != 6 {
 		t.Fatalf("programs=%d want=6", len(manifest.Programs))
 	}
-	if len(manifest.Maps) != 11 {
-		t.Fatalf("maps=%d want=11", len(manifest.Maps))
+	if len(manifest.Maps) != 12 {
+		t.Fatalf("maps=%d want=12", len(manifest.Maps))
 	}
 }
 
