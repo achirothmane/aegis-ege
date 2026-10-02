@@ -64,7 +64,10 @@ func ProvisionTPMNVMonotonicRoot(ctx context.Context, device transport.TPM, cfg 
 	}
 
 	def := tpm2.NVDefineSpace{
-		AuthHandle: tpm2.TPMRHOwner,
+		AuthHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(cfg.OwnerAuth),
+		},
 		Auth:       tpm2.TPM2BAuth{Buffer: append([]byte(nil), cfg.IndexAuth...)},
 		PublicInfo: tpm2.New2B(tpm2.TPMSNVPublic{
 			NVIndex: cfg.NVIndex,
@@ -80,7 +83,7 @@ func ProvisionTPMNVMonotonicRoot(ctx context.Context, device transport.TPM, cfg 
 			DataSize: 8,
 		}),
 	}
-	if _, err := def.Execute(device, tpm2.PasswordAuth(cfg.OwnerAuth)); err != nil {
+	if _, err := def.Execute(device); err != nil {
 		return fmt.Errorf("define TPM NV counter 0x%x: %w", uint32(cfg.NVIndex), err)
 	}
 
