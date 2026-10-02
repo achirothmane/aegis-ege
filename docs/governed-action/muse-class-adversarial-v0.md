@@ -270,6 +270,15 @@ sensitive file read
   -> kernel DENY
 ```
 
+A second schedule then atomically replaced that enrolled OverlayFS source after
+activation. The logical path remained the same while the userspace inode changed
+from 6 to 11. New `lsm/inode_rename` / `lsm/inode_unlink` guards treat
+mutation of a registered source identity as evidence-continuity loss:
+`aegis_tdirty` becomes non-zero, and every protected connect fails closed.
+The native run observed `aegis_tdirty=1` and a clean pre-existing child could
+not egress after reading the replacement object.
+
+
 The same native harness also exercises M15 in two stages. M15a runs an
 unprivileged hostile process in the protected cgroup. M15b launches the hostile
 workload through the signed attested-workload path with
@@ -372,13 +381,18 @@ Only the following new claims are earned by this change:
     M15b hostile workload;
 28. the M15b actor cannot join the host mount namespace or disable host-side
     enforcement, and the parent independently observes that activation remains
-    present after the actor exits.
+    present after the actor exits;
+29. atomic replacement of a registered OverlayFS source after activation is
+    detected by the kernel rename guard and increments source identity
+    continuity state;
+30. once source identity continuity is dirty, protected network egress fails
+    closed even for a clean process reading an unenrolled replacement inode.
 
 This change does **not** yet prove:
 
 - production Linux process/data taint observation and complete mediation;
-- stable source identity across every stacked-filesystem rename, copy-up,
-  replacement and live-remount schedule beyond the tested controlled read;
+- source continuity across every copy-up, live-remount, inode-reuse and
+  pre-activation mutation schedule;
 - containment of an attacker that already controls the host initial user namespace or host root;
 - production-grade cross-process/VM secret isolation and authenticated broker IPC;
 - out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
@@ -414,7 +428,9 @@ Hostile-agent harness / signed user-namespace separation
     ↓
 Stacked-filesystem source identity proof
     ↓
-Copy-up / rename / replacement identity invalidation
+Post-activation rename / replacement invalidation
+    ↓
+Copy-up + pre-activation mutation / enrollment TOCTOU
     ↓
 Unmodelled IPC / namespace / effect-surface falsification
 ```
