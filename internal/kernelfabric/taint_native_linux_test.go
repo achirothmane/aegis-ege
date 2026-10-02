@@ -869,6 +869,11 @@ func attemptNamespacedHostileGuardDisable(
 		filepath.Join(bpffsRoot, "links", "aegis_fork"),
 		filepath.Join(bpffsRoot, "links", "aegis_trename"),
 		filepath.Join(bpffsRoot, "links", "aegis_tunlink"),
+		filepath.Join(bpffsRoot, "links", "aegis_tmount"),
+		filepath.Join(bpffsRoot, "links", "aegis_tumount"),
+		filepath.Join(bpffsRoot, "links", "aegis_tremount"),
+		filepath.Join(bpffsRoot, "links", "aegis_tmove"),
+		filepath.Join(bpffsRoot, "links", "aegis_tpivot"),
 	} {
 		if err := os.Remove(path); err == nil {
 			return fmt.Errorf("namespaced hostile actor removed host enforcement link %s", path)
@@ -915,6 +920,13 @@ func attemptHostileGuardDisable(bpffsRoot, escapeCgroup string, cgroupID uint64)
 		filepath.Join(bpffsRoot, "links", "aegis_tconn6"),
 		filepath.Join(bpffsRoot, "links", "aegis_fperm"),
 		filepath.Join(bpffsRoot, "links", "aegis_fork"),
+		filepath.Join(bpffsRoot, "links", "aegis_trename"),
+		filepath.Join(bpffsRoot, "links", "aegis_tunlink"),
+		filepath.Join(bpffsRoot, "links", "aegis_tmount"),
+		filepath.Join(bpffsRoot, "links", "aegis_tumount"),
+		filepath.Join(bpffsRoot, "links", "aegis_tremount"),
+		filepath.Join(bpffsRoot, "links", "aegis_tmove"),
+		filepath.Join(bpffsRoot, "links", "aegis_tpivot"),
 	} {
 		if err := os.Remove(path); err == nil {
 			return fmt.Errorf("hostile actor removed pinned enforcement link %s", path)
@@ -1035,6 +1047,11 @@ func removeNativeTaintPins(root string) {
 		"aegis_fork",
 		"aegis_trename",
 		"aegis_tunlink",
+		"aegis_tmount",
+		"aegis_tumount",
+		"aegis_tremount",
+		"aegis_tmove",
+		"aegis_tpivot",
 		"aegis_tconn4",
 		"aegis_tconn6",
 	} {

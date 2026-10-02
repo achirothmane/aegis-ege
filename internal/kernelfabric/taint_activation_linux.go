@@ -110,6 +110,19 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		return TaintActivationResult{}, err
 	}
 	defer dirtyMap.Close()
+	armedMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tarmed"), ebpf.Array, 4, 4, 1)
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	defer armedMap.Close()
+	var armedKey uint32
+	var armedState uint32
+	if err := armedMap.Lookup(&armedKey, &armedState); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("read taint source lifetime arm state: %w", err)
+	}
+	if armedState != 0 {
+		return TaintActivationResult{}, errors.New("taint source lifetime guard is already armed")
+	}
 	sourceDirty, err := taintSourceDirtyCount(dirtyMap)
 	if err != nil {
 		return TaintActivationResult{}, err
@@ -133,6 +146,8 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		}
 		_ = allowMap.Delete(&cgroupID)
 		_ = failureMap.Delete(&cgroupID)
+		var disabled uint32
+		_ = armedMap.Update(&armedKey, &disabled, ebpf.UpdateAny)
 	}
 	activated := false
 	defer func() {
@@ -156,8 +171,13 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 	}
 
 	// The source map is installed while the target cgroup is still inactive.
-	// This arms inode_rename/inode_unlink invalidation before the final source
-	// revalidation and closes the enrollment -> activation mutation window.
+	// Arm source-lifetime topology invalidation before the final source
+	// revalidation. From this point onward, mount/remount/unmount/move/pivot
+	// attempts invalidate continuity even when the original inode remains alive.
+	var armed uint32 = 1
+	if err := armedMap.Update(&armedKey, &armed, ebpf.UpdateAny); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("arm taint source lifetime guard: %w", err)
+	}
 	if err := revalidateTaintSourceBindings(root, req.Plan.Sources); err != nil {
 		return TaintActivationResult{}, err
 	}

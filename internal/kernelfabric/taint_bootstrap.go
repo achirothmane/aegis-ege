@@ -46,6 +46,36 @@ var taintBootstrapPrograms = []BootstrapProgram{
 		AttachType: "lsm/inode_unlink",
 	},
 	{
+		PinName:    "aegis_tmount",
+		Name:       "aegis_tmount",
+		Type:       "lsm",
+		AttachType: "lsm/sb_mount",
+	},
+	{
+		PinName:    "aegis_tumount",
+		Name:       "aegis_tumount",
+		Type:       "lsm",
+		AttachType: "lsm/sb_umount",
+	},
+	{
+		PinName:    "aegis_tremount",
+		Name:       "aegis_tremount",
+		Type:       "lsm",
+		AttachType: "lsm/sb_remount",
+	},
+	{
+		PinName:    "aegis_tmove",
+		Name:       "aegis_tmove",
+		Type:       "lsm",
+		AttachType: "lsm/move_mount",
+	},
+	{
+		PinName:    "aegis_tpivot",
+		Name:       "aegis_tpivot",
+		Type:       "lsm",
+		AttachType: "lsm/sb_pivotroot",
+	},
+	{
 		PinName:    "aegis_tconn4",
 		Name:       "aegis_tconn4",
 		Type:       "cgroup_sock_addr",
@@ -70,6 +100,7 @@ var taintBootstrapMaps = []BootstrapMap{
 	{Name: "aegis_tevents", Type: "ringbuf"},
 	{Name: "aegis_tfail", Type: "hash"},
 	{Name: "aegis_tdirty", Type: "array"},
+	{Name: "aegis_tarmed", Type: "array"},
 	{Name: "aegis_tsrc", Type: "hash"},
 }
 

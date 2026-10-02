@@ -130,6 +130,13 @@ struct {
 } aegis_tdirty SEC(".maps");
 
 struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u32);
+} aegis_tarmed SEC(".maps");
+
+struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 1 << 20);
 } aegis_tevents SEC(".maps");
@@ -248,6 +255,35 @@ static __always_inline int file_key_from_dentry(
 	return file_key_from_inode(inode, key);
 }
 
+static __always_inline int source_lifetime_armed(void)
+{
+	__u32 zero = 0;
+	__u32 *armed = bpf_map_lookup_elem(&aegis_tarmed, &zero);
+	return armed && *armed;
+}
+
+static __always_inline void invalidate_source_continuity(
+	__u64 file_device,
+	__u64 file_inode,
+	__u64 labels)
+{
+	__u32 zero = 0;
+	__u64 *dirty = bpf_map_lookup_elem(&aegis_tdirty, &zero);
+	if (dirty)
+		__sync_fetch_and_add(dirty, 1);
+
+	struct taint_emit_input invalidated = {
+		.cgroup_id = bpf_get_current_cgroup_id(),
+		.file_device = file_device,
+		.file_inode = file_inode,
+		.labels = labels,
+		.tgid = current_tgid(),
+		.event_type = AEGIS_TAINT_EVENT_SOURCE_INVALIDATED,
+		.operation = AEGIS_TAINT_OP_IDENTITY_CHANGE,
+	};
+	emit_event(&invalidated);
+}
+
 static __always_inline void invalidate_source_identity(
 	const struct aegis_taint_file_key *key)
 {
@@ -258,21 +294,14 @@ static __always_inline void invalidate_source_identity(
 	if (!labels || !*labels)
 		return;
 
-	__u32 zero = 0;
-	__u64 *dirty = bpf_map_lookup_elem(&aegis_tdirty, &zero);
-	if (dirty)
-		__sync_fetch_and_add(dirty, 1);
+	invalidate_source_continuity(key->device, key->inode, *labels);
+}
 
-	struct taint_emit_input invalidated = {
-		.cgroup_id = bpf_get_current_cgroup_id(),
-		.file_device = key->device,
-		.file_inode = key->inode,
-		.labels = *labels,
-		.tgid = current_tgid(),
-		.event_type = AEGIS_TAINT_EVENT_SOURCE_INVALIDATED,
-		.operation = AEGIS_TAINT_OP_IDENTITY_CHANGE,
-	};
-	emit_event(&invalidated);
+static __always_inline void invalidate_source_topology(void)
+{
+	if (!source_lifetime_armed())
+		return;
+	invalidate_source_continuity(0, 0, 0);
 }
 
 static __always_inline int union_process_taint(
@@ -484,6 +513,56 @@ int aegis_tunlink(__u64 *ctx)
 	if (!file_key_from_dentry(dentry, &key))
 		invalidate_source_identity(&key);
 
+	return 0;
+}
+
+SEC("lsm/sb_mount")
+int aegis_tmount(__u64 *ctx)
+{
+	int ret = (int)ctx[5];
+	if (ret)
+		return ret;
+	invalidate_source_topology();
+	return 0;
+}
+
+SEC("lsm/sb_umount")
+int aegis_tumount(__u64 *ctx)
+{
+	int ret = (int)ctx[2];
+	if (ret)
+		return ret;
+	invalidate_source_topology();
+	return 0;
+}
+
+SEC("lsm/sb_remount")
+int aegis_tremount(__u64 *ctx)
+{
+	int ret = (int)ctx[2];
+	if (ret)
+		return ret;
+	invalidate_source_topology();
+	return 0;
+}
+
+SEC("lsm/move_mount")
+int aegis_tmove(__u64 *ctx)
+{
+	int ret = (int)ctx[2];
+	if (ret)
+		return ret;
+	invalidate_source_topology();
+	return 0;
+}
+
+SEC("lsm/sb_pivotroot")
+int aegis_tpivot(__u64 *ctx)
+{
+	int ret = (int)ctx[2];
+	if (ret)
+		return ret;
+	invalidate_source_topology();
 	return 0;
 }
 

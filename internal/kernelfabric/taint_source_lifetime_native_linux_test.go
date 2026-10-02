@@ -1,0 +1,266 @@
+//go:build linux && taintnative
+
+package kernelfabric
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cilium/ebpf"
+	"golang.org/x/sys/unix"
+)
+
+// TestNativeTaintBindMountSubstitutionFailsClosed attacks source lifetime after
+// activation without renaming or unlinking the enrolled inode. A bind mount
+// shadows the enrolled path with a different regular file. Safety requires the
+// mount-topology guard to make source continuity DIRTY before a clean reader can
+// use the substituted path and regain egress.
+func TestNativeTaintBindMountSubstitutionFailsClosed(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("native taint mount-substitution test requires root")
+	}
+	if len(nativeTaintBPFObject) == 0 {
+		t.Fatal("embedded native taint BPF object is empty")
+	}
+	if err := prepareNativeTaintKernel(); err != nil {
+		t.Fatalf("prepare native taint kernel environment: %v", err)
+	}
+
+	originalCgroup, err := currentUnifiedCgroupPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testID := fmt.Sprintf("aegis-taint-mount-%d", os.Getpid())
+	cgroupPath := filepath.Join("/sys/fs/cgroup", testID)
+	if err := os.Mkdir(cgroupPath, 0o755); err != nil {
+		t.Fatalf("create mount-substitution cgroup: %v", err)
+	}
+	defer func() {
+		_ = movePIDToCgroup(originalCgroup, os.Getpid())
+		_ = os.Remove(cgroupPath)
+	}()
+
+	bpffsRoot := filepath.Join("/sys/fs/bpf", testID)
+	if err := os.MkdirAll(bpffsRoot, 0o755); err != nil {
+		t.Fatalf("create mount-substitution bpffs root: %v", err)
+	}
+	defer removeNativeTaintPins(bpffsRoot)
+
+	artifact := filepath.Join(t.TempDir(), "aegis_taint.bpf.o")
+	if err := os.WriteFile(artifact, nativeTaintBPFObject, 0o600); err != nil {
+		t.Fatalf("materialize taint BPF object: %v", err)
+	}
+	overlay := mountNativeOverlaySource(t)
+	secretPath := overlay.SecretPath
+
+	now := time.Now().UTC()
+	manifest, err := BuildTaintBootstrapManifest(
+		artifact,
+		now.Add(-time.Minute),
+		now.Add(15*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releasePublic, releasePrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedManifest, err := SignBootstrapManifest(manifest, releasePrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseKeyID, err := BootstrapKeyID(releasePublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, attestationPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestationPublic := attestationPrivate.Public().(ed25519.PublicKey)
+
+	loader := TaintBootstrapLoader{}
+	loaded, err := loader.LoadAndAttach(context.Background(), TaintBootstrapLoadRequest{
+		ArtifactPath:          artifact,
+		CgroupPath:            cgroupPath,
+		BPFFSRoot:             bpffsRoot,
+		SignedManifest:        signedManifest,
+		Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
+		AttestationPrivateKey: attestationPrivate,
+		Now:                   now,
+	})
+	if err != nil {
+		t.Fatalf("load mount-lifetime taint BPF programs: %v", err)
+	}
+
+	sourceKeys, err := ResolveTaintFileKeysObserved(bpffsRoot, secretPath)
+	if err != nil {
+		t.Fatalf("kernel-observe mount-lifetime source: %v", err)
+	}
+	if len(sourceKeys) == 0 {
+		t.Fatal("mount-lifetime source probe returned no kernel identities")
+	}
+	plan := TaintActivationPlan{
+		CgroupPath:    cgroupPath,
+		AllowedLabels: 0,
+		Sources:       make([]TaintSourceBinding, 0, len(sourceKeys)),
+	}
+	for _, key := range sourceKeys {
+		plan.Sources = append(plan.Sources, TaintSourceBinding{
+			Path:   secretPath,
+			File:   key,
+			Labels: 1,
+		})
+	}
+	activated, err := ActivateTaintCgroup(TaintActivationRequest{
+		BPFFSRoot:                     bpffsRoot,
+		Plan:                          plan,
+		SignedBootstrapReceipt:        loaded.SignedReceipt,
+		BootstrapAttestationPublicKey: attestationPublic,
+	})
+	if err != nil {
+		t.Fatalf("activate mount-lifetime taint cgroup: %v", err)
+	}
+
+	dirtyBefore, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source continuity before bind substitution: %v", err)
+	}
+	if dirtyBefore != 0 {
+		t.Fatalf("source continuity dirty before bind substitution: %d", dirtyBefore)
+	}
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go acceptNativeConnections(listener)
+
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move mount-substitution test into protected cgroup: %v", err)
+	}
+
+	// Positive control: the parent is clean and source continuity is intact.
+	conn, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("clean egress unexpectedly denied before bind substitution: %v", err)
+	}
+	_ = conn.Close()
+
+	// Fork a clean child before the source path is shadowed. It waits until the
+	// bind mount exists, then reads the substituted file and attempts egress.
+	child := exec.Command(os.Args[0], "-test.run=^TestTaintNativeHelper$")
+	child.Env = append(os.Environ(),
+		taintNativeHelperEnv+"=1",
+		taintNativeHelperMode+"=replacement",
+		taintNativeHelperAddr+"="+listener.Addr().String(),
+		taintNativeHelperSource+"="+secretPath,
+	)
+	childStdin, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Stdout = os.Stdout
+	child.Stderr = os.Stderr
+	if err := child.Start(); err != nil {
+		t.Fatalf("start clean bind-substitution child: %v", err)
+	}
+	childPID := uint32(child.Process.Pid)
+
+	substitutePath := filepath.Join(t.TempDir(), "substitute-secret.txt")
+	if err := os.WriteFile(substitutePath, []byte("substituted-unenrolled-object"), 0o600); err != nil {
+		t.Fatalf("write bind-mount substitute: %v", err)
+	}
+	substituteKey, err := ResolveTaintFileKey(substitutePath)
+	if err != nil {
+		t.Fatalf("resolve bind-mount substitute identity: %v", err)
+	}
+
+	if err := unix.Mount(substitutePath, secretPath, "", unix.MS_BIND, ""); err != nil {
+		t.Fatalf("bind substitute over enrolled source path: %v", err)
+	}
+	defer func() {
+		if err := unix.Unmount(secretPath, unix.MNT_DETACH); err != nil {
+			t.Logf("unmount bind substitute: %v", err)
+		}
+	}()
+
+	dirtyAfter, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source continuity after bind substitution: %v", err)
+	}
+	if dirtyAfter <= dirtyBefore {
+		t.Fatalf(
+			"bind mount did not invalidate source continuity: before=%d after=%d",
+			dirtyBefore,
+			dirtyAfter,
+		)
+	}
+	t.Logf(
+		"bind substitution invalidated source lifetime: enrolled=%+v substitute_userspace=%+v dirty=%d",
+		sourceKeys,
+		substituteKey,
+		dirtyAfter,
+	)
+
+	if _, err := childStdin.Write([]byte("go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := childStdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Wait(); err != nil {
+		t.Fatalf("clean child escaped after bind-mount source substitution: %v", err)
+	}
+	if err := assertNativeProcessUntainted(bpffsRoot, childPID); err != nil {
+		t.Fatalf(
+			"bind-substitution denial was not isolated to source continuity: %v",
+			err,
+		)
+	}
+
+	isActive, err := TaintCgroupActivationState(bpffsRoot, activated.CgroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isActive {
+		t.Fatal("mount-substitution schedule removed protected-cgroup activation")
+	}
+}
+
+func assertNativeProcessUntainted(bpffsRoot string, tgid uint32) error {
+	m, err := openExactTaintMap(
+		filepath.Join(bpffsRoot, "maps", "aegis_ptaint"),
+		ebpf.Hash,
+		4,
+		8,
+		65536,
+	)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+
+	var got uint64
+	if err := m.Lookup(&tgid, &got); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
+		return fmt.Errorf("lookup tgid %d: %w", tgid, err)
+	}
+	if got != 0 {
+		return fmt.Errorf("tgid %d unexpectedly tainted with labels=%#x", tgid, got)
+	}
+	return nil
+}
