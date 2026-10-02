@@ -274,6 +274,17 @@ CLEAN to DIRTY, clears the commitment, and restores clean egress. A later
 invalidation still rejects the old authorization because no completed recovery
 commitment remains pending.
 
+A complementary lost-reply schedule kills the controller after CLEAN has already
+committed but before the pending recovery commitment is cleared. The surviving
+process observes `epoch=3, dirty=2, clean=2`, the exact commitment still pinned,
+and egress already ALLOW. This distinguishes a lost recovery result from an
+unfinished recovery. A different correctly signed authorization with identical
+numeric state cannot acknowledge the completion. Re-presenting the exact signed
+authorization revalidates the enrolled source set, clears only the pending
+commitment, and reconstructs the recovery result without changing epoch, DIRTY,
+CLEAN, or the source-enrollment map. Once acknowledged, replaying that same
+authorization is rejected rather than producing a second successful recovery.
+
 It does **not** yet prove:
 
 - source continuity across every filesystem-specific copy-up implementation,
