@@ -14,12 +14,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 )
 
@@ -31,6 +33,7 @@ const (
 	taintRecoveryAuthEnv        = "AEGIS_TAINT_RECOVERY_AUTH"
 	taintRecoveryKeyEnv         = "AEGIS_TAINT_RECOVERY_KEY"
 	taintRecoveryNowEnv         = "AEGIS_TAINT_RECOVERY_NOW"
+	taintRecoveryBoundaryEnv    = "AEGIS_TAINT_RECOVERY_BOUNDARY"
 )
 
 func TestTaintRestartObserver(t *testing.T) {
@@ -91,16 +94,23 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 		t.Fatalf("parse crash recovery time: %v", err)
 	}
 
-	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+	req := TaintRecoveryRequest{
 		BPFFSRoot:            os.Getenv(taintNativeHelperBPFFSRoot),
 		Plan:                 plan,
 		SignedAuthorization:  signed,
 		RecoveryAuthorityKey: ed25519.PublicKey(keyBytes),
 		Now:                  now,
-		afterEpochCommit: func() {
-			os.Exit(86)
-		},
-	})
+	}
+	switch os.Getenv(taintRecoveryBoundaryEnv) {
+	case "epoch":
+		req.afterEpochCommit = func() { os.Exit(86) }
+	case "clean":
+		req.afterCleanCommit = func() { os.Exit(87) }
+	default:
+		t.Fatalf("unknown recovery crash boundary %q", os.Getenv(taintRecoveryBoundaryEnv))
+	}
+
+	_, err = RecoverTaintSourceContinuity(req)
 	if err != nil {
 		t.Fatalf("recovery failed before crash boundary: %v", err)
 	}
@@ -642,6 +652,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		taintRecoveryAuthEnv+"="+recoveryAuthPath,
 		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
 		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
+		taintRecoveryBoundaryEnv+"=epoch",
 		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
 	)
 	crash.Stdout = os.Stdout
@@ -870,14 +881,236 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatalf("stale recovery replay restored egress: %v", err)
 	}
 
+	// The first crash boundary proved fail-closed resume before CLEAN. Now prove
+	// the opposite lost-reply shape: recovery reaches CLEAN successfully, then
+	// the controller dies before it clears the pending commitment or returns its
+	// result. The next process must reconcile completion, not execute recovery
+	// again.
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("move lost-receipt recovery controller outside protected cgroup: %v", err)
+	}
+
+	cleanCrashAuth := recoveryAuth
+	cleanCrashAuth.AuthorizationID = "native-source-recovery-epoch-2-to-3-lost-receipt"
+	cleanCrashAuth.FromEpoch = epochAfterRecovery
+	cleanCrashAuth.ToEpoch = epochAfterRecovery + 1
+	cleanCrashAuth.ExpectedDirty = secondDirty
+	signedCleanCrash, err := SignTaintRecoveryAuthorization(cleanCrashAuth, recoveryPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanCrashCommitment, err := TaintRecoveryCommitmentDigest(signedCleanCrash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanCrashAuthPath := filepath.Join(recoveryDir, "clean-crash-authorization.json")
+	cleanCrashPayload, err := json.Marshal(signedCleanCrash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cleanCrashAuthPath, cleanCrashPayload, 0o600); err != nil {
+		t.Fatalf("write post-CLEAN crash authorization: %v", err)
+	}
+
+	cleanCrash := exec.Command(os.Args[0], "-test.run=^TestTaintRecoveryCrashHelper$")
+	cleanCrash.Env = append(os.Environ(),
+		taintRecoveryCrashHelperEnv+"=1",
+		taintRecoveryPlanEnv+"="+recoveryPlanPath,
+		taintRecoveryAuthEnv+"="+cleanCrashAuthPath,
+		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
+		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
+		taintRecoveryBoundaryEnv+"=clean",
+		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
+	)
+	cleanCrash.Stdout = os.Stdout
+	cleanCrash.Stderr = os.Stderr
+	err = cleanCrash.Run()
+	var cleanExitErr *exec.ExitError
+	if !errors.As(err, &cleanExitErr) || cleanExitErr.ExitCode() != 87 {
+		t.Fatalf("recovery controller did not die after CLEAN commit: %v", err)
+	}
+
+	epochAfterCleanCrash, err := TaintEnrollmentEpoch(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyAfterCleanCrash, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanAfterCleanCrash, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingAfterCleanCrash, err := TaintRecoveryCommitmentState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epochAfterCleanCrash != cleanCrashAuth.ToEpoch ||
+		dirtyAfterCleanCrash != cleanCrashAuth.ExpectedDirty ||
+		cleanAfterCleanCrash != cleanCrashAuth.ExpectedDirty ||
+		pendingAfterCleanCrash != cleanCrashCommitment {
+		t.Fatalf(
+			"lost-receipt state mismatch: epoch=%d dirty=%d clean=%d pending_match=%t",
+			epochAfterCleanCrash,
+			dirtyAfterCleanCrash,
+			cleanAfterCleanCrash,
+			pendingAfterCleanCrash == cleanCrashCommitment,
+		)
+	}
+
+	// CLEAN already committed before the reply was lost, so the effect boundary
+	// is open. This distinguishes lost reply from the pre-CLEAN crash case.
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move workload into protected cgroup after lost recovery reply: %v", err)
+	}
+	conn, err = net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("committed recovery was not observable after lost reply: %v", err)
+	}
+	_ = conn.Close()
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("move reconciliation controller outside protected cgroup: %v", err)
+	}
+
+	// Same numeric state is insufficient to acknowledge the completed recovery.
+	// The exact signed commitment that produced CLEAN must still match.
+	wrongCompletedAuth := cleanCrashAuth
+	wrongCompletedAuth.AuthorizationID = "different-completed-recovery-at-same-state"
+	signedWrongCompleted, err := SignTaintRecoveryAuthorization(wrongCompletedAuth, recoveryPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            bpffsRoot,
+		Plan:                 recoveryPlan,
+		SignedAuthorization:  signedWrongCompleted,
+		RecoveryAuthorityKey: recoveryPublic,
+		Now:                  now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
+		t.Fatalf("different authorization acknowledged completed recovery: %v", err)
+	}
+	pendingAfterWrongAck, err := TaintRecoveryCommitmentState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingAfterWrongAck != cleanCrashCommitment {
+		t.Fatal("rejected completed-recovery acknowledgement mutated pending commitment")
+	}
+
+	sourcesBeforeAck := nativeTaintSourceSnapshot(t, bpffsRoot)
+	acknowledged, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            bpffsRoot,
+		Plan:                 recoveryPlan,
+		SignedAuthorization:  signedCleanCrash,
+		RecoveryAuthorityKey: recoveryPublic,
+		Now:                  now,
+	})
+	if err != nil {
+		t.Fatalf("reconcile completed recovery after lost reply: %v", err)
+	}
+	if acknowledged.PreviousEpoch != cleanCrashAuth.FromEpoch ||
+		acknowledged.EnrollmentEpoch != cleanCrashAuth.ToEpoch ||
+		acknowledged.AdmittedDirtyGen != cleanCrashAuth.ExpectedDirty {
+		t.Fatalf("unexpected completed-recovery acknowledgement: %+v", acknowledged)
+	}
+	pendingAfterAck, err := TaintRecoveryCommitmentState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var emptyCommitmentAfterAck [32]byte
+	if pendingAfterAck != emptyCommitmentAfterAck {
+		t.Fatal("completed recovery acknowledgement did not clear pending commitment")
+	}
+	epochAfterAck, err := TaintEnrollmentEpoch(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirtyAfterAck, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanAfterAck, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epochAfterAck != epochAfterCleanCrash ||
+		dirtyAfterAck != dirtyAfterCleanCrash ||
+		cleanAfterAck != cleanAfterCleanCrash {
+		t.Fatalf(
+			"completed recovery acknowledgement re-executed state transition: epoch=%d->%d dirty=%d->%d clean=%d->%d",
+			epochAfterCleanCrash,
+			epochAfterAck,
+			dirtyAfterCleanCrash,
+			dirtyAfterAck,
+			cleanAfterCleanCrash,
+			cleanAfterAck,
+		)
+	}
+	sourcesAfterAck := nativeTaintSourceSnapshot(t, bpffsRoot)
+	if !reflect.DeepEqual(sourcesBeforeAck, sourcesAfterAck) {
+		t.Fatalf(
+			"completed recovery acknowledgement rewrote source enrollment: before=%v after=%v",
+			sourcesBeforeAck,
+			sourcesAfterAck,
+		)
+	}
+
+	// Once acknowledged, even the exact authorization is no longer an in-flight
+	// operation. Re-presenting it must not manufacture a second SUCCESS.
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            bpffsRoot,
+		Plan:                 recoveryPlan,
+		SignedAuthorization:  signedCleanCrash,
+		RecoveryAuthorityKey: recoveryPublic,
+		Now:                  now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
+		t.Fatalf("acknowledged recovery was accepted a second time: %v", err)
+	}
+
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move workload into protected cgroup after reconciliation: %v", err)
+	}
+	conn, err = net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("reconciliation changed already-committed recovery effect: %v", err)
+	}
+	_ = conn.Close()
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("restore controller cgroup after reconciliation: %v", err)
+	}
+
 	t.Logf(
-		"recovery crash resumed exact commitment and stale replay failed closed: first_dirty=%d clean=%d recovered_epoch=%d second_dirty=%d replay_epoch=%d",
-		dirtyAfterRecovery,
-		cleanAfterRecovery,
+		"recovery crash boundaries reconciled without duplicate recovery: first_epoch=%d second_dirty=%d lost_reply_epoch=%d lost_reply_dirty=%d lost_reply_clean=%d acknowledged_epoch=%d",
 		epochAfterRecovery,
 		secondDirty,
-		epochAfterReplay,
+		epochAfterCleanCrash,
+		dirtyAfterCleanCrash,
+		cleanAfterCleanCrash,
+		epochAfterAck,
 	)
+}
+
+func nativeTaintSourceSnapshot(t *testing.T, bpffsRoot string) map[TaintFileKey]uint64 {
+	t.Helper()
+	m, err := openExactTaintMap(
+		filepath.Join(bpffsRoot, "maps", "aegis_tsrc"),
+		ebpf.Hash,
+		16,
+		8,
+		32768,
+	)
+	if err != nil {
+		t.Fatalf("open taint source map for snapshot: %v", err)
+	}
+	defer m.Close()
+	snapshot, err := snapshotTaintSourceMap(m)
+	if err != nil {
+		t.Fatalf("snapshot taint source map: %v", err)
+	}
+	return snapshot
 }
 
 func attachNativeLoopDevice(t *testing.T, imagePath string) (string, func()) {
