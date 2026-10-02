@@ -8,6 +8,7 @@ import (
 	"time"
 
 	ga "github.com/achirothmane/aegis-ege/governedaction"
+	"github.com/achirothmane/aegis-ege/governedaction/taintflow"
 )
 
 //go:embed testdata/muse-class/corpus-v0.json
@@ -33,6 +34,7 @@ type museClassCase struct {
 	CurrentApproval    *museApprovalFixture   `json:"current_approval,omitempty"`
 	AdmittedCredential *museCredentialFixture `json:"admitted_credential,omitempty"`
 	CurrentCredential  *museCredentialFixture `json:"current_credential,omitempty"`
+	TaintScenario      *museTaintScenario     `json:"taint_scenario,omitempty"`
 	EffectsUsed        uint32                 `json:"effects_used,omitempty"`
 	At                 string                 `json:"at,omitempty"`
 }
@@ -68,6 +70,18 @@ type museCredentialFixture struct {
 	ValidUntil     string `json:"valid_until"`
 }
 
+type museTaintScenario struct {
+	Kind               string   `json:"kind"`
+	MonitorRef         string   `json:"monitor_ref"`
+	MonitorEpoch       string   `json:"monitor_epoch"`
+	SourceProcess      string   `json:"source_process"`
+	DestinationProcess string   `json:"destination_process,omitempty"`
+	ChannelRef         string   `json:"channel_ref,omitempty"`
+	EgressSubject      string   `json:"egress_subject"`
+	Labels             []string `json:"labels"`
+	AllowedLabels      []string `json:"allowed_labels"`
+}
+
 func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	var corpus museClassCorpus
 	if err := json.Unmarshal(museClassCorpusBytes, &corpus); err != nil {
@@ -91,6 +105,7 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	executedOrigin := 0
 	executedApproval := 0
 	executedCredential := 0
+	executedTaint := 0
 
 	for _, tc := range corpus.Cases {
 		if tc.ID == "" || tc.Name == "" || tc.Class == "" || tc.Coverage == "" || tc.Gate == "" || tc.Expect == "" {
@@ -167,6 +182,17 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 			err = ga.CheckCredentialUse(admitted, current, at)
 			assertMuseExpectation(t, tc, err)
 			executedCredential++
+
+		case "taint":
+			if tc.Coverage != "EXECUTABLE_NOW" {
+				t.Fatalf("%s taint case is not executable: %s", tc.ID, tc.Coverage)
+			}
+			if tc.TaintScenario == nil {
+				t.Fatalf("%s missing taint scenario", tc.ID)
+			}
+			err := executeTaintScenario(*tc.TaintScenario)
+			assertMuseExpectation(t, tc, err)
+			executedTaint++
 		}
 	}
 
@@ -185,12 +211,64 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 	if executedCredential != 2 {
 		t.Fatalf("executed credential cases=%d; want 2", executedCredential)
 	}
-	if coverage["EXECUTABLE_NOW"] != 7 ||
-		coverage["PLANNED"] != 3 ||
+	if executedTaint != 3 {
+		t.Fatalf("executed taint cases=%d; want 3", executedTaint)
+	}
+	if coverage["EXECUTABLE_NOW"] != 10 ||
+		coverage["PLANNED"] != 0 ||
 		coverage["EXISTING_COVERAGE"] != 4 ||
 		coverage["PARTIAL_EXISTING"] != 2 {
 		t.Fatalf("unexpected coverage accounting: %+v", coverage)
 	}
+}
+
+func executeTaintScenario(s museTaintScenario) error {
+	tracker, err := taintflow.New(s.MonitorRef, s.MonitorEpoch)
+	if err != nil {
+		return err
+	}
+	if err := tracker.RegisterProcess(s.SourceProcess); err != nil {
+		return err
+	}
+	for _, label := range s.Labels {
+		if err := tracker.TaintProcess(s.SourceProcess, label); err != nil {
+			return err
+		}
+	}
+
+	switch s.Kind {
+	case "direct":
+	case "fork":
+		if err := tracker.Fork(s.SourceProcess, s.DestinationProcess); err != nil {
+			return err
+		}
+	case "channel":
+		if err := tracker.RegisterProcess(s.DestinationProcess); err != nil {
+			return err
+		}
+		if err := tracker.Write(s.SourceProcess, s.ChannelRef); err != nil {
+			return err
+		}
+		if err := tracker.Read(s.DestinationProcess, s.ChannelRef); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown taint scenario kind %q", s.Kind)
+	}
+
+	observed, err := tracker.Observation(s.EgressSubject)
+	if err != nil {
+		return err
+	}
+	return ga.CheckTaintEgress(
+		ga.TaintEgressBinding{
+			SubjectRef:    s.EgressSubject,
+			MonitorRef:    s.MonitorRef,
+			MonitorEpoch:  s.MonitorEpoch,
+			AllowedLabels: s.AllowedLabels,
+		},
+		observed,
+	)
 }
 
 func assertMuseExpectation(t *testing.T, tc museClassCase, err error) {
