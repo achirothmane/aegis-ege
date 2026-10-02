@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,6 +26,7 @@ func main() {
 	var (
 		cgroupPath = flag.String("cgroup", "", "target cgroup v2 path")
 		allowed    = flag.String("allowed-labels", "0", "allowed egress label bitmask (decimal or 0x...)")
+		bpffsRoot  = flag.String("bpffs-root", kernelfabric.DefaultTaintBPFFSRoot, "pinned taint BPF root used for kernel-observed source identity")
 		output     = flag.String("out", "aegis-taint-activation-plan.json", "activation plan output")
 	)
 	flag.Var(&sources, "source", "sensitive regular file as ABSOLUTE_PATH=LABEL_MASK; repeatable")
@@ -42,6 +44,7 @@ func main() {
 		CgroupPath:    *cgroupPath,
 		AllowedLabels: allowedMask,
 	}
+	sourceLabels := make(map[kernelfabric.TaintFileKey]uint64)
 	for _, raw := range sources {
 		index := strings.LastIndex(raw, "=")
 		if index <= 0 || index == len(raw)-1 {
@@ -53,13 +56,28 @@ func main() {
 		if err != nil || mask == 0 {
 			fatalf("invalid label mask in -source %q", raw)
 		}
-		key, err := kernelfabric.ResolveTaintFileKey(path)
+		keys, err := kernelfabric.ResolveTaintFileKeysObserved(*bpffsRoot, path)
 		if err != nil {
-			fatalf("resolve -source %q: %v", path, err)
+			fatalf("kernel-observe -source %q: %v", path, err)
 		}
+		for _, key := range keys {
+			sourceLabels[key] |= mask
+		}
+	}
+	keys := make([]kernelfabric.TaintFileKey, 0, len(sourceLabels))
+	for key := range sourceLabels {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Device != keys[j].Device {
+			return keys[i].Device < keys[j].Device
+		}
+		return keys[i].Inode < keys[j].Inode
+	})
+	for _, key := range keys {
 		plan.Sources = append(plan.Sources, kernelfabric.TaintSourceBinding{
 			File:   key,
-			Labels: mask,
+			Labels: sourceLabels[key],
 		})
 	}
 
