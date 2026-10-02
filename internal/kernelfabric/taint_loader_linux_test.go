@@ -53,6 +53,20 @@ func validTaintCollectionSpecForTest() *ebpf.CollectionSpec {
 				ValueSize:  8,
 				MaxEntries: 65536,
 			},
+			"aegis_tprobe": {
+				Name:       "aegis_tprobe",
+				Type:       ebpf.Hash,
+				KeySize:    4,
+				ValueSize:  8,
+				MaxEntries: 4096,
+			},
+			"aegis_tprobe_r": {
+				Name:       "aegis_tprobe_r",
+				Type:       ebpf.Hash,
+				KeySize:    TaintProbeKeySize,
+				ValueSize:  8,
+				MaxEntries: 16384,
+			},
 			"aegis_tcgroups": {
 				Name:       "aegis_tcgroups",
 				Type:       ebpf.Hash,
