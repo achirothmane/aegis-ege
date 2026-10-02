@@ -34,6 +34,14 @@ jobs:
             -Ikernel/bpf \
             -c kernel/bpf/aegis_taint.bpf.c \
             -o "$RUNNER_TEMP/aegis_taint.bpf.o"
+      - name: Verify taint hardening formatting
+        run: |
+          offenders="$(gofmt -l internal/kernelfabric/taint_*.go cmd/aegis-taint-*/main.go)"
+          if [ -n "$offenders" ]; then
+            echo "gofmt required for:"
+            printf '%s\n' "$offenders"
+            exit 1
+          fi
       - name: Assert legacy unsigned BPF loader is disabled
         run: |
           if bash kernel/bpf/load.sh >"$RUNNER_TEMP/legacy-loader.out" 2>&1; then
