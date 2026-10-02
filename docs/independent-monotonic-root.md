@@ -264,3 +264,62 @@ A second proof deletes and redefines the same NV counter handle. The newly initi
 ### Claim boundary
 
 The TPM backend protects against rollback of application/filesystem state while the TPM anti-rollback property remains trusted. It does not claim protection after physical replacement of the TPM, compromise of the TPM implementation itself, or migration to another device without an explicit root-transfer protocol.
+
+## Cross-cluster witness proof
+
+The next failure-domain step places the mutable capability authority and the protected root head in different Kubernetes control planes.
+
+The KinD proof creates two independent API servers:
+
+```text
+workload cluster A
+  mutable capability authority ConfigMap
+        |
+        | T1 -> T2
+        v
+local capability-root ledger
+        |
+        | exact head commitment
+        v
+witness cluster B
+  KubernetesHeadStore
+  resourceVersion CAS
+```
+
+After T2 is accepted, the proof deletes the mutable authority object in cluster A and recreates the historical T1 value, while also restoring the local root ledger to its T1 bytes. Cluster B is not modified and remains committed to the exact T2 root head.
+
+Expected result:
+
+```text
+cluster A authority = T1 (recreated)
+local root ledger    = T1 (restored)
+cluster B witness    = T2
+
+Current(T1) -> fail closed
+Issue(T1)   -> fail closed
+witness T2  -> unchanged
+```
+
+The test also asserts that workload and witness kubeconfigs resolve to different API servers, so the result is not a same-control-plane namespace separation.
+
+This establishes resilience to destructive replacement or rollback of the tested workload-cluster authority state plus local filesystem state while the second cluster survives. It still does not prove a separately administered trust domain: a principal with credentials to both clusters could modify both failure domains. The next stronger production proof must separate administrative credentials or use an external CAS service/HSM-backed authority outside the workload operator's control.
+
+
+### Credential and administrative separation proof
+
+The cross-cluster proof now uses workload credentials rather than the CI administrator for the operational path.
+
+Cluster A provisions a namespaced `workload-operator` ServiceAccount with ConfigMap mutation rights only in the workload namespace. Cluster B independently provisions a `capability-root-writer` ServiceAccount with the rights required by `KubernetesHeadStore` in the witness namespace.
+
+The executable proof then presents each cluster's ServiceAccount token directly to the other cluster's API server:
+
+```text
+cluster A workload-operator token -> cluster B API server -> UNAUTHORIZED/FORBIDDEN
+cluster B root-writer token       -> cluster A API server -> UNAUTHORIZED/FORBIDDEN
+```
+
+All mutable-authority changes during the T1 -> T2 -> T1 scenario use the workload-operator credential. All witness-head reads and compare-and-advance writes use only the root-writer credential.
+
+The CI administrator credential is therefore limited to test-environment provisioning. It is not used by either operational authority path after the two identities are created.
+
+This proves distinct runtime credentials and control-plane authentication boundaries for the tested topology. It does not prove organizational separation of the CI provisioning principal itself; production deployment still requires the witness credential and administrative ownership to be isolated from the workload operator outside the test harness.
