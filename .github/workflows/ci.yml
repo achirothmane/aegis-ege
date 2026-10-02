@@ -68,10 +68,14 @@ jobs:
       - run: go mod download
       - name: Install KinD
         run: go install sigs.k8s.io/kind@v0.33.0
-      - name: Create KinD cluster
+      - name: Create workload and witness KinD clusters
         run: |
-          "$(go env GOPATH)/bin/kind" create cluster --name state-latch --image "kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
+          KIND_IMAGE="kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
+          "$(go env GOPATH)/bin/kind" create cluster --name state-latch --image "$KIND_IMAGE"
+          "$(go env GOPATH)/bin/kind" create cluster --name aegis-witness --image "$KIND_IMAGE"
           "$(go env GOPATH)/bin/kind" get kubeconfig --name state-latch > "$RUNNER_TEMP/state-latch-kubeconfig"
+          "$(go env GOPATH)/bin/kind" get kubeconfig --name aegis-witness > "$RUNNER_TEMP/aegis-witness-kubeconfig"
           echo "KUBECONFIG=$RUNNER_TEMP/state-latch-kubeconfig" >> "$GITHUB_ENV"
+          echo "WITNESS_KUBECONFIG=$RUNNER_TEMP/aegis-witness-kubeconfig" >> "$GITHUB_ENV"
       - name: Run KinD integration tests
         run: go test -tags=integration -run "^TestKind" -v ./internal/kubeadapter ./internal/server ./internal/journal
