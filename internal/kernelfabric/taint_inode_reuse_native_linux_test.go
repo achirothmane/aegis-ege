@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -19,7 +21,39 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const taintInodeReuseHelperEnv = "AEGIS_TAINT_INODE_REUSE_HELPER"
+const (
+	taintInodeReuseHelperEnv = "AEGIS_TAINT_INODE_REUSE_HELPER"
+	taintRestartObserverEnv  = "AEGIS_TAINT_RESTART_OBSERVER"
+)
+
+func TestTaintRestartObserver(t *testing.T) {
+	if os.Getenv(taintRestartObserverEnv) != "1" {
+		return
+	}
+
+	cgroupID, err := strconv.ParseUint(os.Getenv(taintNativeHelperCgroupID), 10, 64)
+	if err != nil {
+		t.Fatalf("parse restart observer cgroup id: %v", err)
+	}
+	active, err := TaintCgroupActivationState(os.Getenv(taintNativeHelperBPFFSRoot), cgroupID)
+	if err != nil {
+		t.Fatalf("restart observer activation state: %v", err)
+	}
+	if !active {
+		t.Fatal("restart observer lost protected-cgroup activation")
+	}
+	dirty, err := TaintSourceIdentityDirtyState(os.Getenv(taintNativeHelperBPFFSRoot))
+	if err != nil {
+		t.Fatalf("restart observer source continuity: %v", err)
+	}
+	if dirty == 0 {
+		t.Fatal("restart observer saw clean continuity after source lifetime loss")
+	}
+	if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("fresh process recovered pinned fail-closed state: cgroup=%d dirty=%d", cgroupID, dirty)
+}
 
 func TestTaintInodeReuseHelper(t *testing.T) {
 	if os.Getenv(taintInodeReuseHelperEnv) != "1" {
@@ -359,13 +393,89 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatal("source-lifetime schedule removed protected-cgroup activation")
 	}
 
+	// Model a userspace control-plane restart with a fresh process. The observer
+	// has no in-memory activation state from this test process: it reopens the
+	// pinned kernel maps, requires the protected cgroup and DIRTY continuity to
+	// still be present, and must remain unable to egress while clean.
+	restartObserver := exec.Command(os.Args[0], "-test.run=^TestTaintRestartObserver$")
+	restartObserver.Env = append(os.Environ(),
+		taintRestartObserverEnv+"=1",
+		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
+		taintNativeHelperCgroupID+"="+strconv.FormatUint(activated.CgroupID, 10),
+		taintNativeHelperAddr+"="+listener.Addr().String(),
+	)
+	restartObserver.Stdout = os.Stdout
+	restartObserver.Stderr = os.Stderr
+	if err := restartObserver.Run(); err != nil {
+		t.Fatalf("fresh-process source-lifetime observation failed: %v", err)
+	}
+
+	// A restarted controller must not silently install a second taint substrate
+	// over the pinned active one. The loader is intentionally stateless in
+	// userspace, so a brand-new instance exercises the restart boundary directly.
+	_, err = (TaintBootstrapLoader{}).LoadAndAttach(context.Background(), TaintBootstrapLoadRequest{
+		ArtifactPath:          artifact,
+		CgroupPath:            cgroupPath,
+		BPFFSRoot:             bpffsRoot,
+		SignedManifest:        signedManifest,
+		Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
+		AttestationPrivateKey: attestationPrivate,
+		Now:                   now,
+	})
+	if err == nil {
+		t.Fatal("stale restart unexpectedly reloaded over pinned taint state")
+	}
+	if !strings.Contains(err.Error(), "pin already exists") {
+		t.Fatalf("stale restart failed for an unexpected reason: %v", err)
+	}
+
+	// Replaying the old activation plan must also fail closed. Whether the
+	// implementation reports the already-armed lifetime guard or DIRTY
+	// continuity, stale enrollment must never become a second ALLOW transition.
+	_, err = ActivateTaintCgroup(TaintActivationRequest{
+		BPFFSRoot:                     bpffsRoot,
+		Plan:                          plan,
+		SignedBootstrapReceipt:        loaded.SignedReceipt,
+		BootstrapAttestationPublicKey: attestationPublic,
+	})
+	if err == nil {
+		t.Fatal("stale enrollment unexpectedly reactivated after continuity loss")
+	}
+	if !strings.Contains(err.Error(), "already armed") &&
+		!strings.Contains(err.Error(), "continuity is dirty") {
+		t.Fatalf("stale activation failed for an unexpected reason: %v", err)
+	}
+
+	dirtyAfterRestart, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source continuity after stale restart attempts: %v", err)
+	}
+	if dirtyAfterRestart != dirtyAfterFuture {
+		t.Fatalf(
+			"stale restart attempt mutated continuity state: before=%d after=%d",
+			dirtyAfterFuture,
+			dirtyAfterRestart,
+		)
+	}
+	isActive, err = TaintCgroupActivationState(bpffsRoot, activated.CgroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isActive {
+		t.Fatal("stale restart attempt cleared protected-cgroup activation")
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("stale restart attempt recovered clean egress: %v", err)
+	}
+
 	t.Logf(
-		"unlink continuity stayed fail-closed across future allocation: enrolled=%+v future=%+v dirty_before=%d dirty_after_unlink=%d dirty_after_future=%d",
+		"unlink continuity stayed fail-closed across future allocation and userspace restart: enrolled=%+v future=%+v dirty_before=%d dirty_after_unlink=%d dirty_after_future=%d dirty_after_restart=%d",
 		enrolledUserKey,
 		futureKey,
 		dirtyBefore,
 		dirtyAfterUnlink,
 		dirtyAfterFuture,
+		dirtyAfterRestart,
 	)
 }
 
