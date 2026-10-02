@@ -23,7 +23,7 @@ func TestR01ProjectsOntoFrozenK07ExecutableRelations(t *testing.T) {
 		{"R01-03", "CE6-R1-stale-worker-after-takeover", "REJECT_TAKEOVER_EFFECT"},
 		{"R01-05", "CE7-R1-unrelated-change-as-success", "REJECT_FALSE_VERIFIED"},
 		{"R01-06", "CE7-R1-unrelated-change-as-success", "REJECT_FALSE_VERIFIED"},
-		{"R01-08", "CE7-A1-exact-postcondition", "DISCHARGE_INTENDED_STATE_OBLIGATION"},
+		{"R01-08", "CE7-A1-exact-postcondition-verified", "DISCHARGE_INTENDED_STATE_OBLIGATION"},
 	}
 
 	for _, p := range projections {
