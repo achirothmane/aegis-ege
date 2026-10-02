@@ -128,10 +128,11 @@ func StartAttestedWorkload(
 		cmd.Dir = filepath.Clean(req.LaunchSpec.WorkingDir)
 	}
 	cmd.Env = workloadEnvironment(req.LaunchSpec.Environment)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		UseCgroupFD: true,
-		CgroupFD:    cgroupFD,
+	sysProcAttr, err := workloadSysProcAttr(cgroupFD, req.LaunchSpec.LinuxIsolation)
+	if err != nil {
+		return AttestedWorkloadProcess{}, err
 	}
+	cmd.SysProcAttr = sysProcAttr
 	if err := cmd.Start(); err != nil {
 		return AttestedWorkloadProcess{}, fmt.Errorf(
 			"start attested workload after terminal grant claim %s: %w",
@@ -179,6 +180,46 @@ func StartAttestedWorkload(
 		Command:       cmd,
 		SignedReceipt: receipt,
 	}, nil
+}
+
+func workloadSysProcAttr(
+	cgroupFD int,
+	isolation *LinuxWorkloadIsolationSpec,
+) (*syscall.SysProcAttr, error) {
+	attr := &syscall.SysProcAttr{
+		UseCgroupFD: true,
+		CgroupFD:    cgroupFD,
+	}
+	if isolation == nil {
+		return attr, nil
+	}
+	if err := isolation.Validate(); err != nil {
+		return nil, err
+	}
+
+	// The workload gets root only inside a fresh user namespace. UID/GID 0 in
+	// that namespace map to explicit non-root host identities, so capabilities
+	// obtained inside the namespace do not become capabilities in the initial
+	// user namespace that owns host BPF, cgroups and mounts.
+	attr.Cloneflags = syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS
+	attr.UidMappings = []syscall.SysProcIDMap{{
+		ContainerID: 0,
+		HostID:      int(isolation.HostUID),
+		Size:        1,
+	}}
+	attr.GidMappings = []syscall.SysProcIDMap{{
+		ContainerID: 0,
+		HostID:      int(isolation.HostGID),
+		Size:        1,
+	}}
+	attr.GidMappingsEnableSetgroups = false
+	attr.Credential = &syscall.Credential{
+		Uid:         0,
+		Gid:         0,
+		NoSetGroups: true,
+	}
+	attr.Pdeathsig = syscall.SIGKILL
+	return attr, nil
 }
 
 func workloadEnvironment(env []WorkloadEnvironmentVariable) []string {

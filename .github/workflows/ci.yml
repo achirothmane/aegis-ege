@@ -21,7 +21,7 @@ jobs:
           cache: true
       - run: go mod download
       - run: go mod verify
-      - name: Compile kernel DecisionCapsule BPF adapter
+      - name: Compile kernel BPF adapters
         run: |
           ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
           clang -O2 -g -Wall -Werror -target bpf \
@@ -29,6 +29,20 @@ jobs:
             -Ikernel/bpf \
             -c kernel/bpf/aegis_connect.bpf.c \
             -o "$RUNNER_TEMP/aegis_connect.bpf.o"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o "$RUNNER_TEMP/aegis_taint.bpf.o"
+      - name: Verify taint hardening formatting
+        run: |
+          offenders="$(gofmt -l internal/kernelfabric/taint_*.go cmd/aegis-taint-*/main.go)"
+          if [ -n "$offenders" ]; then
+            echo "gofmt required for:"
+            printf '%s\n' "$offenders"
+            gofmt -d internal/kernelfabric/taint_*.go cmd/aegis-taint-*/main.go
+            exit 1
+          fi
       - name: Assert legacy unsigned BPF loader is disabled
         run: |
           if bash kernel/bpf/load.sh >"$RUNNER_TEMP/legacy-loader.out" 2>&1; then

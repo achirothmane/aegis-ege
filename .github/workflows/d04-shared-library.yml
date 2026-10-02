@@ -50,7 +50,12 @@ jobs:
       - name: Verify committed formatting and pinned dependencies
         run: |
           mkdir -p d04-evidence
-          test -z "$(gofmt -l governedaction/*.go internal/eepcrm/d04_boundary_test.go internal/eepcrm/executor.go internal/decision/authorization.go internal/decision/d04_boundary_test.go internal/governedactionnormative/d04_library_test.go experiments/gosmig-simulation/guard.go)"
+          format_offenders="$(gofmt -l governedaction/*.go internal/eepcrm/d04_boundary_test.go internal/eepcrm/executor.go internal/decision/authorization.go internal/decision/d04_boundary_test.go internal/governedactionnormative/d04_library_test.go experiments/gosmig-simulation/guard.go)"
+          if [ -n "$format_offenders" ]; then
+            echo "gofmt required for:"
+            printf '%s\n' "$format_offenders"
+            exit 1
+          fi
           (cd governedaction && go mod download && go mod verify)
           (cd experiments/gosmig-simulation && go mod download && go mod verify)
           git diff --exit-code -- go.mod go.sum governedaction/go.mod governedaction/go.sum experiments/gosmig-simulation/go.mod experiments/gosmig-simulation/go.sum
