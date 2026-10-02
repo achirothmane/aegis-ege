@@ -98,7 +98,7 @@ The artifact compiles four programs:
 
 - `lsm/file_permission` — observes configured sensitive-source reads and
   propagates taint through file reads/writes;
-- `tracepoint/sched/sched_process_fork` — propagates the parent's process taint
+- `raw_tracepoint/sched_process_fork` — propagates the parent's process taint
   to a child process;
 - `cgroup/connect4`;
 - `cgroup/connect6` — fail closed when a protected cgroup has propagation
@@ -115,6 +115,8 @@ Pinned-map names reserved by the experiment are:
 aegis_tsrc      configured sensitive file identities -> labels
 aegis_ftaint    propagated file identities -> labels
 aegis_ptaint    process TGID -> labels
+aegis_tprobe     armed source-enrollment thread TID -> random probe token
+aegis_tprobe_r   kernel-observed (TID, device, inode) -> probe token
 aegis_tcgroups  protected cgroup IDs
 aegis_tallow    admitted egress label mask per cgroup
 aegis_tfail     propagation uncertainty count per cgroup
@@ -147,7 +149,11 @@ aegis-taint-bpf-loader
   -> cgroup still NOT protected
 
 aegis-taint-plan
-  -> resolve regular-file device/inode identities without following symlinks
+  -> open each regular source without following symlinks
+  -> arm a random per-thread kernel identity probe
+  -> perform one controlled read on the already-open fd
+  -> collect every device/inode identity observed by BPF-LSM
+  -> disarm before activation
   -> emit explicit source-label/allow-mask plan
 
 aegis-taint-activate
@@ -160,16 +166,25 @@ This improves crash safety: a partial install is inert for the target cgroup.
 Activation has one explicit final effect boundary, and its state can be observed
 after a lost reply via the protected-cgroup map.
 
+The privileged native workflow now boots a BPF selftests kernel when the
+GitHub-hosted kernel lacks BPF-LSM. It mounts a real OverlayFS source fixture,
+kernel-enrolls the merged-path secret before activation, then proves
+read/fork/file/connect enforcement end-to-end. In the proof run, userspace
+`stat(2)` exposed one overlay identity while the LSM observed both the overlay
+and underlying identity; both were enrolled and the later read tainted the
+process.
+
 It does **not** yet prove:
 
-- that a real target Linux kernel enables BPF LSM and accepts all four programs;
-- a privileged native end-to-end file-read/fork/file/connect attack schedule;
+- that every Linux stacked-filesystem implementation exposes stable identities
+  under all rename/copy-up/replacement schedules;
 - that fork/file/connect hooks completely mediate a hostile workload;
 - that a process cannot escape by changing cgroups/namespaces or by exploiting
   an unmodelled IPC path;
 - safe lifetime cleanup for TGID/inode reuse without weakening fail-closed
   behavior.
 
-Until the privileged native attach-and-attack test passes, M01-M03 remain
-kernel-artifact + signed-install candidates and executable semantic tests, not
-production Linux taint claims.
+The native result earns a bounded claim: a regular sensitive source can be
+registered from the identities the loaded LSM actually observes, including a
+tested OverlayFS merged-path read, without activating the target cgroup first.
+Production-complete Linux taint containment remains outside this claim.
