@@ -472,7 +472,6 @@ func TestNativeTaintAncestorRenameSubstitutionFailsClosed(t *testing.T) {
 	}
 }
 
-
 // TestNativeTaintAncestorSymlinkSubstitutionFailsClosed proves that source
 // identity is not confused with source-path meaning when an intermediate
 // symlink is atomically redirected after activation. The enrolled regular-file
