@@ -1,0 +1,23 @@
+name: GitHub Rerun Native Victim
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  victim:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'proof/github-native-rerun-kernel')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail first attempt, pass rerun
+        shell: bash
+        run: |
+          echo "run_id=$GITHUB_RUN_ID attempt=$GITHUB_RUN_ATTEMPT sha=$GITHUB_SHA"
+          if [ "$GITHUB_RUN_ATTEMPT" -eq 1 ]; then
+            echo "intentional first-attempt failure for native rerun proof"
+            exit 73
+          fi
+          echo "rerun observed; victim passes on attempt $GITHUB_RUN_ATTEMPT"
