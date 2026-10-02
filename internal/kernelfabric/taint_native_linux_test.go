@@ -477,13 +477,13 @@ func runM15bIsolatedHostileWorkload(
 	}
 
 	started, err := StartAttestedWorkload(context.Background(), AttestedWorkloadLaunchRequest{
-		SignedGrant:       grant,
-		IssuerPublicKey:   issuerPublic,
-		LaunchSpec:        spec,
-		ConsumptionDir:    filepath.Join(t.TempDir(), "m15b-consumed"),
-		DeviceID:          "m15b-native-device",
-		HostAttestorKey:   hostPrivate,
-		Now:               now,
+		SignedGrant:     grant,
+		IssuerPublicKey: issuerPublic,
+		LaunchSpec:      spec,
+		ConsumptionDir:  filepath.Join(t.TempDir(), "m15b-consumed"),
+		DeviceID:        "m15b-native-device",
+		HostAttestorKey: hostPrivate,
+		Now:             now,
 	})
 	if err != nil {
 		return fmt.Errorf("M15b start isolated hostile workload: %w", err)
