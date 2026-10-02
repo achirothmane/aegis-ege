@@ -69,6 +69,7 @@ var taintBootstrapMaps = []BootstrapMap{
 	{Name: "aegis_tcgroups", Type: "hash"},
 	{Name: "aegis_tevents", Type: "ringbuf"},
 	{Name: "aegis_tfail", Type: "hash"},
+	{Name: "aegis_tmns", Type: "hash"},
 	{Name: "aegis_tdirty", Type: "array"},
 	{Name: "aegis_tsrc", Type: "hash"},
 }
