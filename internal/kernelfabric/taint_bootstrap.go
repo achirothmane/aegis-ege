@@ -337,3 +337,16 @@ func WriteSignedTaintBootstrapReceipt(path string, signed SignedTaintBootstrapRe
 	}
 	return nil
 }
+
+
+func LoadSignedTaintBootstrapReceipt(path string) (SignedTaintBootstrapReceipt, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return SignedTaintBootstrapReceipt{}, err
+	}
+	var signed SignedTaintBootstrapReceipt
+	if err := json.Unmarshal(payload, &signed); err != nil {
+		return SignedTaintBootstrapReceipt{}, fmt.Errorf("decode signed taint bootstrap receipt: %w", err)
+	}
+	return signed, nil
+}
