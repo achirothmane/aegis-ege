@@ -69,7 +69,7 @@ func ResolveTaintFileKeysObserved(bpffsRoot, path string) ([]TaintFileKey, error
 	defer probe.Close()
 
 	results, err := openExactTaintMap(
-		filepath.Join(mapDir, "aegis_tprobe_results"),
+		filepath.Join(mapDir, "aegis_tprobe_r"),
 		ebpf.Hash,
 		TaintProbeKeySize,
 		8,
