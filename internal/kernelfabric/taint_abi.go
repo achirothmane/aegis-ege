@@ -12,9 +12,9 @@ import (
 const (
 	TaintABIVersion uint32 = 1
 
-	TaintOperationRead    uint32 = 1
-	TaintOperationWrite   uint32 = 2
-	TaintOperationFork    uint32 = 3
+	TaintOperationRead           uint32 = 1
+	TaintOperationWrite          uint32 = 2
+	TaintOperationFork           uint32 = 3
 	TaintOperationConnect        uint32 = 4
 	TaintOperationIdentityChange uint32 = 5
 
