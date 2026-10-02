@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -31,6 +32,7 @@ const (
 	taintRecoveryAuthEnv        = "AEGIS_TAINT_RECOVERY_AUTH"
 	taintRecoveryKeyEnv         = "AEGIS_TAINT_RECOVERY_KEY"
 	taintRecoveryNowEnv         = "AEGIS_TAINT_RECOVERY_NOW"
+	taintRecoveryBoundaryEnv    = "AEGIS_TAINT_RECOVERY_BOUNDARY"
 )
 
 func TestTaintRestartObserver(t *testing.T) {
@@ -91,16 +93,23 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 		t.Fatalf("parse crash recovery time: %v", err)
 	}
 
-	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+	req := TaintRecoveryRequest{
 		BPFFSRoot:            os.Getenv(taintNativeHelperBPFFSRoot),
 		Plan:                 plan,
 		SignedAuthorization:  signed,
 		RecoveryAuthorityKey: ed25519.PublicKey(keyBytes),
 		Now:                  now,
-		afterEpochCommit: func() {
-			os.Exit(86)
-		},
-	})
+	}
+	switch os.Getenv(taintRecoveryBoundaryEnv) {
+	case "epoch":
+		req.afterEpochCommit = func() { os.Exit(86) }
+	case "clean":
+		req.afterCleanCommit = func() { os.Exit(87) }
+	default:
+		t.Fatalf("unknown recovery crash boundary %q", os.Getenv(taintRecoveryBoundaryEnv))
+	}
+
+	_, err = RecoverTaintSourceContinuity(req)
 	if err != nil {
 		t.Fatalf("recovery failed before crash boundary: %v", err)
 	}
@@ -642,6 +651,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		taintRecoveryAuthEnv+"="+recoveryAuthPath,
 		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
 		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
+		taintRecoveryBoundaryEnv+"=epoch",
 		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
 	)
 	crash.Stdout = os.Stdout
