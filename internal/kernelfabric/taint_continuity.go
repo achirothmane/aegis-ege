@@ -30,7 +30,7 @@ func (t *TaintContinuityTracker) Observe(event TaintEvent) error {
 	if event.ABIVersion != TaintABIVersion ||
 		event.Sequence == 0 ||
 		event.EventType < TaintEventSourceRead ||
-		event.EventType > TaintEventEgressDeny ||
+		event.EventType > TaintEventFileReadObserved ||
 		event.Operation < TaintOperationRead ||
 		event.Operation > TaintOperationConnect {
 		return ErrEvidenceSequenceInvalid
