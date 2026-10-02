@@ -20,9 +20,9 @@ type TaintSourceBinding struct {
 }
 
 type TaintActivationPlan struct {
-	CgroupPath   string               `json:"cgroup_path"`
-	AllowedLabels uint64              `json:"allowed_labels"`
-	Sources      []TaintSourceBinding `json:"sources"`
+	CgroupPath    string               `json:"cgroup_path"`
+	AllowedLabels uint64               `json:"allowed_labels"`
+	Sources       []TaintSourceBinding `json:"sources"`
 }
 
 func ValidateTaintActivationPlan(plan TaintActivationPlan) error {
@@ -66,7 +66,6 @@ func TaintActivationPlanDigest(plan TaintActivationPlan) (string, error) {
 	sum := sha256.Sum256(append([]byte("aegis-ege/taint-activation-plan/v0\x00"), payload...))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
-
 
 func LoadTaintActivationPlan(path string) (TaintActivationPlan, error) {
 	payload, err := os.ReadFile(path)
