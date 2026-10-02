@@ -15,7 +15,7 @@ That is sufficient only while the authority source that reports the current coor
 
 ## Contract
 
-Aegis now provides `IndependentRootCapabilityAuthority`, a decorator around the existing `CapabilityFenceAuthority`.
+Aegis provides `IndependentRootCapabilityAuthority`, a decorator around the existing `CapabilityFenceAuthority`.
 
 ```text
 mutable coordination/witness
@@ -96,6 +96,78 @@ The wrapper does not invent a second validation path. When the root is ahead, it
 
 If the independent root is behind the mutable authority, unavailable, internally inconsistent, or from a different authority domain, the wrapper fails closed instead of silently trusting the mutable source.
 
+## Content-bound persistent root
+
+The in-memory proof above establishes the semantic boundary but does not make persistence independently trustworthy.
+
+`AnchoredFileCapabilityMonotonicRoot` adds a durable local history whose exact head is committed in an independently protected anchor.
+
+The anchor state is:
+
+```text
+(sequence, head_commitment)
+```
+
+where `head_commitment` is the SHA-256 hash of the exact last accepted root record and each record binds its predecessor.
+
+A monotonic sequence by itself is **not sufficient**. With only a counter, a local ledger could be rewritten to a different valid history with the same number of records and a freshly recomputed unkeyed hash chain. The counter would still match.
+
+The required invariant is therefore:
+
+```text
+anchor.sequence   == local_head.index
+AND
+anchor.commitment == local_head.record_hash
+```
+
+Any mismatch fails closed.
+
+### Commit ordering
+
+For a new accepted high-water state:
+
+```text
+verify local ledger against protected anchor
+        |
+        v
+construct next hash-chained record
+        |
+        v
+compare-and-advance protected anchor
+(sequence + exact next record hash)
+        |
+        v
+append local record
+        |
+        v
+fsync file + directory
+```
+
+The protected anchor advances before local persistence. If the process or disk fails after the anchor advances but before the record is durable, the next read observes an anchor/ledger mismatch and fails closed. The system does not silently reconstruct or decrement the protected state.
+
+### Falsification corpus
+
+Executable tests cover:
+
+```text
+T1 -> T2 -> local ledger restored to T1
+                         => DENY
+
+mutable coordination = T1
+mutable witness      = T1
+local ledger         = T1
+protected anchor     = T2 commitment
+                         => DENY
+
+same number of local records
++ locally valid recomputed hash chain
++ altered scope/history
++ protected anchor still commits to original head
+                         => DENY
+```
+
+The last case is important: it distinguishes a content-bound root from a counter-only anti-rollback mechanism.
+
 ## Integration
 
 ```go
@@ -118,8 +190,10 @@ cfg := server.Config{
 
 The interface alone does not make storage independent.
 
-A production `CapabilityMonotonicRoot` must place its high-water state outside the rollback domain of mutable coordination. Candidate substrates include a monotonic hardware-backed counter, an external linearizable consensus service with anti-rollback controls, or another separately administered append-only authority.
+A production root must place the protected anchor state outside the rollback and rewrite domain of mutable coordination **and** the local root ledger. The substrate must preserve both monotonic sequence and the exact cryptographic head commitment.
 
-A file beside the mutable coordination state, an in-process variable, or a second key in the same rollback-capable store does **not** satisfy the independence claim.
+Suitable implementations may include an external linearizable compare-and-set service with anti-rollback controls, a separately administered append-only authority, or hardware-backed storage that can protect both sequence and content commitment.
 
-The test implementation is intentionally in-memory and exists only to falsify the Aegis boundary behavior. It is not evidence that any particular production root substrate is independently protected.
+A file beside mutable coordination, an in-process variable, a second key in the same rollback-capable store, or a hardware counter that protects only record count does **not** satisfy the full content-binding claim.
+
+The deterministic anchor used in CI exists to falsify Aegis boundary behavior. It is not evidence that any particular production TPM, HSM, KMS, or consensus substrate has been independently protected or operationally validated.
