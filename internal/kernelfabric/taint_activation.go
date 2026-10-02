@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -64,4 +65,32 @@ func TaintActivationPlanDigest(plan TaintActivationPlan) (string, error) {
 	}
 	sum := sha256.Sum256(append([]byte("aegis-ege/taint-activation-plan/v0\x00"), payload...))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+
+func LoadTaintActivationPlan(path string) (TaintActivationPlan, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return TaintActivationPlan{}, err
+	}
+	var plan TaintActivationPlan
+	if err := json.Unmarshal(payload, &plan); err != nil {
+		return TaintActivationPlan{}, fmt.Errorf("decode taint activation plan: %w", err)
+	}
+	if err := ValidateTaintActivationPlan(plan); err != nil {
+		return TaintActivationPlan{}, err
+	}
+	return plan, nil
+}
+
+func WriteTaintActivationPlan(path string, plan TaintActivationPlan) error {
+	if err := ValidateTaintActivationPlan(plan); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	return os.WriteFile(path, payload, 0o600)
 }
