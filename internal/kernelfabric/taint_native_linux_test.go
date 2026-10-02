@@ -32,6 +32,7 @@ const (
 	taintNativeHelperMode         = "AEGIS_TAINT_NATIVE_HELPER_MODE"
 	taintNativeHelperAddr         = "AEGIS_TAINT_NATIVE_HELPER_ADDR"
 	taintNativeHelperBridge       = "AEGIS_TAINT_NATIVE_HELPER_BRIDGE"
+	taintNativeHelperSource       = "AEGIS_TAINT_NATIVE_HELPER_SOURCE"
 	taintNativeHelperBPFFSRoot    = "AEGIS_TAINT_NATIVE_HELPER_BPFFS_ROOT"
 	taintNativeHelperEscapeCgroup = "AEGIS_TAINT_NATIVE_HELPER_ESCAPE_CGROUP"
 	taintNativeHelperCgroupID     = "AEGIS_TAINT_NATIVE_HELPER_CGROUP_ID"
@@ -55,6 +56,17 @@ func TestTaintNativeHelper(t *testing.T) {
 		}
 		if _, err := os.ReadFile(os.Getenv(taintNativeHelperBridge)); err != nil {
 			t.Fatal(err)
+		}
+		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
+			t.Fatal(err)
+		}
+	case "replacement":
+		var trigger [1]byte
+		if _, err := os.Stdin.Read(trigger[:]); err != nil {
+			t.Fatalf("wait for replacement trigger: %v", err)
+		}
+		if _, err := os.ReadFile(os.Getenv(taintNativeHelperSource)); err != nil {
+			t.Fatalf("read replaced source: %v", err)
 		}
 		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
 			t.Fatal(err)
@@ -256,26 +268,10 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatal("protected-cgroup activation is not observable after activation")
 	}
 
-	// Falsification: replace the enrolled OverlayFS path from outside the
-	// protected cgroup after activation. The logical source path remains the
-	// same while its backing identity changes. A safe design must either carry
-	// the source label forward or make protected egress fail closed.
 	replacementPath := filepath.Join(filepath.Dir(secretPath), "replacement.txt")
 	if err := os.WriteFile(replacementPath, []byte("classified-replacement"), 0o600); err != nil {
-		t.Fatalf("write overlay replacement source: %v", err)
+		t.Fatalf("prepare overlay replacement source: %v", err)
 	}
-	if err := os.Rename(replacementPath, secretPath); err != nil {
-		t.Fatalf("atomically replace enrolled overlay source: %v", err)
-	}
-	replacementKey, err := ResolveTaintFileKey(secretPath)
-	if err != nil {
-		t.Fatalf("resolve replacement overlay identity: %v", err)
-	}
-	t.Logf(
-		"overlay source replaced after activation: enrolled userspace=%+v replacement userspace=%+v",
-		statKey,
-		replacementKey,
-	)
 
 	reader, err := OpenPinnedTaintEvidenceReader(bpffsRoot)
 	if err != nil {
@@ -318,6 +314,27 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	fileChild.Stderr = os.Stderr
 	if err := fileChild.Start(); err != nil {
 		t.Fatalf("start clean file-propagation child: %v", err)
+	}
+
+	// A second child starts while the parent is still clean and waits until
+	// after the source path has been atomically replaced. It proves that source
+	// identity drift itself makes egress fail closed even when the replacement
+	// object was never enrolled as a taint source.
+	replacementChild := exec.Command(os.Args[0], "-test.run=^TestTaintNativeHelper$")
+	replacementChild.Env = append(os.Environ(),
+		taintNativeHelperEnv+"=1",
+		taintNativeHelperMode+"=replacement",
+		taintNativeHelperAddr+"="+listener.Addr().String(),
+		taintNativeHelperSource+"="+secretPath,
+	)
+	replacementStdin, err := replacementChild.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementChild.Stdout = os.Stdout
+	replacementChild.Stderr = os.Stderr
+	if err := replacementChild.Start(); err != nil {
+		t.Fatalf("start clean source-replacement child: %v", err)
 	}
 
 	if _, err := os.ReadFile(secretPath); err != nil {
@@ -432,6 +449,28 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	}
 	if err := fileChild.Wait(); err != nil {
 		t.Fatalf("file-propagation child escaped taint egress guard: %v", err)
+	}
+
+	if err := os.Rename(replacementPath, secretPath); err != nil {
+		t.Fatalf("atomically replace enrolled overlay source: %v", err)
+	}
+	replacementKey, err := ResolveTaintFileKey(secretPath)
+	if err != nil {
+		t.Fatalf("resolve replacement overlay identity: %v", err)
+	}
+	t.Logf(
+		"overlay source replaced after activation: enrolled userspace=%+v replacement userspace=%+v",
+		statKey,
+		replacementKey,
+	)
+	if _, err := replacementStdin.Write([]byte("go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := replacementStdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := replacementChild.Wait(); err != nil {
+		t.Fatalf("clean child escaped after source identity replacement: %v", err)
 	}
 
 	if err := waitForNativeTaintEvidence(reader, activated.CgroupID); err != nil {
