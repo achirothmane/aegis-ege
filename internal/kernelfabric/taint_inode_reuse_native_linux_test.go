@@ -477,6 +477,159 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		dirtyAfterFuture,
 		dirtyAfterRestart,
 	)
+
+	// Recovery requires fresh kernel-observed evidence for the object that now
+	// occupies the governed source path. The stale activation plan above is not
+	// sufficient authority to clear DIRTY.
+	initialEpoch, err := TaintEnrollmentEpoch(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read initial enrollment epoch: %v", err)
+	}
+	if initialEpoch != 1 || activated.EnrollmentEpoch != 1 {
+		t.Fatalf(
+			"unexpected initial enrollment epoch: map=%d activation=%d",
+			initialEpoch,
+			activated.EnrollmentEpoch,
+		)
+	}
+	futureKeys, err := ResolveTaintFileKeysObserved(bpffsRoot, sourcePath)
+	if err != nil {
+		t.Fatalf("kernel-observe recovery source: %v", err)
+	}
+	if len(futureKeys) == 0 {
+		t.Fatal("recovery source probe returned no kernel identities")
+	}
+	recoveryPlan := TaintActivationPlan{
+		CgroupPath:    cgroupPath,
+		AllowedLabels: plan.AllowedLabels,
+		Sources:       make([]TaintSourceBinding, 0, len(futureKeys)),
+	}
+	for _, key := range futureKeys {
+		recoveryPlan.Sources = append(recoveryPlan.Sources, TaintSourceBinding{
+			Path:   sourcePath,
+			File:   key,
+			Labels: 1,
+		})
+	}
+	recoveryPlanDigest, err := TaintActivationPlanDigest(recoveryPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := (LinuxBootstrapHostProvider{}).Snapshot(bpffsRoot)
+	if err != nil {
+		t.Fatalf("capture recovery host snapshot: %v", err)
+	}
+	recoveryPublic, recoveryPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryAuth := TaintRecoveryAuthorization{
+		Version:         TaintRecoveryAuthorizationVersion,
+		AuthorizationID: "native-source-recovery-epoch-1-to-2",
+		PlanDigest:      recoveryPlanDigest,
+		CgroupID:        activated.CgroupID,
+		BPFFSRoot:       bpffsRoot,
+		BootIDHash:      host.BootIDHash,
+		FromEpoch:       initialEpoch,
+		ToEpoch:         initialEpoch + 1,
+		ExpectedDirty:   dirtyAfterRestart,
+		NotBefore:       now.Add(-time.Minute),
+		ExpiresAt:       now.Add(10 * time.Minute),
+	}
+	signedRecovery, err := SignTaintRecoveryAuthorization(recoveryAuth, recoveryPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            bpffsRoot,
+		Plan:                 recoveryPlan,
+		SignedAuthorization:  signedRecovery,
+		RecoveryAuthorityKey: recoveryPublic,
+		Now:                  now,
+	})
+	if err != nil {
+		t.Fatalf("recover source continuity from fresh evidence: %v", err)
+	}
+	if recovered.PreviousEpoch != 1 || recovered.EnrollmentEpoch != 2 {
+		t.Fatalf("unexpected recovery epoch transition: %+v", recovered)
+	}
+	dirtyAfterRecovery, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read source continuity after recovery: %v", err)
+	}
+	if dirtyAfterRecovery != 0 {
+		t.Fatalf("authorized recovery did not clear source continuity: %d", dirtyAfterRecovery)
+	}
+	epochAfterRecovery, err := TaintEnrollmentEpoch(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read enrollment epoch after recovery: %v", err)
+	}
+	if epochAfterRecovery != 2 {
+		t.Fatalf("recovery did not advance enrollment epoch: %d", epochAfterRecovery)
+	}
+	conn, err = net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("freshly authorized clean egress remained denied after recovery: %v", err)
+	}
+	_ = conn.Close()
+
+	// Recreate the dangerous ABA shape: after successful recovery, invalidate
+	// the newly enrolled source. DIRTY returns to the same numeric value as the
+	// previous incident, but the kernel enrollment epoch is now 2. Replaying the
+	// old epoch-1 authorization must therefore fail even though ExpectedDirty
+	// matches again.
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("unlink recovered source: %v", err)
+	}
+	secondDirty, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatalf("read second source continuity loss: %v", err)
+	}
+	if secondDirty != dirtyAfterRestart {
+		t.Fatalf(
+			"second continuity loss did not recreate dirty-count ABA: first=%d second=%d",
+			dirtyAfterRestart,
+			secondDirty,
+		)
+	}
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:            bpffsRoot,
+		Plan:                 recoveryPlan,
+		SignedAuthorization:  signedRecovery,
+		RecoveryAuthorityKey: recoveryPublic,
+		Now:                  now,
+	})
+	if err == nil {
+		t.Fatal("stale epoch-1 recovery authorization was replayed after epoch-2 invalidation")
+	}
+	if !strings.Contains(err.Error(), "epoch mismatch") {
+		t.Fatalf("stale recovery replay failed for an unexpected reason: %v", err)
+	}
+	dirtyAfterReplay, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirtyAfterReplay != secondDirty {
+		t.Fatalf("stale recovery replay mutated DIRTY: before=%d after=%d", secondDirty, dirtyAfterReplay)
+	}
+	epochAfterReplay, err := TaintEnrollmentEpoch(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epochAfterReplay != epochAfterRecovery {
+		t.Fatalf("stale recovery replay mutated epoch: before=%d after=%d", epochAfterRecovery, epochAfterReplay)
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("stale recovery replay restored egress: %v", err)
+	}
+
+	t.Logf(
+		"authorized recovery advanced epoch and stale replay failed closed: first_dirty=%d recovered_epoch=%d second_dirty=%d replay_epoch=%d",
+		dirtyAfterRestart,
+		epochAfterRecovery,
+		secondDirty,
+		epochAfterReplay,
+	)
 }
 
 func attachNativeLoopDevice(t *testing.T, imagePath string) (string, func()) {
