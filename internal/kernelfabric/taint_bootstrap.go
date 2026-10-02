@@ -30,8 +30,8 @@ var taintBootstrapPrograms = []BootstrapProgram{
 	{
 		PinName:    "aegis_fork",
 		Name:       "aegis_fork",
-		Type:       "tracepoint",
-		AttachType: "tracepoint/sched/sched_process_fork",
+		Type:       "raw_tracepoint",
+		AttachType: "raw_tracepoint/sched_process_fork",
 	},
 	{
 		PinName:    "aegis_tconn4",
