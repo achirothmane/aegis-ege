@@ -265,15 +265,43 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	}
 	t.Logf("overlay source userspace identity=%+v kernel identities=%+v", initialStatKey, sourceKeys)
 
-	buildPlan := func(keys []TaintFileKey) TaintActivationPlan {
+	copyupKeys, err := ResolveTaintFileKeysObserved(bpffsRoot, copyupPath)
+	if err != nil {
+		t.Fatalf("kernel-observe copy-up source identities: %v", err)
+	}
+	if len(copyupKeys) == 0 {
+		t.Fatal("copy-up source probe returned no kernel identities")
+	}
+	copyupStatKey, err := ResolveTaintFileKey(copyupPath)
+	if err != nil {
+		t.Fatalf("resolve userspace copy-up source identity: %v", err)
+	}
+	t.Logf(
+		"copy-up source userspace identity=%+v kernel identities=%+v",
+		copyupStatKey,
+		copyupKeys,
+	)
+
+	buildPlan := func(secretKeys []TaintFileKey, copyKeys []TaintFileKey) TaintActivationPlan {
 		plan := TaintActivationPlan{
 			CgroupPath:    cgroupPath,
 			AllowedLabels: 0,
-			Sources:       make([]TaintSourceBinding, 0, len(keys)),
+			Sources: make(
+				[]TaintSourceBinding,
+				0,
+				len(secretKeys)+len(copyKeys),
+			),
 		}
-		for _, key := range keys {
+		for _, key := range secretKeys {
 			plan.Sources = append(plan.Sources, TaintSourceBinding{
 				Path:   secretPath,
+				File:   key,
+				Labels: 1,
+			})
+		}
+		for _, key := range copyKeys {
+			plan.Sources = append(plan.Sources, TaintSourceBinding{
+				Path:   copyupPath,
 				File:   key,
 				Labels: 1,
 			})
@@ -284,7 +312,7 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	// Enrollment -> activation TOCTOU falsification. Change the logical source
 	// path after enrollment but before activation. Activation must re-probe the
 	// path and reject the stale identity set while the cgroup is still inactive.
-	stalePlan := buildPlan(sourceKeys)
+	stalePlan := buildPlan(sourceKeys, copyupKeys)
 	preActivationReplacement := filepath.Join(
 		filepath.Dir(secretPath),
 		"replacement-before-activation.txt",
@@ -326,7 +354,7 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		sourceKeys,
 	)
 
-	plan := buildPlan(sourceKeys)
+	plan := buildPlan(sourceKeys, copyupKeys)
 	activated, err := ActivateTaintCgroup(TaintActivationRequest{
 		BPFFSRoot:                     bpffsRoot,
 		Plan:                          plan,
