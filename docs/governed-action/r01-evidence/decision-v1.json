@@ -1,0 +1,43 @@
+{
+  "schema_version": "governed-action.r01-decision/v1",
+  "decision": "SURVIVES_R01",
+  "scope": "candidate-kernel-contract-v1 R01 executable falsification scope",
+  "source_head": "2c9c3a818dede1c8370fbd4c510856c82c7c7ef7",
+  "frozen_oracle_changed": false,
+  "new_normative_relation_required": false,
+  "whole_trace": {
+    "workflow_run_id": 37060044985,
+    "artifact_id": 11249254001,
+    "artifact_digest": "sha256:4a687e7bc0f5312871503b6e6bf8a81a6edfd3a9cbea37e27f10ed8f60e6f146",
+    "schema_version": "governed-action.r01-end-to-end/v1",
+    "facts": {
+      "e1_final_state": "REVERSED",
+      "e2_lost_ack_exit": 93,
+      "e2_provider_acceptance_rows": 1,
+      "e2_duplicate_webhook_deliveries": 2,
+      "e2_webhook_value": "CAPTURED",
+      "e2_api_value": "NOT_CAPTURED",
+      "semantic_aba_unrelated_effect_id": "effect:r01:semantic-aba-unrelated",
+      "semantic_aba_aggregate_captured_amount": 73100,
+      "authority_current_owner": "worker-b",
+      "authority_current_fence": 2,
+      "e3_stale_attempt_exits": [41, 41],
+      "e3_durable_rows": 0,
+      "exact_postcondition": false
+    }
+  },
+  "exact_head_checks": {
+    "ci_run_id": 37060044754,
+    "ci_conclusion": "success",
+    "d04_run_id": 37060044877,
+    "d04_conclusion": "success",
+    "postgresql_run_id": 37060044985,
+    "postgresql_conclusion": "success"
+  },
+  "reason": "The complete R01-A schedule remained truthful under existing v1 relations: possible E2 was retained without a success receipt; expired old authority and takeover fencing prevented stale E3 effects; duplicate webhook delivery did not create authority; semantic ABA did not substitute for exact E2 lineage; E1 reversal and contradictory provider evidence kept the exact postcondition false; production reconciliation minted no authority; frozen K07 rejected false verified/takeover outcomes; the clean control remains useful. No frozen-oracle edit or new normative relation was required.",
+  "limits": [
+    "This decision is limited to the registered R01 executable falsification reality.",
+    "The provider-A/provider-B boundaries in the whole-trace harness are represented on an isolated PostgreSQL substrate; this is not a production proof across physically independent external providers.",
+    "SURVIVES_R01 is not a proof of universal kernel correctness, complete mediation across all domains, or the Complexity Dividend."
+  ]
+}
