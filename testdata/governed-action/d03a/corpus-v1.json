@@ -460,6 +460,48 @@
         },
         "fixed_expected": "ALLOW_BOUND_EFFECT"
       }
+    },
+    {
+      "id": "D03A-TFAWS-49231",
+      "repository": "hashicorp/terraform-provider-aws",
+      "domain": "infrastructure-provisioning-state",
+      "issue": {
+        "number": 49231,
+        "url": "https://github.com/hashicorp/terraform-provider-aws/issues/49231",
+        "state": "closed",
+        "title": "[Bug]: aws_bedrockagentcore_memory_strategy — second strategy on a memory always fails with \"too many results: wanted 1, got 2\""
+      },
+      "ground_truth": {
+        "root_cause": "The provider called AWS UpdateMemory successfully and only afterward asserted uniqueness over the unfiltered strategy list. With more than one strategy, the assertion failed before applying the intended predicate, so Terraform returned an error even though the external strategy had already been created.",
+        "consequence": "The created strategy remained active in AWS but absent from Terraform state. Re-applying did not reconcile the prior effect; Terraform believed the strategy was absent, created another one, failed again, and accumulated orphaned external effects.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/hashicorp/terraform-provider-aws/pull/49250",
+          "merge_commit": "079f694ee03602059af6e534d3b14297907ad639",
+          "summary": "Filter the returned strategy set before asserting a single result in Create and Update, matching the Read path, so the successful external effect can be identified and recorded instead of being mistaken for a failed creation."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "EffectIdentity",
+          "ExecutionAttempt",
+          "ClosureObligation",
+          "I3",
+          "I5"
+        ],
+        "rationale": "Once the provider API may already have created the strategy, a failed local state write does not prove that no effect occurred. A second create attempt must be blocked until the possible prior effect is identified/reconciled or a safe substitution/idempotency proof exists.",
+        "historical_overrides": {
+          "possible_effect_exists": true,
+          "substitution_requested": true,
+          "safe_substitution_proven": false
+        },
+        "historical_expected": "REJECT_SECOND_EFFECT",
+        "historical_valid_trace": false,
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
     }
   ],
   "stop_rule": "If any incident requires changing the frozen oracle, evaluator ordering, or semantic meaning to obtain the expected safety disposition, record D03-A as a falsification failure. Do not edit candidate-kernel-contract-v1 in place.",
