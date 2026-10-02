@@ -10,8 +10,8 @@ import (
 var (
 	ErrMissingTaintBinding = errors.New("taint egress binding is incomplete")
 	ErrTaintBindingChanged = errors.New("taint egress binding changed")
-	ErrInvalidTaintLabel    = errors.New("taint label is invalid")
-	ErrTaintNotAuthorized   = errors.New("observed taint is not authorized for egress")
+	ErrInvalidTaintLabel   = errors.New("taint label is invalid")
+	ErrTaintNotAuthorized  = errors.New("observed taint is not authorized for egress")
 )
 
 // TaintEgressBinding describes the taint classes an admitted subject may carry
