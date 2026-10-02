@@ -2,6 +2,7 @@ package kernelfabric
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -129,6 +130,29 @@ func VerifySignedTaintRecoveryAuthorization(
 		return fmt.Errorf("%w: authorization is outside its validity window", ErrTaintRecoveryAuthorization)
 	}
 	return nil
+}
+
+
+func TaintRecoveryCommitmentDigest(
+	signed SignedTaintRecoveryAuthorization,
+) ([32]byte, error) {
+	payload, err := canonicalTaintRecoveryAuthorizationPayload(signed.Authorization)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	body, err := json.Marshal(struct {
+		Payload   []byte `json:"payload"`
+		KeyID     string `json:"key_id"`
+		Signature string `json:"signature"`
+	}{
+		Payload:   payload,
+		KeyID:     signed.KeyID,
+		Signature: signed.Signature,
+	})
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return sha256.Sum256(append([]byte("aegis-ege/taint-recovery-commitment/v0\x00"), body...)), nil
 }
 
 func canonicalTaintRecoveryAuthorizationPayload(auth TaintRecoveryAuthorization) ([]byte, error) {
