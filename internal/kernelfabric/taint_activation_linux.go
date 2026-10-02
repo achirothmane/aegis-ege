@@ -16,14 +16,14 @@ import (
 )
 
 type TaintActivationRequest struct {
-	BPFFSRoot                    string
-	Plan                         TaintActivationPlan
-	SignedBootstrapReceipt       SignedTaintBootstrapReceipt
+	BPFFSRoot                     string
+	Plan                          TaintActivationPlan
+	SignedBootstrapReceipt        SignedTaintBootstrapReceipt
 	BootstrapAttestationPublicKey ed25519.PublicKey
 }
 
 type TaintActivationResult struct {
-	CgroupID  uint64
+	CgroupID   uint64
 	PlanDigest string
 }
 
