@@ -86,6 +86,29 @@ func TestTaintNativeHelper(t *testing.T) {
 		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
 			t.Fatal(err)
 		}
+	case "namespace-substitution":
+		replacement := os.Getenv(taintNativeHelperBridge)
+		source := os.Getenv(taintNativeHelperSource)
+		if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+			t.Fatalf("make private mount namespace: %v", err)
+		}
+		if err := unix.Mount(replacement, source, "", unix.MS_BIND, ""); err != nil {
+			t.Fatalf("bind substitute source view: %v", err)
+		}
+		got, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("read substituted source view: %v", err)
+		}
+		want, err := os.ReadFile(replacement)
+		if err != nil {
+			t.Fatalf("read namespace replacement: %v", err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("bind-mounted source view mismatch: got=%q want=%q", got, want)
+		}
+		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
+			t.Fatal(err)
+		}
 	case "replacement":
 		var trigger [1]byte
 		if _, err := os.Stdin.Read(trigger[:]); err != nil {
@@ -282,10 +305,16 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		copyupKeys,
 	)
 
+	mountNamespaceID, err := ResolveCurrentMountNamespaceID()
+	if err != nil {
+		t.Fatalf("resolve source-view mount namespace: %v", err)
+	}
+
 	buildPlan := func(secretKeys []TaintFileKey, copyKeys []TaintFileKey) TaintActivationPlan {
 		plan := TaintActivationPlan{
-			CgroupPath:    cgroupPath,
-			AllowedLabels: 0,
+			CgroupPath:       cgroupPath,
+			MountNamespaceID: mountNamespaceID,
+			AllowedLabels:    0,
 			Sources: make(
 				[]TaintSourceBinding,
 				0,
@@ -403,6 +432,31 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("clean egress unexpectedly denied: %v", err)
 	}
 	_ = conn.Close()
+
+	// Mount-namespace source-view substitution: a process in the protected
+	// cgroup creates a private mount namespace and bind-mounts a clean file over
+	// the enrolled source path. The read itself therefore carries no enrolled
+	// source identity. Egress must still fail because the effect boundary binds
+	// the protected cgroup to the mount namespace in which source identities
+	// were enrolled and revalidated.
+	namespaceReplacement := filepath.Join(workDir, "namespace-replacement.txt")
+	if err := os.WriteFile(namespaceReplacement, []byte("clean-substitute"), 0o600); err != nil {
+		t.Fatalf("write namespace replacement: %v", err)
+	}
+	namespaceChild := exec.Command(os.Args[0], "-test.run=^TestTaintNativeHelper$")
+	namespaceChild.Env = append(os.Environ(),
+		taintNativeHelperEnv+"=1",
+		taintNativeHelperMode+"=namespace-substitution",
+		taintNativeHelperAddr+"="+listener.Addr().String(),
+		taintNativeHelperSource+"="+secretPath,
+		taintNativeHelperBridge+"="+namespaceReplacement,
+	)
+	namespaceChild.SysProcAttr = &syscall.SysProcAttr{Cloneflags: unix.CLONE_NEWNS}
+	namespaceChild.Stdout = os.Stdout
+	namespaceChild.Stderr = os.Stderr
+	if err := namespaceChild.Run(); err != nil {
+		t.Fatalf("mount-namespace source-view substitution escaped taint egress guard: %v", err)
+	}
 
 	// Start an initially clean child before the parent becomes tainted. It will
 	// later read a bridge file written by the tainted parent.
