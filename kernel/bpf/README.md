@@ -123,6 +123,7 @@ aegis_tprobe_r   kernel-observed (TID, device, inode) -> probe token
 aegis_tcgroups  protected cgroup IDs
 aegis_tallow    admitted egress label mask per cgroup
 aegis_tfail     propagation uncertainty count per cgroup
+aegis_tmns      admitted source-view mount namespace per protected cgroup
 aegis_tdirty    global source-identity invalidation counter
 aegis_tevents   ring-buffer evidence stream
 aegis_tacct     stream loss accounting
@@ -160,11 +161,13 @@ aegis-taint-plan
   -> perform one controlled read on the already-open fd
   -> collect every device/inode identity observed by BPF-LSM
   -> disarm before activation
-  -> emit explicit source-label/allow-mask plan
+  -> bind the plan to the current mount-namespace identity
+  -> emit explicit source-label/allow-mask/source-view plan
 
 aegis-taint-activate
   -> verify signed bootstrap receipt + current boot + pinned links
-  -> initialize source labels / allow-mask / uncertainty counter
+  -> require activation in the same source-view mount namespace
+  -> initialize source labels / allow-mask / uncertainty counter / namespace fence
   -> set protected-cgroup flag LAST
 ```
 
@@ -201,4 +204,14 @@ registered from the identities the loaded LSM actually observes, including a
 tested OverlayFS merged-path read, without activating the target cgroup first.
 After activation, atomic replacement/unlink-style identity invalidation is
 fail-closed rather than silently treating the new inode as clean.
-Production-complete Linux taint containment remains outside this claim.
+
+Protected egress is also bound to the mount namespace in which the source paths
+were enrolled and revalidated. The native falsification creates a child in a
+fresh mount namespace, bind-mounts a clean file over the enrolled source path,
+reads the substitute successfully, and still receives kernel egress denial
+because its source view no longer matches the admitted mount namespace.
+
+This does not yet freeze mount topology inside the admitted namespace itself,
+nor does it prove PID/user/network namespace continuity, live-remount
+completeness, or safe inode/TGID reuse. Production-complete Linux taint
+containment remains outside this claim.
