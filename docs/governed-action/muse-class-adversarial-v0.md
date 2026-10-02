@@ -2,9 +2,9 @@
 
 Status: **EXPERIMENTAL — non-normative hardening work**
 
-This work does not change the frozen governed-action v1 oracle. It adds one
-experimental execution-origin relation and registers a broader adversarial
-corpus for agent-runtime failure classes.
+This work does not change the frozen governed-action v1 oracle. It adds two
+experimental hardening relations—execution-origin trust and bounded approval
+use—and registers a broader adversarial corpus for agent-runtime failure classes.
 
 The purpose is not to reproduce Meta Muse or to claim parity with its runtime.
 The purpose is to use the same class of hostile assumptions against the
@@ -73,7 +73,45 @@ Effect-boundary enforcer
 The current experimental check only proves the relation supplied to it. Complete
 mediation remains an enforcement-substrate responsibility.
 
-## 3. Muse-class adversarial corpus
+## 3. Experimental relation: bounded approval use
+
+Aegis already has signed `ApprovalAttestation` support that authenticates an
+approver and binds intent/kind/target/action/resource-version/plan/expiry. The
+Muse-class gap is different: an authentic approval must not silently become a
+reusable capability at later effect boundaries.
+
+The experimental `governedaction.CheckApprovalUse` relation binds:
+
+```text
+approval_ref
+action_revision
+effect_id
+target
+scope
+nonce
+max_effects
+valid_until
+```
+
+and evaluates a trusted durable `effects_used` count supplied by the adapter.
+
+For a one-time approval:
+
+```text
+max_effects = 1
+effects_used >= 1
+    => REJECT
+```
+
+Target, action revision, effect identity, scope, nonce, approval reference,
+expiry and effect limit must remain exact.
+
+This pure relation does not create a durable approval store. The adapter must
+atomically charge approval use under its declared failure model and use native
+transactions/CAS/fencing where concurrent consumers could race. Two callers
+that both falsely present `effects_used=0` are outside the guarantee.
+
+## 4. Muse-class adversarial corpus
 
 The machine-readable corpus is:
 
@@ -87,10 +125,10 @@ Current accounting is explicit:
 
 | Coverage | Cases | Meaning |
 |---|---:|---|
-| EXECUTABLE_NOW | 3 | M00, M04, M05 execute against `CheckOrigin` in tests |
+| EXECUTABLE_NOW | 5 | M00/M04/M05 execute against `CheckOrigin`; M06/M07 execute against `CheckApprovalUse` |
 | EXISTING_COVERAGE | 4 | Existing kernel/recovery/anti-rollback work already exercises the class, but not through this new origin check |
 | PARTIAL_EXISTING | 2 | Relevant machinery exists, but the full Muse-class property is not yet proved |
-| PLANNED | 7 | Registered as attack classes only; they do not count as implemented controls |
+| PLANNED | 5 | Registered as attack classes only; they do not count as implemented controls |
 
 ### Registered cases
 
@@ -111,7 +149,7 @@ Current accounting is explicit:
 - **M14** provider acceptance contradicts the observed postcondition.
 - **M15** a compromised actor attempts to disable the guard.
 
-## 4. Current executable claims
+## 5. Current executable claims
 
 Only the following new claims are earned by this change:
 
@@ -122,21 +160,26 @@ Only the following new claims are earned by this change:
    rejection;
 4. silent capability expansion causes rejection;
 5. unknown capability bits fail closed;
-6. M00/M04/M05 are machine-registered and executed in the standalone shared
-   library test suite.
+6. an authenticated approval reference can be additionally bound to exact
+   action/effect/target/scope/nonce/expiry/cardinality at the effect boundary;
+7. a one-time approval presented after one durably charged effect is rejected;
+8. approval target substitution is rejected;
+9. M00/M04/M05/M06/M07 are machine-registered and executed in the standalone
+   shared library test suite.
 
 This change does **not** yet prove:
 
 - process/data taint propagation;
 - secret surrogation or just-in-time credential injection;
 - credential audience isolation;
-- out-of-band human approval replay protection;
+- out-of-band approval transport/authenticity beyond the existing signed-attestation machinery;
+- atomic concurrent approval consumption without an adapter-native transaction/CAS/fence;
 - DNS/redirect final-destination mediation;
 - that a hostile process cannot bypass the effect-boundary enforcer;
 - a Muse-compatible runtime;
 - production-grade agent containment.
 
-## 5. Next implementation order
+## 6. Next implementation order
 
 Do not add all planned controls at once.
 
@@ -158,7 +201,7 @@ Each step must add a failing attack schedule first, then an executable control,
 then preserve the original positive path. A planned corpus entry must never be
 counted as a passed control merely because it is documented.
 
-## 6. Kill condition
+## 7. Kill condition
 
 This hardening effort is useful only if the same relation survives different
 domains without embedding their business semantics.
