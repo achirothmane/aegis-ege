@@ -104,6 +104,24 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		return TaintActivationResult{}, err
 	}
 	defer failureMap.Close()
+	dirtyMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tdirty"), ebpf.Array, 4, 8, 1)
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	defer dirtyMap.Close()
+	var (
+		zeroKey     uint32
+		sourceDirty uint64
+	)
+	if err := dirtyMap.Lookup(&zeroKey, &sourceDirty); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("read taint source identity continuity: %w", err)
+	}
+	if sourceDirty != 0 {
+		return TaintActivationResult{}, fmt.Errorf(
+			"taint source identity continuity is dirty before activation: %d",
+			sourceDirty,
+		)
+	}
 	cgroupMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tcgroups"), ebpf.Hash, 8, 4, 4096)
 	if err != nil {
 		return TaintActivationResult{}, err
@@ -265,6 +283,36 @@ func TaintCgroupActivationState(bpffsRoot string, cgroupID uint64) (bool, error)
 		return false, err
 	}
 	return enabled != 0, nil
+}
+
+// TaintSourceIdentityDirtyState returns the global source-identity invalidation
+// counter. Any non-zero value means at least one registered source inode was
+// unlinked or participated in a rename/replacement after registration.
+func TaintSourceIdentityDirtyState(bpffsRoot string) (uint64, error) {
+	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
+	if root == "." || root == "" {
+		root = DefaultTaintBPFFSRoot
+	}
+	m, err := openExactTaintMap(
+		filepath.Join(root, "maps", "aegis_tdirty"),
+		ebpf.Array,
+		4,
+		8,
+		1,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer m.Close()
+
+	var (
+		key   uint32
+		dirty uint64
+	)
+	if err := m.Lookup(&key, &dirty); err != nil {
+		return 0, err
+	}
+	return dirty, nil
 }
 
 func removeTaintPin(path string) {
