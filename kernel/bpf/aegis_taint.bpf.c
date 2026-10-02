@@ -249,8 +249,18 @@ static __always_inline int union_process_taint(
 }
 
 SEC("lsm/file_permission")
-int aegis_fperm(struct file *file, int mask, int ret)
+int aegis_fperm(__u64 *ctx)
 {
+	/*
+	 * BPF LSM is a tracing-style program type: R1 is the trampoline context,
+	 * not the first LSM argument. Keep the exported BPF entry point in the
+	 * canonical single-context form (equivalent to libbpf's BPF_PROG macro)
+	 * and decode file_permission(file, mask, ret) from that context.
+	 */
+	struct file *file = (struct file *)ctx[0];
+	int mask = (int)ctx[1];
+	int ret = (int)ctx[2];
+
 	if (ret)
 		return ret;
 
