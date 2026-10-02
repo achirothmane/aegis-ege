@@ -26,11 +26,11 @@ func TestBuildTaintBootstrapManifestPinsExactSurface(t *testing.T) {
 	if err := ValidateTaintBootstrapManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Programs) != 4 {
-		t.Fatalf("programs=%d want=4", len(manifest.Programs))
+	if len(manifest.Programs) != 6 {
+		t.Fatalf("programs=%d want=6", len(manifest.Programs))
 	}
-	if len(manifest.Maps) != 10 {
-		t.Fatalf("maps=%d want=10", len(manifest.Maps))
+	if len(manifest.Maps) != 11 {
+		t.Fatalf("maps=%d want=11", len(manifest.Maps))
 	}
 }
 
