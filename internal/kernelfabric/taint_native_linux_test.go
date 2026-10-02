@@ -165,16 +165,9 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if err := os.WriteFile(artifact, nativeTaintBPFObject, 0o600); err != nil {
 		t.Fatalf("materialize embedded taint BPF object: %v", err)
 	}
-	secretPath := filepath.Join(workDir, "secret.txt")
+	secretPath := mountNativeOverlaySource(t)
 	bridgePath := filepath.Join(workDir, "bridge.txt")
-	if err := os.WriteFile(secretPath, []byte("classified"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(bridgePath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sourceKey, err := ResolveTaintFileKey(secretPath)
-	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,12 +212,29 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 		t.Fatalf("load and attach taint BPF programs: %v", err)
 	}
 
+	sourceKeys, err := ResolveTaintFileKeysObserved(bpffsRoot, secretPath)
+	if err != nil {
+		t.Fatalf("kernel-observe overlay source identities: %v", err)
+	}
+	if len(sourceKeys) == 0 {
+		t.Fatal("overlay source probe returned no kernel identities")
+	}
+	statKey, err := ResolveTaintFileKey(secretPath)
+	if err != nil {
+		t.Fatalf("resolve userspace overlay source identity: %v", err)
+	}
+	t.Logf("overlay source userspace identity=%+v kernel identities=%+v", statKey, sourceKeys)
+
 	plan := TaintActivationPlan{
 		CgroupPath:    cgroupPath,
 		AllowedLabels: 0,
-		Sources: []TaintSourceBinding{
-			{File: sourceKey, Labels: 1},
-		},
+		Sources:       make([]TaintSourceBinding, 0, len(sourceKeys)),
+	}
+	for _, key := range sourceKeys {
+		plan.Sources = append(plan.Sources, TaintSourceBinding{
+			File:   key,
+			Labels: 1,
+		})
 	}
 	activated, err := ActivateTaintCgroup(TaintActivationRequest{
 		BPFFSRoot:                     bpffsRoot,
@@ -297,14 +307,14 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 			reader,
 			activated.CgroupID,
 			uint32(os.Getpid()),
-			sourceKey,
+			sourceKeys,
 		)
 		t.Fatalf(
-			"sensitive read did not produce process taint: %v; kernel read observations: %s; configured source: device=%d inode=%d",
+			"overlay sensitive read did not produce process taint: %v; kernel read observations: %s; configured kernel sources: %+v; userspace stat source: %+v",
 			err,
 			diagnostic,
-			sourceKey.Device,
-			sourceKey.Inode,
+			sourceKeys,
+			statKey,
 		)
 	}
 	if err := os.WriteFile(bridgePath, []byte("launder-attempt"), 0o600); err != nil {
@@ -406,6 +416,39 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if err := waitForNativeTaintEvidence(reader, activated.CgroupID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func mountNativeOverlaySource(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	lower := filepath.Join(root, "lower")
+	upper := filepath.Join(root, "upper")
+	work := filepath.Join(root, "work")
+	merged := filepath.Join(root, "merged")
+	for _, dir := range []string{lower, upper, work, merged} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatalf("create overlay directory %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(lower, "secret.txt"), []byte("classified"), 0o600); err != nil {
+		t.Fatalf("write overlay lower secret: %v", err)
+	}
+	options := fmt.Sprintf(
+		"lowerdir=%s,upperdir=%s,workdir=%s",
+		lower,
+		upper,
+		work,
+	)
+	if err := unix.Mount("overlay", merged, "overlay", 0, options); err != nil {
+		t.Fatalf("mount native overlay source: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := unix.Unmount(merged, unix.MNT_DETACH); err != nil {
+			t.Logf("unmount native overlay source: %v", err)
+		}
+	})
+	return filepath.Join(merged, "secret.txt")
 }
 
 func runM15bIsolatedHostileWorkload(
@@ -821,7 +864,7 @@ func diagnoseNativeReadKeys(
 	reader *TaintEvidenceReader,
 	cgroupID uint64,
 	tgid uint32,
-	source TaintFileKey,
+	sources []TaintFileKey,
 ) string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -840,7 +883,13 @@ func diagnoseNativeReadKeys(
 			event.EventType != TaintEventFileReadObserved {
 			continue
 		}
-		match := event.FileDevice == source.Device && event.FileInode == source.Inode
+		match := false
+		for _, source := range sources {
+			if event.FileDevice == source.Device && event.FileInode == source.Inode {
+				match = true
+				break
+			}
+		}
 		observations = append(observations, fmt.Sprintf(
 			"device=%d inode=%d labels=%#x source_match=%t",
 			event.FileDevice,
