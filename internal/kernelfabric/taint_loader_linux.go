@@ -294,16 +294,16 @@ func validateTaintCollectionSpec(spec *ebpf.CollectionSpec) error {
 		valueSize  uint32
 		maxEntries uint32
 	}{
-		"aegis_tsrc":           {ebpf.Hash, 16, 8, 32768},
-		"aegis_ftaint":         {ebpf.Hash, 16, 8, 65536},
-		"aegis_ptaint":         {ebpf.Hash, 4, 8, 65536},
-		"aegis_tprobe":         {ebpf.Hash, 4, 8, 4096},
+		"aegis_tsrc":     {ebpf.Hash, 16, 8, 32768},
+		"aegis_ftaint":   {ebpf.Hash, 16, 8, 65536},
+		"aegis_ptaint":   {ebpf.Hash, 4, 8, 65536},
+		"aegis_tprobe":   {ebpf.Hash, 4, 8, 4096},
 		"aegis_tprobe_r": {ebpf.Hash, TaintProbeKeySize, 8, 16384},
-		"aegis_tcgroups":       {ebpf.Hash, 8, 4, 4096},
-		"aegis_tallow":         {ebpf.Hash, 8, 8, 4096},
-		"aegis_tfail":          {ebpf.Hash, 8, 8, 4096},
-		"aegis_tevents":        {ebpf.RingBuf, 0, 0, 1 << 20},
-		"aegis_tacct":          {ebpf.Array, 4, TaintAccountingSize, 1},
+		"aegis_tcgroups": {ebpf.Hash, 8, 4, 4096},
+		"aegis_tallow":   {ebpf.Hash, 8, 8, 4096},
+		"aegis_tfail":    {ebpf.Hash, 8, 8, 4096},
+		"aegis_tevents":  {ebpf.RingBuf, 0, 0, 1 << 20},
+		"aegis_tacct":    {ebpf.Array, 4, TaintAccountingSize, 1},
 	}
 	for name, expected := range expectedMaps {
 		m := spec.Maps[name]
