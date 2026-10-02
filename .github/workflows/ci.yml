@@ -40,6 +40,7 @@ jobs:
           if [ -n "$offenders" ]; then
             echo "gofmt required for:"
             printf '%s\n' "$offenders"
+            gofmt -d internal/kernelfabric/taint_*.go cmd/aegis-taint-*/main.go
             exit 1
           fi
       - name: Assert legacy unsigned BPF loader is disabled
