@@ -177,12 +177,15 @@ func TestTPMNVCounterDeleteRedefineCannotRestoreOldGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := (tpm2.NVUndefineSpace{
-		AuthHandle: tpm2.TPMRHOwner,
+		AuthHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(cfg.OwnerAuth),
+		},
 		NVIndex: tpm2.NamedHandle{
 			Handle: cfg.NVIndex,
 			Name:   public.NVName,
 		},
-	}).Execute(device, tpm2.PasswordAuth(cfg.OwnerAuth)); err != nil {
+	}).Execute(device); err != nil {
 		t.Fatalf("undefine TPM counter: %v", err)
 	}
 
