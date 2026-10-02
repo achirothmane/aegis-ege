@@ -132,7 +132,6 @@ func VerifySignedTaintRecoveryAuthorization(
 	return nil
 }
 
-
 func TaintRecoveryCommitmentDigest(
 	signed SignedTaintRecoveryAuthorization,
 ) ([32]byte, error) {
