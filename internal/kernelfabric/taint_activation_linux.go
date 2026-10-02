@@ -80,6 +80,18 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		_ = loaded.Close()
 	}
 
+	currentMountNamespaceID, err := ResolveCurrentMountNamespaceID()
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	if currentMountNamespaceID != req.Plan.MountNamespaceID {
+		return TaintActivationResult{}, fmt.Errorf(
+			"taint source-view mount namespace changed before activation: current=%d planned=%d",
+			currentMountNamespaceID,
+			req.Plan.MountNamespaceID,
+		)
+	}
+
 	cgroupID, err := ResolveCgroupV2ID(req.Plan.CgroupPath)
 	if err != nil {
 		return TaintActivationResult{}, err
@@ -105,6 +117,11 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		return TaintActivationResult{}, err
 	}
 	defer failureMap.Close()
+	mountNamespaceMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tmns"), ebpf.Hash, 8, 8, 4096)
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	defer mountNamespaceMap.Close()
 	dirtyMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tdirty"), ebpf.Array, 4, 8, 1)
 	if err != nil {
 		return TaintActivationResult{}, err
@@ -133,6 +150,7 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		}
 		_ = allowMap.Delete(&cgroupID)
 		_ = failureMap.Delete(&cgroupID)
+		_ = mountNamespaceMap.Delete(&cgroupID)
 	}
 	activated := false
 	defer func() {
@@ -170,6 +188,11 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 			"taint source identity continuity changed during activation: %d",
 			sourceDirty,
 		)
+	}
+
+	mountNamespaceID := req.Plan.MountNamespaceID
+	if err := mountNamespaceMap.Update(&cgroupID, &mountNamespaceID, ebpf.UpdateAny); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("install taint mount-namespace binding: %w", err)
 	}
 
 	allowed := req.Plan.AllowedLabels
@@ -259,6 +282,17 @@ func taintSourceDirtyCount(m *ebpf.Map) (uint64, error) {
 		return 0, fmt.Errorf("read taint source identity continuity: %w", err)
 	}
 	return dirty, nil
+}
+
+func ResolveCurrentMountNamespaceID() (uint64, error) {
+	var stat unix.Stat_t
+	if err := unix.Stat("/proc/self/ns/mnt", &stat); err != nil {
+		return 0, fmt.Errorf("stat current mount namespace: %w", err)
+	}
+	if stat.Ino == 0 {
+		return 0, errors.New("current mount namespace identity is zero")
+	}
+	return stat.Ino, nil
 }
 
 func ResolveTaintFileKey(path string) (TaintFileKey, error) {
