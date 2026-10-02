@@ -45,6 +45,36 @@ Kubernetes. Typed closure profiles, postconditions, observers, replay claims and
 recovery authority remain in their adapters. This module is not a universal
 lifecycle, scheduler, policy engine, identity service or credential.
 
+## Experimental execution-origin hardening
+
+`CheckOrigin` is an additive, non-normative hardening relation. It does **not**
+change the frozen K01-K05 oracle.
+
+It binds an admitted execution origin to the current origin by exact:
+
+```text
+origin_id
+origin_type
+source_digest
+trust_domain
+trust_epoch
+```
+
+and rejects any silent capability expansion. A strict capability subset is
+allowed; a new capability requires fresh admission.
+
+The adapter/profile must derive origin provenance from a trusted mechanism.
+Caller-provided labels, self-reported digests or a matching artifact hash alone
+are not authority.
+
+The machine-readable Muse-class adversarial corpus lives at
+`testdata/muse-class/corpus-v0.json`. Only M00/M04/M05 are newly executable
+through this origin check; planned cases are deliberately not credited as
+implemented controls.
+
+See
+[ Muse-class adversarial hardening v0 ](../docs/governed-action/muse-class-adversarial-v0.md).
+
 Run `go test -race -count=1 ./...` from this directory. Repository CI also runs
 the unchanged frozen oracle, CRM/D02 tests, native PostgreSQL crash schedules and
 KinD integration tests. See [D04 scope and evidence](../docs/governed-action/d04-shared-library.md).
