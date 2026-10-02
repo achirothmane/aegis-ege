@@ -24,8 +24,8 @@ type TaintActivationRequest struct {
 }
 
 type TaintActivationResult struct {
-	CgroupID       uint64
-	PlanDigest     string
+	CgroupID        uint64
+	PlanDigest      string
 	EnrollmentEpoch uint64
 }
 
@@ -111,6 +111,11 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 		return TaintActivationResult{}, err
 	}
 	defer dirtyMap.Close()
+	cleanMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tclean"), ebpf.Array, 4, 8, 1)
+	if err != nil {
+		return TaintActivationResult{}, err
+	}
+	defer cleanMap.Close()
 	armedMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tarmed"), ebpf.Array, 4, 4, 1)
 	if err != nil {
 		return TaintActivationResult{}, err
@@ -141,10 +146,15 @@ func ActivateTaintCgroup(req TaintActivationRequest) (TaintActivationResult, err
 	if err != nil {
 		return TaintActivationResult{}, err
 	}
-	if sourceDirty != 0 {
+	var cleanGeneration uint64
+	if err := cleanMap.Lookup(&epochKey, &cleanGeneration); err != nil {
+		return TaintActivationResult{}, fmt.Errorf("read taint source continuity watermark: %w", err)
+	}
+	if sourceDirty != 0 || cleanGeneration != 0 {
 		return TaintActivationResult{}, fmt.Errorf(
-			"taint source identity continuity is dirty before activation: %d",
+			"taint source continuity generations must start at zero: dirty=%d clean=%d",
 			sourceDirty,
+			cleanGeneration,
 		)
 	}
 	cgroupMap, err := openExactTaintMap(filepath.Join(mapDir, "aegis_tcgroups"), ebpf.Hash, 8, 4, 4096)
@@ -412,9 +422,10 @@ func TaintCgroupActivationState(bpffsRoot string, cgroupID uint64) (bool, error)
 	return enabled != 0, nil
 }
 
-// TaintSourceIdentityDirtyState returns the global source-identity invalidation
-// counter. Any non-zero value means at least one registered source inode was
-// unlinked or participated in a rename/replacement after registration.
+// TaintSourceIdentityDirtyState returns the monotonic global source-continuity
+// invalidation generation. A non-zero value is not by itself DIRTY after
+// recovery; egress is current only when this generation equals the separately
+// admitted clean watermark.
 func TaintSourceIdentityDirtyState(bpffsRoot string) (uint64, error) {
 	root := filepath.Clean(strings.TrimSpace(bpffsRoot))
 	if root == "." || root == "" {
