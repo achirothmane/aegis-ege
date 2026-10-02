@@ -342,7 +342,6 @@ func removeNativeTaintPins(root string) {
 	_ = os.RemoveAll(root)
 }
 
-
 func prepareNativeTaintKernel() error {
 	if err := ensureNativeFilesystem("/sys/fs/bpf", "bpf", uint64(bpfFSMagic)); err != nil {
 		return err
