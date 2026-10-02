@@ -144,12 +144,23 @@ struct {
 	__type(value, __u32);
 } aegis_tarmed SEC(".maps");
 
+struct aegis_taint_recovery_commitment {
+	__u8 digest[32];
+};
+
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
 	__type(value, __u64);
 } aegis_tepoch SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct aegis_taint_recovery_commitment);
+} aegis_trecover SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
