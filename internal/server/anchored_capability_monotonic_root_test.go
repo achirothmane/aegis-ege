@@ -2,22 +2,24 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
-type testCapabilityMonotonicAnchor struct {
+type testCapabilityRootAnchor struct {
 	mu       sync.Mutex
 	identity string
-	value    uint64
+	state    CapabilityRootAnchorState
 }
 
-func (a *testCapabilityMonotonicAnchor) Identity(context.Context) (string, error) {
+func (a *testCapabilityRootAnchor) Identity(context.Context) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.identity == "" {
@@ -26,20 +28,30 @@ func (a *testCapabilityMonotonicAnchor) Identity(context.Context) (string, error
 	return a.identity, nil
 }
 
-func (a *testCapabilityMonotonicAnchor) Read(context.Context) (uint64, error) {
+func (a *testCapabilityRootAnchor) Current(context.Context) (CapabilityRootAnchorState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.value, nil
+	return a.state, nil
 }
 
-func (a *testCapabilityMonotonicAnchor) Advance(_ context.Context, expected uint64) (uint64, error) {
+func (a *testCapabilityRootAnchor) Advance(
+	_ context.Context,
+	expected CapabilityRootAnchorState,
+	next CapabilityRootAnchorState,
+) (CapabilityRootAnchorState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.value != expected {
-		return 0, errors.New("anchor changed concurrently")
+	if a.state != expected {
+		return CapabilityRootAnchorState{}, errors.New("anchor changed concurrently")
 	}
-	a.value++
-	return a.value, nil
+	if next.Sequence != expected.Sequence+1 {
+		return CapabilityRootAnchorState{}, errors.New("anchor sequence did not advance by one")
+	}
+	if !isCapabilityRootDigest(next.Commitment) {
+		return CapabilityRootAnchorState{}, errors.New("anchor commitment is not a sha256 digest")
+	}
+	a.state = next
+	return a.state, nil
 }
 
 func anchoredCapabilityScope() CapabilityFenceScope {
@@ -64,7 +76,7 @@ func anchoredCapabilitySnapshot(decisionEpoch uint64) egeproto.CapabilityAuthori
 
 func TestAnchoredCapabilityRootPersistsHighWaterAndRejectsRegression(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capability-root.log")
-	anchor := &testCapabilityMonotonicAnchor{identity: "test-anchor"}
+	anchor := &testCapabilityRootAnchor{identity: "test-anchor"}
 	root, err := NewAnchoredFileCapabilityMonotonicRoot(path, anchor)
 	if err != nil {
 		t.Fatal(err)
@@ -88,8 +100,11 @@ func TestAnchoredCapabilityRootPersistsHighWaterAndRejectsRegression(t *testing.
 	if got != t2 {
 		t.Fatalf("advance T2 = %+v, want %+v", got, t2)
 	}
-	if anchor.value != 2 {
-		t.Fatalf("anchor value = %d, want 2", anchor.value)
+	if anchor.state.Sequence != 2 {
+		t.Fatalf("anchor sequence = %d, want 2", anchor.state.Sequence)
+	}
+	if !isCapabilityRootDigest(anchor.state.Commitment) {
+		t.Fatalf("anchor commitment = %q, want sha256 digest", anchor.state.Commitment)
 	}
 
 	reopened, err := NewAnchoredFileCapabilityMonotonicRoot(path, anchor)
@@ -111,14 +126,14 @@ func TestAnchoredCapabilityRootPersistsHighWaterAndRejectsRegression(t *testing.
 	if got != t2 {
 		t.Fatalf("regression returned %+v, want preserved %+v", got, t2)
 	}
-	if anchor.value != 2 {
-		t.Fatalf("regression advanced anchor to %d, want 2", anchor.value)
+	if anchor.state.Sequence != 2 {
+		t.Fatalf("regression advanced anchor to %d, want 2", anchor.state.Sequence)
 	}
 }
 
 func TestAnchoredCapabilityRootDetectsDiskRollbackAfterAnchorAdvance(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capability-root.log")
-	anchor := &testCapabilityMonotonicAnchor{identity: "test-anchor"}
+	anchor := &testCapabilityRootAnchor{identity: "test-anchor"}
 	root, err := NewAnchoredFileCapabilityMonotonicRoot(path, anchor)
 	if err != nil {
 		t.Fatal(err)
@@ -138,8 +153,8 @@ func TestAnchoredCapabilityRootDetectsDiskRollbackAfterAnchorAdvance(t *testing.
 	if _, err := root.Advance(context.Background(), scope, t2); err != nil {
 		t.Fatal(err)
 	}
-	if anchor.value != 2 {
-		t.Fatalf("anchor value = %d, want 2", anchor.value)
+	if anchor.state.Sequence != 2 {
+		t.Fatalf("anchor sequence = %d, want 2", anchor.state.Sequence)
 	}
 
 	if err := os.WriteFile(path, t1Ledger, 0o600); err != nil {
@@ -152,9 +167,84 @@ func TestAnchoredCapabilityRootDetectsDiskRollbackAfterAnchorAdvance(t *testing.
 	}
 }
 
+func TestAnchoredCapabilityRootRejectsSameLengthRewrittenLedger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capability-root.log")
+	anchor := &testCapabilityRootAnchor{identity: "test-anchor"}
+	root, err := NewAnchoredFileCapabilityMonotonicRoot(path, anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scope := anchoredCapabilityScope()
+	t1 := anchoredCapabilitySnapshot(31)
+	t2 := anchoredCapabilitySnapshot(32)
+	if _, err := root.Advance(context.Background(), scope, t1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.Advance(context.Background(), scope, t2); err != nil {
+		t.Fatal(err)
+	}
+	originalCommitment := anchor.state.Commitment
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("ledger lines = %d, want 2", len(lines))
+	}
+	var records [2]capabilityRootRecord
+	for i := range lines {
+		if err := json.Unmarshal([]byte(lines[i]), &records[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Keep exactly two records and a locally valid hash chain, but move the
+	// second record to another scope. The original scope now appears to have
+	// stopped at T1 even though the external anchor still commits to the real T2
+	// ledger head.
+	otherScope := scope
+	otherScope.IntentID = "intent-cap-root-other"
+	records[1].ScopeDigest, err = capabilityRootScopeDigest(otherScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records[1].RecordHash, err = capabilityRootRecordHash(records[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records[1].RecordHash == originalCommitment {
+		t.Fatal("rewritten ledger unexpectedly preserved external head commitment")
+	}
+
+	var rewritten strings.Builder
+	for _, record := range records {
+		line, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rewritten.Write(line)
+		rewritten.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(rewritten.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = root.Current(context.Background(), scope)
+	if !errors.Is(err, ErrCapabilityRootAnchorMismatch) {
+		t.Fatalf(
+			"same-length rewritten ledger error = %v, want %v",
+			err,
+			ErrCapabilityRootAnchorMismatch,
+		)
+	}
+}
+
 func TestIndependentAuthorityFailsClosedWhenMutableAndLedgerRollbackTogether(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "capability-root.log")
-	anchor := &testCapabilityMonotonicAnchor{identity: "test-anchor"}
+	anchor := &testCapabilityRootAnchor{identity: "test-anchor"}
 	root, err := NewAnchoredFileCapabilityMonotonicRoot(path, anchor)
 	if err != nil {
 		t.Fatal(err)
@@ -195,12 +285,12 @@ func TestIndependentAuthorityFailsClosedWhenMutableAndLedgerRollbackTogether(t *
 	if _, err := authority.Issue(context.Background(), scope); err != nil {
 		t.Fatal(err)
 	}
-	if anchor.value != 2 {
-		t.Fatalf("anchor value = %d, want 2", anchor.value)
+	if anchor.state.Sequence != 2 {
+		t.Fatalf("anchor sequence = %d, want 2", anchor.state.Sequence)
 	}
 
-	// Restore every mutable authority view and the disk-backed root ledger to T1.
-	// The monotonic anchor deliberately remains at T2.
+	// Restore every mutable authority view and the local root ledger to T1.
+	// The independently protected anchor deliberately remains committed to T2.
 	mutable.issue = t1Issue
 	mutable.coordination = t1
 	mutable.witness = t1
