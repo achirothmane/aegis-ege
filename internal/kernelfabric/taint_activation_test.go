@@ -4,16 +4,18 @@ import "testing"
 
 func TestTaintActivationPlanDigestIsOrderIndependent(t *testing.T) {
 	a := TaintActivationPlan{
-		CgroupPath:    "/sys/fs/cgroup/aegis",
-		AllowedLabels: 0,
+		CgroupPath:       "/sys/fs/cgroup/aegis",
+		MountNamespaceID: 4242,
+		AllowedLabels:    0,
 		Sources: []TaintSourceBinding{
 			{Path: "/var/lib/aegis/source-b", File: TaintFileKey{Device: 8, Inode: 22}, Labels: 1 << 3},
 			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1 << 0},
 		},
 	}
 	b := TaintActivationPlan{
-		CgroupPath:    "/sys/fs/cgroup/aegis",
-		AllowedLabels: 0,
+		CgroupPath:       "/sys/fs/cgroup/aegis",
+		MountNamespaceID: 4242,
+		AllowedLabels:    0,
 		Sources: []TaintSourceBinding{
 			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1 << 0},
 			{Path: "/var/lib/aegis/source-b", File: TaintFileKey{Device: 8, Inode: 22}, Labels: 1 << 3},
@@ -34,7 +36,8 @@ func TestTaintActivationPlanDigestIsOrderIndependent(t *testing.T) {
 
 func TestTaintActivationPlanDigestBindsSourcePath(t *testing.T) {
 	base := TaintActivationPlan{
-		CgroupPath: "/sys/fs/cgroup/aegis",
+		CgroupPath:       "/sys/fs/cgroup/aegis",
+		MountNamespaceID: 4242,
 		Sources: []TaintSourceBinding{
 			{
 				Path:   "/var/lib/aegis/source-a",
@@ -60,15 +63,46 @@ func TestTaintActivationPlanDigestBindsSourcePath(t *testing.T) {
 	}
 }
 
+
+func TestTaintActivationPlanDigestBindsMountNamespace(t *testing.T) {
+	base := TaintActivationPlan{
+		CgroupPath:       "/sys/fs/cgroup/aegis",
+		MountNamespaceID: 4242,
+		Sources: []TaintSourceBinding{
+			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1},
+		},
+	}
+	first, err := TaintActivationPlanDigest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated := base
+	mutated.MountNamespaceID = 4343
+	second, err := TaintActivationPlanDigest(mutated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("mount namespace mutation did not change activation plan digest")
+	}
+}
+
 func TestTaintActivationPlanRejectsDuplicatesAndEmptyLabels(t *testing.T) {
 	base := TaintActivationPlan{
-		CgroupPath: "/sys/fs/cgroup/aegis",
+		CgroupPath:       "/sys/fs/cgroup/aegis",
+		MountNamespaceID: 4242,
 		Sources: []TaintSourceBinding{
 			{Path: "/var/lib/aegis/source-a", File: TaintFileKey{Device: 8, Inode: 11}, Labels: 1},
 		},
 	}
 	if err := ValidateTaintActivationPlan(base); err != nil {
 		t.Fatal(err)
+	}
+
+	missingNamespace := base
+	missingNamespace.MountNamespaceID = 0
+	if err := ValidateTaintActivationPlan(missingNamespace); err == nil {
+		t.Fatal("zero mount namespace accepted")
 	}
 
 	duplicate := base
