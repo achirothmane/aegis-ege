@@ -60,6 +60,32 @@ func TestTaintNativeHelper(t *testing.T) {
 		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
 			t.Fatal(err)
 		}
+	case "copyup":
+		var trigger [1]byte
+		if _, err := os.Stdin.Read(trigger[:]); err != nil {
+			t.Fatalf("wait for copy-up trigger: %v", err)
+		}
+		file, err := os.OpenFile(
+			os.Getenv(taintNativeHelperSource),
+			os.O_WRONLY|os.O_APPEND,
+			0,
+		)
+		if err != nil {
+			t.Fatalf("open source for copy-up: %v", err)
+		}
+		if _, err := file.Write([]byte("!")); err != nil {
+			_ = file.Close()
+			t.Fatalf("write source for copy-up: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close copy-up source: %v", err)
+		}
+		if _, err := os.ReadFile(os.Getenv(taintNativeHelperSource)); err != nil {
+			t.Fatalf("read source after copy-up: %v", err)
+		}
+		if err := expectNativeDialDenied(os.Getenv(taintNativeHelperAddr)); err != nil {
+			t.Fatal(err)
+		}
 	case "replacement":
 		var trigger [1]byte
 		if _, err := os.Stdin.Read(trigger[:]); err != nil {
@@ -177,7 +203,9 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	if err := os.WriteFile(artifact, nativeTaintBPFObject, 0o600); err != nil {
 		t.Fatalf("materialize embedded taint BPF object: %v", err)
 	}
-	secretPath := mountNativeOverlaySource(t)
+	overlay := mountNativeOverlaySource(t)
+	secretPath := overlay.SecretPath
+	copyupPath := overlay.CopyupPath
 	bridgePath := filepath.Join(workDir, "bridge.txt")
 	if err := os.WriteFile(bridgePath, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -538,7 +566,12 @@ func TestNativeTaintReadForkFileAndEgress(t *testing.T) {
 	}
 }
 
-func mountNativeOverlaySource(t *testing.T) string {
+type nativeOverlaySourceFixture struct {
+	SecretPath string
+	CopyupPath string
+}
+
+func mountNativeOverlaySource(t *testing.T) nativeOverlaySourceFixture {
 	t.Helper()
 
 	root := filepath.Join(t.TempDir(), "overlay-backing")
@@ -572,6 +605,9 @@ func mountNativeOverlaySource(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(lower, "secret.txt"), []byte("classified"), 0o600); err != nil {
 		t.Fatalf("write overlay lower secret: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(lower, "copyup.txt"), []byte("copyup-sensitive"), 0o600); err != nil {
+		t.Fatalf("write overlay lower copy-up source: %v", err)
+	}
 	options := fmt.Sprintf(
 		"lowerdir=%s,upperdir=%s,workdir=%s",
 		lower,
@@ -586,7 +622,10 @@ func mountNativeOverlaySource(t *testing.T) string {
 			t.Logf("unmount native overlay source: %v", err)
 		}
 	})
-	return filepath.Join(merged, "secret.txt")
+	return nativeOverlaySourceFixture{
+		SecretPath: filepath.Join(merged, "secret.txt"),
+		CopyupPath: filepath.Join(merged, "copyup.txt"),
+	}
 }
 
 func runM15bIsolatedHostileWorkload(
