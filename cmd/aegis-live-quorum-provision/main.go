@@ -115,6 +115,11 @@ type memberMaterial struct {
 
 func main() {
 	ctx := context.Background()
+	if strings.TrimSpace(os.Getenv("LIVE_QUORUM_TOPOLOGY")) == "independent-control-planes" {
+		must(runIndependentControlPlanes(ctx))
+		return
+	}
+
 	adminPath := requireEnv("WITNESS_ADMIN_KUBECONFIG")
 	bundlePath := requireEnv("LIVE_QUORUM_CLIENT_BUNDLE")
 	chaosKubeconfigPath := requireEnv("LIVE_QUORUM_CHAOS_KUBECONFIG")

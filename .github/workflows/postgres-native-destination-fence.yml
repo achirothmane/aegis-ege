@@ -1,0 +1,97 @@
+name: PostgreSQL Native Destination Fence Proof
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/gosmig-simulation/native_destination_fence_test.go'
+      - 'governedaction/runtime/fenced.go'
+      - 'governedaction/runtime/runtime.go'
+      - 'testdata/governed-action/native-destination-fence/**'
+      - '.github/workflows/postgres-native-destination-fence.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native-postgres-fence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: gosmig_fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gosmig_fixture"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GOSMIG_SIM_ADMIN_DSN: postgres://postgres:fixture-only@localhost:5432/gosmig_fixture?sslmode=disable
+      NATIVE_FENCE_REQUIRE: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+
+      - name: Verify registered runtime and proof identities
+        run: |
+          set -euo pipefail
+          registration=testdata/governed-action/native-destination-fence/postgresql-v1.json
+          test "$(git hash-object governedaction/runtime/runtime.go)" = "$(jq -r '.pins.runtime_blob' "$registration")"
+          test "$(git hash-object governedaction/runtime/fenced.go)" = "$(jq -r '.pins.fenced_runtime_blob' "$registration")"
+          test "$(git hash-object experiments/gosmig-simulation/native_destination_fence_test.go)" = "$(jq -r '.pins.proof_test_blob' "$registration")"
+
+      - name: Execute native destination fencing falsification corpus
+        working-directory: experiments/gosmig-simulation
+        run: |
+          set -euo pipefail
+          go mod download
+          go mod verify
+          gofmt -d native_destination_fence_test.go
+          test -z "$(gofmt -l native_destination_fence_test.go)"
+          go test -race -mod=readonly -count=1 -v             -run '^TestPostgresNativeDestinationFence' .             | tee "$RUNNER_TEMP/native-destination-fence.log"
+          ! grep -q -- '--- SKIP' "$RUNNER_TEMP/native-destination-fence.log"
+          test "$(grep -c -- '--- PASS: TestPostgresNativeDestinationFence' "$RUNNER_TEMP/native-destination-fence.log")" -eq 4
+
+      - name: Emit bounded proof result
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-destination-fence"
+          cp "$RUNNER_TEMP/native-destination-fence.log" "$RUNNER_TEMP/native-destination-fence/test.log"
+          cp testdata/governed-action/native-destination-fence/postgresql-v1.json              "$RUNNER_TEMP/native-destination-fence/registration.json"
+          jq -n             --arg head "${{ github.event.pull_request.head.sha }}"             '{
+              schema_version: "aegis.native-destination-fence-proof-result/v1",
+              source_head: $head,
+              substrate: "PostgreSQL 16.6",
+              stale_owner_after_takeover: "PASS",
+              post_revalidation_state_drift: "PASS",
+              post_revalidation_authority_revocation: "PASS",
+              exact_token_replay: "PASS",
+              unauthorized_native_effects_observed: 0,
+              duplicate_exact_effects_observed: 0,
+              frozen_kernel_contract_changed: false,
+              claim: "PostgreSQL destination profile only"
+            }' > "$RUNNER_TEMP/native-destination-fence/result.json"
+
+      - name: Preserve native fence evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-native-destination-fence-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/native-destination-fence/

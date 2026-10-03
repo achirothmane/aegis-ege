@@ -559,3 +559,48 @@ The executable falsification corpus proves, on the same TPM-B and before any cou
 - an attested destination generation different from the authorized/live generation is denied.
 
 All rejected cases leave the destination TPM counter unchanged. The exact fresh attestation remains the only path that advances the destination generation.
+
+## Genesis-bound migration attestation trust
+
+Destination attestation is no longer accepted under an arbitrary verifier public key supplied by the caller.
+
+The migration and history-continuity paths now consume a `TPMRootMigrationAttestationTrust` value derived from an already verified Genesis manifest and the remote-attestation verifier public key. Construction requires:
+
+```text
+BootstrapKeyID(remote verifier public key)
+        ==
+Genesis.Trust.TrustRootRef
+
+Genesis.Trust.TrustRootEpoch > 0
+Genesis.Trust.AttestationPolicyHash = valid sha256
+GenesisEpoch > 0
+```
+
+The migration authorization commits to the exact governed trust state:
+
+```text
+destination_attestation_genesis_epoch
+destination_attestation_trust_root_ref
+destination_attestation_trust_root_epoch
+destination_attestation_policy_hash
+```
+
+The destination-attestation signature is verified only with the Genesis-bound verifier key. The migration/transfer authority must remain a different key.
+
+The committed TPM lineage records the same Genesis trust coordinates so later reconciliation can establish which attestation root and policy governed the hardware replacement.
+
+### Executable falsification proof
+
+The proof corpus demonstrates that, before the destination TPM counter changes:
+
+- a correctly formed but non-Genesis verifier key cannot be admitted into the attestation trust object;
+- a migration authorization carrying a stale/different trust-root epoch is denied;
+- a migration authorization carrying a substituted attestation-policy hash is denied;
+- history-continuity transfer rejects the same attestation-policy substitution;
+- the existing migration/attestation key-separation, freshness, measured-boot, generation, replay and signature checks remain enforced.
+
+Only the exact Genesis-bound verifier key and policy state can authorize the destination evidence consumed by the migration protocol.
+
+### Claim boundary
+
+This binding assumes the supplied Genesis manifest has already passed the production Genesis verification path, including manifest authenticity, trust-root verification, attestation-policy artifact hashing, and revocation-floor checks. This layer does not independently re-bootstrap Genesis; it prevents post-bootstrap substitution of the remote-attestation verifier or its governing trust epoch/policy inside TPM replacement workflows.

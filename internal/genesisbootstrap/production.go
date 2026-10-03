@@ -201,6 +201,29 @@ func BootstrapProductionWithSubject(
 	subject CurrentSubject,
 	now time.Time,
 ) (*easl.Runtime, genesis.Result, error) {
+	runtime, result, _, err := BootstrapProductionWithSubjectPin(
+		ctx,
+		manifestPath,
+		bundlePath,
+		minimumAcceptedEpoch,
+		minimumAcceptedDoctrineEpoch,
+		requiredConformance,
+		subject,
+		now,
+	)
+	return runtime, result, err
+}
+
+func BootstrapProductionWithSubjectPin(
+	ctx context.Context,
+	manifestPath string,
+	bundlePath string,
+	minimumAcceptedEpoch uint64,
+	minimumAcceptedDoctrineEpoch uint64,
+	requiredConformance genesis.ConformanceLevel,
+	subject CurrentSubject,
+	now time.Time,
+) (*easl.Runtime, genesis.Result, VerifiedGenesisPin, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	} else {
@@ -209,15 +232,18 @@ func BootstrapProductionWithSubject(
 
 	manifest, err := LoadManifest(manifestPath)
 	if err != nil {
-		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("load Genesis manifest: %w", err)
+		return nil, genesis.Result{State: genesis.StateLocked}, VerifiedGenesisPin{},
+			fmt.Errorf("load Genesis manifest: %w", err)
 	}
 	bundle, err := LoadVerificationBundle(bundlePath)
 	if err != nil {
-		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("load Genesis verification bundle: %w", err)
+		return nil, genesis.Result{State: genesis.StateLocked}, VerifiedGenesisPin{},
+			fmt.Errorf("load Genesis verification bundle: %w", err)
 	}
 	verifier, err := NewProductionVerifier(bundle, subject, now)
 	if err != nil {
-		return nil, genesis.Result{State: genesis.StateLocked}, fmt.Errorf("construct production Genesis verifier: %w", err)
+		return nil, genesis.Result{State: genesis.StateLocked}, VerifiedGenesisPin{},
+			fmt.Errorf("construct production Genesis verifier: %w", err)
 	}
 
 	runtime, result := easl.Bootstrap(ctx, easl.BootstrapInput{
@@ -233,9 +259,24 @@ func BootstrapProductionWithSubject(
 		Verifier: verifier,
 	})
 	if result.State != genesis.StateReady || runtime == nil {
-		return nil, result, fmt.Errorf("Genesis verification did not reach BOOTSTRAP_READY")
+		return nil, result, VerifiedGenesisPin{},
+			fmt.Errorf("Genesis verification did not reach BOOTSTRAP_READY")
 	}
-	return runtime, result, nil
+	manifestPayloadHash, err := ManifestPayloadHash(manifest)
+	if err != nil {
+		return nil, genesis.Result{State: genesis.StateLocked}, VerifiedGenesisPin{},
+			fmt.Errorf("hash verified Genesis manifest: %w", err)
+	}
+	pin, err := verifiedGenesisPin(
+		manifest.GenesisEpoch,
+		manifest.ThreatModel.CapabilityEnvelopeHash,
+		manifestPayloadHash,
+	)
+	if err != nil {
+		return nil, genesis.Result{State: genesis.StateLocked}, VerifiedGenesisPin{},
+			fmt.Errorf("construct verified Genesis pin: %w", err)
+	}
+	return runtime, result, pin, nil
 }
 
 func NewProductionVerifier(bundle VerificationBundle, subject CurrentSubject, now time.Time) (*ProductionVerifier, error) {

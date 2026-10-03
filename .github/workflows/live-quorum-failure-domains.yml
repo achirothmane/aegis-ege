@@ -1,0 +1,206 @@
+name: Live quorum failure domains proof
+
+on:
+  pull_request:
+    paths:
+      - "cmd/aegis-live-quorum-provision/**"
+      - "internal/server/live_external_head_quorum_failure_domains_integration_test.go"
+      - ".github/workflows/live-quorum-failure-domains.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cmd/aegis-live-quorum-provision/**"
+      - "internal/server/live_external_head_quorum_failure_domains_integration_test.go"
+      - ".github/workflows/live-quorum-failure-domains.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-control-planes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - run: go mod download
+
+      - name: Install KinD
+        run: go install sigs.k8s.io/kind@v0.33.0
+
+      - name: Build external-head witness images
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -o "$RUNNER_TEMP/aegis-external-head-witness" \
+            ./cmd/aegis-external-head-witness
+          cat > "$RUNNER_TEMP/Dockerfile.external-head-witness" <<'EOF'
+          FROM scratch
+          COPY aegis-external-head-witness /aegis-external-head-witness
+          ENTRYPOINT ["/aegis-external-head-witness"]
+          EOF
+          docker build \
+            -f "$RUNNER_TEMP/Dockerfile.external-head-witness" \
+            -t aegis-external-head-witness:ci \
+            "$RUNNER_TEMP"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -o "$RUNNER_TEMP/aegis-external-head-witness-signer" \
+            ./cmd/aegis-external-head-witness-signer
+          cat > "$RUNNER_TEMP/Dockerfile.external-head-witness-signer" <<'EOF'
+          FROM scratch
+          COPY aegis-external-head-witness-signer /aegis-external-head-witness-signer
+          ENTRYPOINT ["/aegis-external-head-witness-signer"]
+          EOF
+          docker build \
+            -f "$RUNNER_TEMP/Dockerfile.external-head-witness-signer" \
+            -t aegis-external-head-witness-signer:ci \
+            "$RUNNER_TEMP"
+
+      - name: Create three independent witness control planes
+        run: |
+          set -euo pipefail
+          KIND_IMAGE="kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
+
+          create_cluster() {
+            name="$1"
+            port="$2"
+            kubeconfig="$3"
+            config="$RUNNER_TEMP/$name-kind.yaml"
+            cat > "$config" <<EOF
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+              extraPortMappings:
+                - containerPort: $port
+                  hostPort: $port
+                  protocol: TCP
+          EOF
+            "$(go env GOPATH)/bin/kind" create cluster \
+              --name "$name" \
+              --image "$KIND_IMAGE" \
+              --config "$config" \
+              --kubeconfig "$kubeconfig"
+            "$(go env GOPATH)/bin/kind" load docker-image \
+              --name "$name" aegis-external-head-witness:ci
+            "$(go env GOPATH)/bin/kind" load docker-image \
+              --name "$name" aegis-external-head-witness-signer:ci
+          }
+
+          create_cluster quorum-a 30445 "$RUNNER_TEMP/quorum-a-admin-kubeconfig"
+          create_cluster quorum-b 30446 "$RUNNER_TEMP/quorum-b-admin-kubeconfig"
+          create_cluster quorum-c 30447 "$RUNNER_TEMP/quorum-c-admin-kubeconfig"
+
+      - name: Provision Genesis-bound quorum across three control planes
+        run: |
+          LIVE_QUORUM_TOPOLOGY=independent-control-planes \
+          LIVE_QUORUM_CLIENT_BUNDLE="$RUNNER_TEMP/independent-quorum-client.json" \
+          LIVE_QUORUM_WITNESS_A_ADMIN_KUBECONFIG="$RUNNER_TEMP/quorum-a-admin-kubeconfig" \
+          LIVE_QUORUM_WITNESS_B_ADMIN_KUBECONFIG="$RUNNER_TEMP/quorum-b-admin-kubeconfig" \
+          LIVE_QUORUM_WITNESS_C_ADMIN_KUBECONFIG="$RUNNER_TEMP/quorum-c-admin-kubeconfig" \
+          LIVE_QUORUM_WITNESS_A_CHAOS_KUBECONFIG="$RUNNER_TEMP/quorum-a-availability-kubeconfig" \
+          LIVE_QUORUM_WITNESS_B_CHAOS_KUBECONFIG="$RUNNER_TEMP/quorum-b-availability-kubeconfig" \
+          LIVE_QUORUM_WITNESS_C_CHAOS_KUBECONFIG="$RUNNER_TEMP/quorum-c-availability-kubeconfig" \
+            go run ./cmd/aegis-live-quorum-provision
+
+      - name: Remove Kubernetes provisioning authority
+        run: |
+          rm -f "$RUNNER_TEMP/quorum-a-admin-kubeconfig"
+          rm -f "$RUNNER_TEMP/quorum-b-admin-kubeconfig"
+          rm -f "$RUNNER_TEMP/quorum-c-admin-kubeconfig"
+          rm -rf "$HOME/.kube"
+
+          test ! -e "$RUNNER_TEMP/quorum-a-admin-kubeconfig"
+          test ! -e "$RUNNER_TEMP/quorum-b-admin-kubeconfig"
+          test ! -e "$RUNNER_TEMP/quorum-c-admin-kubeconfig"
+          test -s "$RUNNER_TEMP/independent-quorum-client.json"
+          test -s "$RUNNER_TEMP/quorum-a-availability-kubeconfig"
+          test -s "$RUNNER_TEMP/quorum-b-availability-kubeconfig"
+          test -s "$RUNNER_TEMP/quorum-c-availability-kubeconfig"
+
+          echo "LIVE_QUORUM_CLIENT_BUNDLE=$RUNNER_TEMP/independent-quorum-client.json" >> "$GITHUB_ENV"
+          echo "LIVE_QUORUM_WITNESS_A_CHAOS_KUBECONFIG=$RUNNER_TEMP/quorum-a-availability-kubeconfig" >> "$GITHUB_ENV"
+          echo "LIVE_QUORUM_WITNESS_B_CHAOS_KUBECONFIG=$RUNNER_TEMP/quorum-b-availability-kubeconfig" >> "$GITHUB_ENV"
+          echo "LIVE_QUORUM_WITNESS_C_CHAOS_KUBECONFIG=$RUNNER_TEMP/quorum-c-availability-kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Establish synchronized T1 across all failure domains
+        env:
+          LIVE_QUORUM_FAILURE_DOMAIN_PHASE: baseline
+        run: |
+          set -o pipefail
+          go test -tags=integration \
+            -run '^TestKindLiveQuorumIndependentControlPlanes$' \
+            -count=1 -v ./internal/server \
+            | tee "$RUNNER_TEMP/failure-domain-baseline.log"
+          grep -q -- '--- PASS: TestKindLiveQuorumIndependentControlPlanes' \
+            "$RUNNER_TEMP/failure-domain-baseline.log"
+          if grep -q -- '--- SKIP:' "$RUNNER_TEMP/failure-domain-baseline.log"; then
+            exit 1
+          fi
+
+      - name: Stop witness control plane C
+        run: docker stop quorum-c-control-plane
+
+      - name: Prove A+B advance while C control plane is unavailable
+        env:
+          LIVE_QUORUM_FAILURE_DOMAIN_PHASE: one-control-plane-down
+        run: |
+          set -o pipefail
+          go test -tags=integration \
+            -run '^TestKindLiveQuorumIndependentControlPlanes$' \
+            -count=1 -v ./internal/server \
+            | tee "$RUNNER_TEMP/failure-domain-one-down.log"
+          grep -q -- '--- PASS: TestKindLiveQuorumIndependentControlPlanes' \
+            "$RUNNER_TEMP/failure-domain-one-down.log"
+
+      - name: Restart witness control plane C
+        run: docker start quorum-c-control-plane
+
+      - name: Prove restored C is stale minority and cannot replace T2
+        env:
+          LIVE_QUORUM_FAILURE_DOMAIN_PHASE: restored-stale-minority
+        run: |
+          set -o pipefail
+          go test -tags=integration \
+            -run '^TestKindLiveQuorumIndependentControlPlanes$' \
+            -count=1 -v ./internal/server \
+            | tee "$RUNNER_TEMP/failure-domain-restored.log"
+          grep -q -- '--- PASS: TestKindLiveQuorumIndependentControlPlanes' \
+            "$RUNNER_TEMP/failure-domain-restored.log"
+
+      - name: Stop witness control planes A and B
+        run: |
+          docker stop quorum-a-control-plane
+          docker stop quorum-b-control-plane
+
+      - name: Prove one surviving control plane fails closed
+        env:
+          LIVE_QUORUM_FAILURE_DOMAIN_PHASE: two-control-planes-down
+        run: |
+          set -o pipefail
+          go test -tags=integration \
+            -run '^TestKindLiveQuorumIndependentControlPlanes$' \
+            -count=1 -v ./internal/server \
+            | tee "$RUNNER_TEMP/failure-domain-two-down.log"
+          grep -q -- '--- PASS: TestKindLiveQuorumIndependentControlPlanes' \
+            "$RUNNER_TEMP/failure-domain-two-down.log"
+
+      - name: Restore control planes for cleanup
+        if: always()
+        run: |
+          docker start quorum-a-control-plane || true
+          docker start quorum-b-control-plane || true
+          docker start quorum-c-control-plane || true
+
+      - name: Delete KinD clusters
+        if: always()
+        run: |
+          "$(go env GOPATH)/bin/kind" delete cluster --name quorum-a || true
+          "$(go env GOPATH)/bin/kind" delete cluster --name quorum-b || true
+          "$(go env GOPATH)/bin/kind" delete cluster --name quorum-c || true
