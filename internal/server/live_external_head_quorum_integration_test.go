@@ -213,14 +213,16 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 
 	scaleWitness(t, ctx, chaosClient, memberC.DeploymentName, 1)
 
-	staleC, err := remoteStores["witness-c"].LoadForQuorum(
+	// Kubernetes ReadyReplicas can become visible a few moments before the
+	// NodePort/TLS data path is stable after a restart. Recovery is considered
+	// complete only after the witness itself returns a policy-bound signed head.
+	staleC := waitForRemoteWitnessHead(
+		t,
 		ctx,
-		bundle.JournalID,
+		remoteStores["witness-c"],
 		policy,
+		bundle.JournalID,
 	)
-	if err != nil {
-		t.Fatalf("load restored witness-c: %v", err)
-	}
 	if staleC.Sequence != 1 {
 		t.Fatalf("restored witness-c sequence=%d want stale T1=1", staleC.Sequence)
 	}
