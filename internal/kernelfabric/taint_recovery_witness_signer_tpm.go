@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,20 @@ type TPMRecoveryWitnessSigner struct {
 	password string
 	verifier RecoveryWitnessVerifier
 	closed   bool
+}
+
+const tpmHardwareWitnessEvidenceDomain = "aegis-ege/tpm-hardware-witness-evidence/v1\x00"
+
+type TPMRecoveryWitnessPublicEvidence struct {
+	PublicAreaSHA256    string `json:"public_area_sha256"`
+	NameHex             string `json:"name_hex"`
+	QualifiedNameHex    string `json:"qualified_name_hex"`
+	Type                uint16 `json:"type"`
+	NameAlgorithm       uint16 `json:"name_algorithm"`
+	Attributes          uint32 `json:"attributes"`
+	Curve               uint16 `json:"curve"`
+	SignatureAlgorithm  uint16 `json:"signature_algorithm"`
+	SignatureHash       uint16 `json:"signature_hash"`
 }
 
 func NewTPMRecoveryWitnessSigner(
@@ -100,14 +115,32 @@ func (s *TPMRecoveryWitnessSigner) Sign(
 	ctx context.Context,
 	payload []byte,
 ) ([]byte, error) {
+	if !isAllowedRecoveryWitnessSigningPayload(payload) {
+		return nil, errors.New("recovery witness signer payload domain is not allowed")
+	}
+	return s.signTPMPayload(ctx, payload)
+}
+
+func (s *TPMRecoveryWitnessSigner) SignHardwareEvidence(
+	ctx context.Context,
+	payload []byte,
+) ([]byte, error) {
+	if len(payload) < len(tpmHardwareWitnessEvidenceDomain) ||
+		string(payload[:len(tpmHardwareWitnessEvidenceDomain)]) != tpmHardwareWitnessEvidenceDomain {
+		return nil, errors.New("TPM hardware evidence payload domain is not allowed")
+	}
+	return s.signTPMPayload(ctx, payload)
+}
+
+func (s *TPMRecoveryWitnessSigner) signTPMPayload(
+	ctx context.Context,
+	payload []byte,
+) ([]byte, error) {
 	if s == nil {
 		return nil, errors.New("TPM recovery witness signer is unavailable")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
-	}
-	if !isAllowedRecoveryWitnessSigningPayload(payload) {
-		return nil, errors.New("recovery witness signer payload domain is not allowed")
 	}
 	digest := sha256.Sum256(payload)
 
@@ -144,6 +177,49 @@ func (s *TPMRecoveryWitnessSigner) Sign(
 		return nil, errors.New("TPM recovery witness signature failed local verification")
 	}
 	return encoded, nil
+}
+
+func (s *TPMRecoveryWitnessSigner) PublicEvidence() (TPMRecoveryWitnessPublicEvidence, error) {
+	if s == nil {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness signer is unavailable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.rw == nil {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness signer is closed")
+	}
+	public, name, qualifiedName, err := legacytpm2.ReadPublic(s.rw, s.handle)
+	if err != nil {
+		return TPMRecoveryWitnessPublicEvidence{}, fmt.Errorf("read TPM recovery witness public area: %w", err)
+	}
+	if public.Type != legacytpm2.AlgECC || public.ECCParameters == nil ||
+		public.ECCParameters.Sign == nil {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness public area is not ECC signing")
+	}
+	required := legacytpm2.FlagSign |
+		legacytpm2.FlagFixedTPM |
+		legacytpm2.FlagFixedParent |
+		legacytpm2.FlagSensitiveDataOrigin |
+		legacytpm2.FlagUserWithAuth
+	if public.Attributes&required != required || public.Attributes&legacytpm2.FlagDecrypt != 0 {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness public attributes violate non-exportable signer contract")
+	}
+	encodedPublic, err := public.Encode()
+	if err != nil {
+		return TPMRecoveryWitnessPublicEvidence{}, fmt.Errorf("encode TPM recovery witness public area: %w", err)
+	}
+	sum := sha256.Sum256(encodedPublic)
+	return TPMRecoveryWitnessPublicEvidence{
+		PublicAreaSHA256:   "sha256:" + hex.EncodeToString(sum[:]),
+		NameHex:            hex.EncodeToString(name),
+		QualifiedNameHex:   hex.EncodeToString(qualifiedName),
+		Type:               uint16(public.Type),
+		NameAlgorithm:      uint16(public.NameAlg),
+		Attributes:         uint32(public.Attributes),
+		Curve:              uint16(public.ECCParameters.CurveID),
+		SignatureAlgorithm: uint16(public.ECCParameters.Sign.Alg),
+		SignatureHash:      uint16(public.ECCParameters.Sign.Hash),
+	}, nil
 }
 
 func (s *TPMRecoveryWitnessSigner) Close() error {
