@@ -211,8 +211,8 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 
 	dir := t.TempDir()
 	cfg := TPMNVHistoryAnchorConfig{
-		NVIndex:       tpm2.TPMHandle(0x0180A152),
-		HeadNVIndex:   tpm2.TPMHandle(0x0180A162),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
 		StatePath:     filepath.Join(dir, "history-anchor.json"),
 		IndexAuth:     []byte("aegis-history-anchor-crash"),
 		HeadIndexAuth: []byte("aegis-history-head-crash"),
@@ -283,8 +283,8 @@ func TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := TPMNVHistoryAnchorConfig{
-		NVIndex:       tpm2.TPMHandle(0x0180A155),
-		HeadNVIndex:   tpm2.TPMHandle(0x0180A165),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
 		StatePath:     filepath.Join(dir, "history-anchor.json"),
 		IndexAuth:     []byte("aegis-history-anchor-same-generation"),
 		HeadIndexAuth: []byte("aegis-history-head-same-generation"),
@@ -381,8 +381,8 @@ func TestTPMNVHistoryAnchorRecoversExactHeadBeforeCounterInterruption(t *testing
 
 	dir := t.TempDir()
 	cfg := TPMNVHistoryAnchorConfig{
-		NVIndex:       tpm2.TPMHandle(0x0180A154),
-		HeadNVIndex:   tpm2.TPMHandle(0x0180A164),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
 		StatePath:     filepath.Join(dir, "history-anchor.json"),
 		IndexAuth:     []byte("aegis-history-anchor-head-first"),
 		HeadIndexAuth: []byte("aegis-history-head-head-first"),
