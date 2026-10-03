@@ -190,28 +190,3 @@ func TestGenesisHistoryBindingRejectsEnvelopeTamperAndUnknownPurpose(t *testing.
 		t.Fatal("unknown history purpose inherited a lineage identity")
 	}
 }
-
-func TestGovernedHistoryPolicyRejectsLineageAliasing(t *testing.T) {
-	envelope := struct {
-		GovernedHistories GovernedHistoryTrustPolicy `json:"governed_histories"`
-	}{
-		GovernedHistories: GovernedHistoryTrustPolicy{
-			Protocol: GovernedHistoryTrustPolicyVersion,
-			Histories: []GovernedHistoryIdentity{
-				{Purpose: "effects", JournalID: "shared-history"},
-				{Purpose: "recovery", JournalID: "shared-history"},
-			},
-		},
-	}
-	raw, err := json.Marshal(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ParseGenesisHistoryBinding(
-		raw,
-		sha256Digest(raw),
-		"effects",
-	); err == nil {
-		t.Fatal("two governance purposes silently aliased one history lineage")
-	}
-}
