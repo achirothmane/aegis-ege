@@ -33,6 +33,24 @@ func NewProductionGenesisFixture(
 	capabilityEnvelope []byte,
 	genesisEpoch uint64,
 ) (ProductionGenesisFixture, error) {
+	executablePath, err := os.Executable()
+	if err != nil {
+		return ProductionGenesisFixture{}, err
+	}
+	return NewProductionGenesisFixtureForExecutable(
+		dir,
+		capabilityEnvelope,
+		genesisEpoch,
+		executablePath,
+	)
+}
+
+func NewProductionGenesisFixtureForExecutable(
+	dir string,
+	capabilityEnvelope []byte,
+	genesisEpoch uint64,
+	executablePath string,
+) (ProductionGenesisFixture, error) {
 	if genesisEpoch == 0 {
 		return ProductionGenesisFixture{}, fmt.Errorf("genesis epoch must be non-zero")
 	}
@@ -132,9 +150,8 @@ func NewProductionGenesisFixture(
 		return ProductionGenesisFixture{}, err
 	}
 
-	executablePath, err := os.Executable()
-	if err != nil {
-		return ProductionGenesisFixture{}, err
+	if executablePath == "" {
+		return ProductionGenesisFixture{}, fmt.Errorf("target executable path is required")
 	}
 	executableDigest, err := fixtureFileDigest(executablePath)
 	if err != nil {
