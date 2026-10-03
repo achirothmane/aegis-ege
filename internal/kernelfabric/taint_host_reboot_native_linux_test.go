@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	taintRebootPhaseEnv = "AEGIS_TAINT_REBOOT_PHASE"
-	taintRebootStateEnv = "AEGIS_TAINT_REBOOT_STATE"
+	taintRebootPhaseEnv   = "AEGIS_TAINT_REBOOT_PHASE"
+	taintRebootStateEnv   = "AEGIS_TAINT_REBOOT_STATE"
+	taintRebootHistoryEnv = "AEGIS_TAINT_REBOOT_HISTORY"
 )
 
 type taintRebootProofState struct {
@@ -64,6 +65,10 @@ func TestNativeTaintHostRebootBoundary(t *testing.T) {
 	if statePath == "" {
 		t.Fatal("AEGIS_TAINT_REBOOT_STATE is required")
 	}
+	historyDir := strings.TrimSpace(os.Getenv(taintRebootHistoryEnv))
+	if historyDir == "" || !filepath.IsAbs(historyDir) {
+		t.Fatal("AEGIS_TAINT_REBOOT_HISTORY must be an absolute path")
+	}
 	if err := ensureNativeBPFFSMounted(); err != nil {
 		t.Fatalf("prepare bpffs: %v", err)
 	}
@@ -73,9 +78,9 @@ func TestNativeTaintHostRebootBoundary(t *testing.T) {
 	case "before":
 		runTaintRebootBefore(t, proofRoot, statePath)
 	case "after":
-		runTaintRebootAfter(t, proofRoot, statePath)
+		runTaintRebootAfter(t, proofRoot, statePath, historyDir)
 	case "history":
-		runTaintRebootHistory(t, proofRoot, statePath)
+		runTaintRebootHistory(t, proofRoot, statePath, historyDir)
 	default:
 		t.Fatalf("unknown reboot proof phase %q", os.Getenv(taintRebootPhaseEnv))
 	}
@@ -102,9 +107,6 @@ func runTaintRebootBefore(t *testing.T, proofRoot, statePath string) {
 	historyPublicKey, historyPrivateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate recovery history key: %v", err)
-	}
-	if err := os.RemoveAll(statePath + ".history"); err != nil {
-		t.Fatalf("clear durable recovery history: %v", err)
 	}
 	planHash := sha256.Sum256([]byte("aegis-ege/host-reboot-proof-plan/v1"))
 	now := time.Now().UTC()
@@ -178,7 +180,7 @@ func runTaintRebootBefore(t *testing.T, proofRoot, statePath string) {
 	t.Logf("boot A established: boot=%s pinned=%s", host.BootIDHash, pinPath)
 }
 
-func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
+func runTaintRebootAfter(t *testing.T, proofRoot, statePath, historyDir string) {
 	t.Helper()
 	payload, err := os.ReadFile(statePath)
 	if err != nil {
@@ -267,7 +269,7 @@ func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
 	if err != nil {
 		t.Fatalf("sign durable recovery history: %v", err)
 	}
-	historyStore := TaintRecoveryHistoryStore{Dir: statePath + ".history"}
+	historyStore := TaintRecoveryHistoryStore{Dir: historyDir}
 	historyDigest, err := historyStore.Append(
 		signedHistory,
 		ed25519.PublicKey(historyPublicBytes),
@@ -294,7 +296,7 @@ func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
 	)
 }
 
-func runTaintRebootHistory(t *testing.T, proofRoot, statePath string) {
+func runTaintRebootHistory(t *testing.T, proofRoot, statePath, historyDir string) {
 	t.Helper()
 	payload, err := os.ReadFile(statePath)
 	if err != nil {
@@ -320,7 +322,7 @@ func runTaintRebootHistory(t *testing.T, proofRoot, statePath string) {
 	if err != nil || len(historyPublicBytes) != ed25519.PublicKeySize {
 		t.Fatalf("decode recovery history public key: %v", err)
 	}
-	historyStore := TaintRecoveryHistoryStore{Dir: statePath + ".history"}
+	historyStore := TaintRecoveryHistoryStore{Dir: historyDir}
 	historical, digest, exists, err := historyStore.Current(ed25519.PublicKey(historyPublicBytes))
 	if err != nil {
 		t.Fatalf("verify durable recovery history on boot C: %v", err)
