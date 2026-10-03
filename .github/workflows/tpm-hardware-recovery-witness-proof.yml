@@ -1,0 +1,59 @@
+name: TPM hardware recovery witness proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-proof:
+    runs-on:
+      - self-hosted
+      - linux
+      - aegis-tpm-hardware
+    timeout-minutes: 15
+    env:
+      TPM_DEVICE_PATH: /dev/tpmrm0
+      EXPECTED_TPM_EK_SHA256_PATH: /etc/aegis/tpm-recovery-witness/ek-spki.sha256
+      EXPECTED_WITNESS_KEY_ID_PATH: /etc/aegis/tpm-recovery-witness/key-id
+      TPM_HARDWARE_RECEIPT_PATH: ${{ runner.temp }}/tpm-recovery-witness-hardware-receipt.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Require kernel TPM resource-manager device and pinned identities
+        run: |
+          set -euo pipefail
+          test -c "$TPM_DEVICE_PATH"
+          test -r "$TPM_DEVICE_PATH"
+          test -w "$TPM_DEVICE_PATH"
+          test -s "$EXPECTED_TPM_EK_SHA256_PATH"
+          test -s "$EXPECTED_WITNESS_KEY_ID_PATH"
+          test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token
+      - name: Execute pinned TPM hardware proof
+        env:
+          WITNESS_TPM_SIGNER_MODE: hardware-proof
+        run: |
+          set -euo pipefail
+          go run ./cmd/aegis-tpm-recovery-witness-signer
+          test -s "$TPM_HARDWARE_RECEIPT_PATH"
+          sha256sum "$TPM_HARDWARE_RECEIPT_PATH" > "$TPM_HARDWARE_RECEIPT_PATH.sha256"
+      - name: Assert receipt contains live hardware and B identities
+        run: |
+          set -euo pipefail
+          grep -q '"device_path": "/dev/tpmrm0"' "$TPM_HARDWARE_RECEIPT_PATH"
+          grep -q '"ek_spki_sha256": "sha256:' "$TPM_HARDWARE_RECEIPT_PATH"
+          grep -q '"witness_algorithm": "ecdsa-p256-sha256"' "$TPM_HARDWARE_RECEIPT_PATH"
+          grep -q '"public_area_sha256": "sha256:' "$TPM_HARDWARE_RECEIPT_PATH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tpm-recovery-witness-hardware-evidence
+          path: |
+            ${{ runner.temp }}/tpm-recovery-witness-hardware-receipt.json
+            ${{ runner.temp }}/tpm-recovery-witness-hardware-receipt.json.sha256
+          if-no-files-found: error
+          retention-days: 30
