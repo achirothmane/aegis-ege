@@ -11,22 +11,8 @@ import (
 
 var ErrTaintRecoveryHistoryRollback = errors.New("taint recovery history rollback detected")
 
-type TaintRecoveryHistoryAnchorState struct {
-	Sequence   uint64
-	HeadDigest string
-}
-
-// TaintRecoveryHistoryAnchor must live outside the rollback domain of the
-// writable recovery-history volume. The sequence is monotonic and HeadDigest
-// commits to the exact accepted history head.
-type TaintRecoveryHistoryAnchor interface {
-	Current(context.Context) (TaintRecoveryHistoryAnchorState, error)
-	CompareAndAdvance(
-		context.Context,
-		TaintRecoveryHistoryAnchorState,
-		TaintRecoveryHistoryAnchorState,
-	) (TaintRecoveryHistoryAnchorState, error)
-}
+type TaintRecoveryHistoryAnchorState = DurableHeadAnchorState
+type TaintRecoveryHistoryAnchor = DurableHeadAnchor
 
 type AnchoredTaintRecoveryHistoryStore struct {
 	Store  TaintRecoveryHistoryStore

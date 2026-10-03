@@ -1,0 +1,261 @@
+package kernelfabric
+
+import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+const EnrollmentIdentityReceiptVersion = "aegis.ege/tpm-enrollment-identity-receipt/v1"
+
+var (
+	ErrEnrollmentIdentityReceiptInvalid   = errors.New("enrollment identity receipt is invalid")
+	ErrEnrollmentIdentitySignatureInvalid = errors.New("enrollment identity receipt signature is invalid")
+	ErrEnrollmentIdentityRollback         = errors.New("enrollment identity receipt rollback detected")
+)
+
+type EnrollmentIdentityReceipt struct {
+	Version                  string    `json:"version"`
+	ReceiptID                string    `json:"receipt_id"`
+	Sequence                 uint64    `json:"sequence"`
+	PreviousReceiptDigest    string    `json:"previous_receipt_digest,omitempty"`
+	DeviceID                 string    `json:"device_id"`
+	EKSPKISHA256             string    `json:"ek_spki_sha256"`
+	EnrollmentIdentityDigest string    `json:"enrollment_identity_digest"`
+	EnrolledAt               time.Time `json:"enrolled_at"`
+	IssuedAt                 time.Time `json:"issued_at"`
+}
+
+type SignedEnrollmentIdentityReceipt struct {
+	Receipt   EnrollmentIdentityReceipt `json:"receipt"`
+	KeyID     string                    `json:"key_id"`
+	Signature string                    `json:"signature"`
+}
+
+func EnrolledTPMIdentityDigest(identity EnrolledTPMIdentity) (string, error) {
+	if err := validateEnrolledTPMIdentity(identity); err != nil {
+		return "", err
+	}
+	normalized := identity
+	normalized.EnrolledAt = normalized.EnrolledAt.UTC()
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("marshal enrolled TPM identity: %w", err)
+	}
+	sum := sha256.Sum256(append([]byte("aegis.ege/enrolled-tpm-identity/v1\x00"), body...))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func NewEnrollmentIdentityReceipt(
+	receiptID string,
+	sequence uint64,
+	previousReceiptDigest string,
+	identity EnrolledTPMIdentity,
+	issuedAt time.Time,
+) (EnrollmentIdentityReceipt, error) {
+	identityDigest, err := EnrolledTPMIdentityDigest(identity)
+	if err != nil {
+		return EnrollmentIdentityReceipt{}, err
+	}
+	if issuedAt.IsZero() {
+		issuedAt = time.Now().UTC()
+	}
+	receipt := EnrollmentIdentityReceipt{
+		Version:                  EnrollmentIdentityReceiptVersion,
+		ReceiptID:                strings.TrimSpace(receiptID),
+		Sequence:                 sequence,
+		PreviousReceiptDigest:    strings.TrimSpace(previousReceiptDigest),
+		DeviceID:                 identity.DeviceID,
+		EKSPKISHA256:             identity.EKSPKISHA256,
+		EnrollmentIdentityDigest: identityDigest,
+		EnrolledAt:               identity.EnrolledAt.UTC(),
+		IssuedAt:                 issuedAt.UTC(),
+	}
+	if err := ValidateEnrollmentIdentityReceipt(receipt); err != nil {
+		return EnrollmentIdentityReceipt{}, err
+	}
+	return receipt, nil
+}
+
+func SignEnrollmentIdentityReceipt(
+	receipt EnrollmentIdentityReceipt,
+	privateKey ed25519.PrivateKey,
+) (SignedEnrollmentIdentityReceipt, error) {
+	if err := ValidateEnrollmentIdentityReceipt(receipt); err != nil {
+		return SignedEnrollmentIdentityReceipt{}, err
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return SignedEnrollmentIdentityReceipt{}, errors.New("invalid enrollment authority Ed25519 private key")
+	}
+	payload, err := canonicalEnrollmentIdentityReceiptPayload(receipt)
+	if err != nil {
+		return SignedEnrollmentIdentityReceipt{}, err
+	}
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	keyID, err := enrollmentAuthorityKeyID(publicKey)
+	if err != nil {
+		return SignedEnrollmentIdentityReceipt{}, err
+	}
+	return SignedEnrollmentIdentityReceipt{
+		Receipt:   receipt,
+		KeyID:     keyID,
+		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload)),
+	}, nil
+}
+
+func VerifySignedEnrollmentIdentityReceipt(
+	signed SignedEnrollmentIdentityReceipt,
+	publicKey ed25519.PublicKey,
+) error {
+	if err := ValidateEnrollmentIdentityReceipt(signed.Receipt); err != nil {
+		return err
+	}
+	expectedKeyID, err := enrollmentAuthorityKeyID(publicKey)
+	if err != nil {
+		return err
+	}
+	if signed.KeyID != expectedKeyID {
+		return ErrEnrollmentIdentitySignatureInvalid
+	}
+	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
+	if err != nil {
+		return ErrEnrollmentIdentitySignatureInvalid
+	}
+	payload, err := canonicalEnrollmentIdentityReceiptPayload(signed.Receipt)
+	if err != nil {
+		return err
+	}
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return ErrEnrollmentIdentitySignatureInvalid
+	}
+	return nil
+}
+
+func EnrollmentIdentityReceiptDigest(
+	signed SignedEnrollmentIdentityReceipt,
+) (string, error) {
+	if err := ValidateEnrollmentIdentityReceipt(signed.Receipt); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(signed.KeyID) == "" || strings.TrimSpace(signed.Signature) == "" {
+		return "", ErrEnrollmentIdentitySignatureInvalid
+	}
+	normalized := signed
+	normalized.Receipt.EnrolledAt = normalized.Receipt.EnrolledAt.UTC()
+	normalized.Receipt.IssuedAt = normalized.Receipt.IssuedAt.UTC()
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("marshal signed enrollment identity receipt: %w", err)
+	}
+	sum := sha256.Sum256(append([]byte("aegis.ege/signed-enrollment-identity-receipt/v1\x00"), body...))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func VerifyEnrollmentIdentityReceiptForIdentity(
+	signed SignedEnrollmentIdentityReceipt,
+	publicKey ed25519.PublicKey,
+	identity EnrolledTPMIdentity,
+) error {
+	if err := VerifySignedEnrollmentIdentityReceipt(signed, publicKey); err != nil {
+		return err
+	}
+	digest, err := EnrolledTPMIdentityDigest(identity)
+	if err != nil {
+		return err
+	}
+	if signed.Receipt.DeviceID != identity.DeviceID ||
+		signed.Receipt.EKSPKISHA256 != identity.EKSPKISHA256 ||
+		signed.Receipt.EnrollmentIdentityDigest != digest ||
+		!signed.Receipt.EnrolledAt.Equal(identity.EnrolledAt.UTC()) {
+		return fmt.Errorf("%w: receipt does not bind the presented enrolled TPM identity", ErrEnrollmentIdentityReceiptInvalid)
+	}
+	return nil
+}
+
+func ValidateEnrollmentIdentityReceipt(receipt EnrollmentIdentityReceipt) error {
+	if receipt.Version != EnrollmentIdentityReceiptVersion {
+		return fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentityReceiptInvalid, receipt.Version)
+	}
+	if strings.TrimSpace(receipt.ReceiptID) == "" {
+		return fmt.Errorf("%w: receipt id is required", ErrEnrollmentIdentityReceiptInvalid)
+	}
+	if receipt.Sequence == 0 {
+		return fmt.Errorf("%w: sequence must be non-zero", ErrEnrollmentIdentityReceiptInvalid)
+	}
+	if receipt.Sequence == 1 {
+		if receipt.PreviousReceiptDigest != "" {
+			return fmt.Errorf("%w: first receipt cannot have a predecessor", ErrEnrollmentIdentityReceiptInvalid)
+		}
+	} else {
+		if _, err := ParseSHA256Digest(receipt.PreviousReceiptDigest); err != nil {
+			return fmt.Errorf("%w: previous receipt digest: %v", ErrEnrollmentIdentityReceiptInvalid, err)
+		}
+	}
+	if strings.TrimSpace(receipt.DeviceID) == "" {
+		return fmt.Errorf("%w: device id is required", ErrEnrollmentIdentityReceiptInvalid)
+	}
+	if _, err := ParseSHA256Digest(receipt.EKSPKISHA256); err != nil {
+		return fmt.Errorf("%w: EK SPKI digest: %v", ErrEnrollmentIdentityReceiptInvalid, err)
+	}
+	if _, err := ParseSHA256Digest(receipt.EnrollmentIdentityDigest); err != nil {
+		return fmt.Errorf("%w: enrollment identity digest: %v", ErrEnrollmentIdentityReceiptInvalid, err)
+	}
+	if receipt.EnrolledAt.IsZero() || receipt.IssuedAt.IsZero() {
+		return fmt.Errorf("%w: enrolled_at and issued_at are required", ErrEnrollmentIdentityReceiptInvalid)
+	}
+	if receipt.IssuedAt.Before(receipt.EnrolledAt) {
+		return fmt.Errorf("%w: issued_at precedes enrollment", ErrEnrollmentIdentityReceiptInvalid)
+	}
+	return nil
+}
+
+func validateEnrolledTPMIdentity(identity EnrolledTPMIdentity) error {
+	if strings.TrimSpace(identity.DeviceID) == "" {
+		return errors.New("enrolled TPM device id is required")
+	}
+	if _, err := ParseSHA256Digest(identity.EKSPKISHA256); err != nil {
+		return fmt.Errorf("enrolled TPM EK SPKI digest: %w", err)
+	}
+	if len(identity.AK.Public) == 0 {
+		return errors.New("enrolled TPM AK public area is required")
+	}
+	if len(identity.BootstrapAttestorPublicKey) != ed25519.PublicKeySize {
+		return errors.New("enrolled TPM bootstrap attestor public key is required")
+	}
+	if identity.EnrolledAt.IsZero() {
+		return errors.New("enrolled TPM enrolled_at is required")
+	}
+	if identity.EKCertificateSHA256 != "" {
+		if _, err := ParseSHA256Digest(identity.EKCertificateSHA256); err != nil {
+			return fmt.Errorf("enrolled TPM EK certificate digest: %w", err)
+		}
+	}
+	return nil
+}
+
+func canonicalEnrollmentIdentityReceiptPayload(
+	receipt EnrollmentIdentityReceipt,
+) ([]byte, error) {
+	normalized := receipt
+	normalized.EnrolledAt = normalized.EnrolledAt.UTC()
+	normalized.IssuedAt = normalized.IssuedAt.UTC()
+	body, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("marshal enrollment identity receipt: %w", err)
+	}
+	return append([]byte("aegis.ege/tpm-enrollment-identity-receipt/v1\x00"), body...), nil
+}
+
+func enrollmentAuthorityKeyID(publicKey ed25519.PublicKey) (string, error) {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return "", errors.New("invalid enrollment authority Ed25519 public key")
+	}
+	sum := sha256.Sum256(append([]byte("aegis.ege/enrollment-authority-key/v1\x00"), publicKey...))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
