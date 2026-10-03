@@ -24,9 +24,10 @@ type QuorumTrustIdentityProvider interface {
 }
 
 type QuorumHeadStore struct {
-	members    []QuorumHeadMember
-	threshold  int
-	policyHash string
+	members        []QuorumHeadMember
+	threshold      int
+	policyHash     string
+	governedPolicy *QuorumPolicyState
 }
 
 type quorumSemanticHead struct {
@@ -65,12 +66,8 @@ func NewQuorumHeadStore(
 	members []QuorumHeadMember,
 	binding GenesisQuorumBinding,
 ) (*QuorumHeadStore, error) {
-	if len(binding.members) == 0 ||
-		binding.threshold <= len(binding.members)/2 ||
-		binding.threshold > len(binding.members) ||
-		!validSHA256Digest(binding.policyHash) ||
-		!validSHA256Digest(binding.capabilityEnvelopeHash) {
-		return nil, errors.New("valid Genesis quorum binding is required")
+	if err := validateGenesisQuorumBinding(binding); err != nil {
+		return nil, err
 	}
 	if len(members) != len(binding.members) {
 		return nil, fmt.Errorf(
@@ -126,6 +123,42 @@ func NewQuorumHeadStore(
 		threshold:  binding.threshold,
 		policyHash: binding.policyHash,
 	}, nil
+}
+
+func NewGovernedQuorumHeadStore(
+	members []QuorumHeadMember,
+	binding GenesisQuorumBinding,
+	genesisEpoch uint64,
+) (*QuorumHeadStore, error) {
+	store, err := NewQuorumHeadStore(members, binding)
+	if err != nil {
+		return nil, err
+	}
+	policy := QuorumPolicyState{
+		Phase:        QuorumPolicyPhaseActive,
+		GenesisEpoch: genesisEpoch,
+		PolicyHash:   binding.policyHash,
+	}
+	if err := validateQuorumPolicyState(policy); err != nil {
+		return nil, err
+	}
+	for _, member := range store.members {
+		if _, ok := member.Store.(QuorumPolicyFencedStore); !ok {
+			return nil, fmt.Errorf(
+				"quorum witness %q does not enforce governed policy epochs",
+				member.ID,
+			)
+		}
+	}
+	store.governedPolicy = &policy
+	return store, nil
+}
+
+func (s *QuorumHeadStore) governedPolicyState() (QuorumPolicyState, bool) {
+	if s == nil || s.governedPolicy == nil {
+		return QuorumPolicyState{}, false
+	}
+	return *s.governedPolicy, true
 }
 
 func (s *QuorumHeadStore) Load(
@@ -226,8 +259,9 @@ func (s *QuorumHeadStore) CompareAndAdvance(
 			}
 			memberNext := next
 			memberNext.StoreVersion = ""
-			head, err := observation.member.Store.CompareAndAdvance(
+			head, err := s.compareAndAdvanceMember(
 				ctx,
+				observation.member,
 				memberPrevious,
 				memberNext,
 			)
@@ -301,7 +335,7 @@ func (s *QuorumHeadStore) loadAll(
 	for _, member := range s.members {
 		member := member
 		go func() {
-			head, err := member.Store.Load(ctx, journalID)
+			head, err := s.loadMember(ctx, member, journalID)
 			results <- quorumMemberObservation{
 				member:   member,
 				head:     head,
@@ -311,6 +345,42 @@ func (s *QuorumHeadStore) loadAll(
 		}()
 	}
 	return results
+}
+
+func (s *QuorumHeadStore) loadMember(
+	ctx context.Context,
+	member QuorumHeadMember,
+	journalID string,
+) (ExternalHead, error) {
+	if policy, ok := s.governedPolicyState(); ok {
+		store, ok := member.Store.(QuorumPolicyFencedStore)
+		if !ok {
+			return ExternalHead{}, ErrQuorumPolicyMismatch
+		}
+		return store.LoadForQuorum(ctx, journalID, policy)
+	}
+	return member.Store.Load(ctx, journalID)
+}
+
+func (s *QuorumHeadStore) compareAndAdvanceMember(
+	ctx context.Context,
+	member QuorumHeadMember,
+	previous ExternalHead,
+	next ExternalHead,
+) (ExternalHead, error) {
+	if policy, ok := s.governedPolicyState(); ok {
+		store, ok := member.Store.(QuorumPolicyFencedStore)
+		if !ok {
+			return ExternalHead{}, ErrQuorumPolicyMismatch
+		}
+		return store.CompareAndAdvanceForQuorum(
+			ctx,
+			policy,
+			previous,
+			next,
+		)
+	}
+	return member.Store.CompareAndAdvance(ctx, previous, next)
 }
 
 func observationMatchesExpected(
