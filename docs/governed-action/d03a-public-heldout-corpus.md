@@ -34,8 +34,8 @@ evidence.
 
 ## v1 corpus
 
-The corpus currently contains eleven reference mappings sourced from ten
-closed public issues across seven external repositories:
+The corpus currently contains twelve reference mappings sourced from eleven
+closed public issues across eight external repositories:
 
 - OpenMeter: migration-baseline completeness and concurrent billing-result
   attribution;
@@ -48,6 +48,8 @@ closed public issues across seven external repositories:
   resourceVersion could otherwise recreate a pod for an already-finished execution;
 - Terraform AWS Provider: an external AWS effect created successfully but lost from
   Terraform state, so re-apply could create another orphaned effect;
+- cert-manager: uncertain CertificateRequest creation under API-server latency where
+  retrying with a fresh generated name created a duplicate request for the same revision;
 - Tortoise #3442: two deliberately separated facets from one investigation:
   a **positive execution-boundary case** where the failed job acquired no runner
   and executed zero steps, and a **negative selection-integrity case** where a
@@ -192,6 +194,34 @@ PR #49250 merged as
 strategy set before asserting a single result, allowing the successful external
 effect to be identified and recorded instead of being misclassified as a failed
 creation. The fixed counterpart remains a useful `ALLOW_BOUND_EFFECT` path.
+
+## Reference case — cert-manager #4956 / PR #5487
+
+During elevated Kubernetes API-server latency, cert-manager could successfully
+create a `CertificateRequest` but fail to observe it within its wait window.
+The request-manager then retried creation using a different generated name.
+
+The original effect could therefore already exist while the retry created a
+second `CertificateRequest` for the same certificate revision and the same
+private-key secret. In the reported incident both requests were approved and
+signed; cert-manager later detected multiple matching requests and issuance
+became stuck.
+
+D03-A maps this as an `EffectIdentity` / `ExecutionAttempt` /
+`ClosureObligation` boundary. A timeout in observing the first create is not
+evidence that no create occurred. Issuing a fresh request identity while the
+prior effect remains possible is a second-effect attempt.
+
+The unchanged frozen evaluator must therefore return `REJECT_SECOND_EFFECT`
+when `possible_effect_exists=true`, substitution is requested, and no safe
+substitution/idempotency proof exists.
+
+PR #5487 merged as
+`cefd8ec93f2bf9dd7216ecc6a42551bed298e5da`. It derives the
+`CertificateRequest` name from certificate identity and revision, so repeated
+create attempts target the same stable identity rather than silently creating
+distinct requests. The fixed counterpart remains a useful
+`ALLOW_BOUND_EFFECT` path.
 
 ## Reference case — Tortoise #3442 / PR #5474
 
