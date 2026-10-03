@@ -250,6 +250,127 @@ func (s *QuorumHeadStore) CompareAndAdvance(
 	}
 }
 
+// ConvergeAuthorizedTransition repairs a split quorum only when every
+// readable member is inside an explicitly authorized transition chain.
+//
+// This is intentionally stronger than normal CompareAndAdvance recovery:
+// callers must supply the exact finite set of admissible states and the exact
+// target. Any readable third state fails closed. At least a strict majority of
+// members must be readable and inside the chain before convergence is allowed.
+//
+// It is designed for higher-level signed recovery protocols where a process
+// interruption may have left different quorum members at successive states of
+// the same already-authorized transition.
+func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
+	ctx context.Context,
+	allowed []ExternalHead,
+	target ExternalHead,
+) (ExternalHead, error) {
+	if s == nil || len(s.members) == 0 {
+		return ExternalHead{}, ErrExternalHeadQuorum
+	}
+	if strings.TrimSpace(target.JournalID) == "" || len(allowed) == 0 {
+		return ExternalHead{}, ErrExternalHeadConflict
+	}
+
+	allowedSet := make(map[quorumSemanticHead]struct{}, len(allowed))
+	targetSemantic := semanticExternalHead(target)
+	targetAllowed := false
+	for _, head := range allowed {
+		semantic := semanticExternalHead(head)
+		if semantic.JournalID != target.JournalID ||
+			semantic.Sequence > target.Sequence {
+			return ExternalHead{}, ErrExternalHeadConflict
+		}
+		allowedSet[semantic] = struct{}{}
+		if semantic == targetSemantic {
+			targetAllowed = true
+		}
+	}
+	if !targetAllowed {
+		return ExternalHead{}, ErrExternalHeadConflict
+	}
+
+	results := s.loadAll(ctx, target.JournalID)
+	observations := make([]quorumMemberObservation, 0, len(s.members))
+	targetObservations := make([]quorumMemberObservation, 0, len(s.members))
+
+	for remaining := len(s.members); remaining > 0; remaining-- {
+		select {
+		case <-ctx.Done():
+			return ExternalHead{}, fmt.Errorf("%w: %v", ErrExternalHeadQuorum, ctx.Err())
+		case observation := <-results:
+			if observation.err != nil || observation.notFound {
+				continue
+			}
+			semantic := semanticExternalHead(observation.head)
+			if _, ok := allowedSet[semantic]; !ok {
+				return ExternalHead{}, fmt.Errorf(
+					"%w: witness %q is outside authorized transition chain",
+					ErrExternalHeadConflict,
+					observation.member.ID,
+				)
+			}
+			observations = append(observations, observation)
+			if semantic == targetSemantic {
+				targetObservations = append(targetObservations, observation)
+			}
+		}
+	}
+
+	if len(observations) < s.threshold {
+		return ExternalHead{}, ErrExternalHeadQuorum
+	}
+	if len(targetObservations) >= s.threshold {
+		return aggregateQuorumHead(targetSemantic, targetObservations, s.threshold)
+	}
+
+	advanceResults := make(chan quorumAdvanceResult, len(observations))
+	pending := 0
+	for _, observation := range observations {
+		if semanticExternalHead(observation.head) == targetSemantic {
+			continue
+		}
+		pending++
+		observation := observation
+		go func() {
+			memberTarget := target
+			memberTarget.StoreVersion = ""
+			head, err := observation.member.Store.CompareAndAdvance(
+				ctx,
+				observation.head,
+				memberTarget,
+			)
+			advanceResults <- quorumAdvanceResult{
+				member: observation.member,
+				head:   head,
+				err:    err,
+			}
+		}()
+	}
+
+	successes := append([]quorumMemberObservation(nil), targetObservations...)
+	for pending > 0 {
+		select {
+		case <-ctx.Done():
+			return ExternalHead{}, fmt.Errorf("%w: %v", ErrExternalHeadQuorum, ctx.Err())
+		case result := <-advanceResults:
+			pending--
+			if result.err != nil || !sameSemanticHead(result.head, target) {
+				continue
+			}
+			successes = append(successes, quorumMemberObservation{
+				member: result.member,
+				head:   result.head,
+			})
+		}
+	}
+	if len(successes) < s.threshold {
+		return ExternalHead{}, ErrExternalHeadQuorum
+	}
+	return aggregateQuorumHead(targetSemantic, successes, s.threshold)
+}
+
 func (s *QuorumHeadStore) loadAll(
 	ctx context.Context,
 	journalID string,
