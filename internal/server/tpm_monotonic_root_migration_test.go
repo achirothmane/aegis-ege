@@ -44,10 +44,14 @@ func signMigrationDestinationAttestationForTest(
 			EnrolledDeviceID:                "node-b",
 			DestinationDeviceIdentity:       state.DeviceIdentity,
 			DestinationMeasuredBootIdentity: state.MeasuredBootIdentity,
+			DestinationGeneration:           state.Generation,
+			RemoteDecisionID:                "remote-decision-" + migrationID,
+			RemoteChallengeID:               "remote-challenge-" + migrationID,
 			RemoteDecisionDigest:            migrationRemoteDecisionDigest("remote-allow-" + migrationID),
+			RemoteDecisionVerifiedAt:        now.Add(-30 * time.Second),
 			Decision:                        "ALLOW",
-			VerifiedAt:                      now.Add(-time.Minute),
-			ExpiresAt:                       now.Add(5 * time.Minute),
+			VerifiedAt:                      now.Add(-20 * time.Second),
+			ExpiresAt:                       now.Add(30 * time.Second),
 			VerifierID:                      "remote-attestation-authority",
 		},
 		privateKey,
@@ -256,6 +260,126 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 			att, attestationPub, now,
 		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestation) {
 			t.Fatalf("mismatched live measured boot should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("stale_remote_decision_rejected", func(t *testing.T) {
+		attestation := goodAttestation.Attestation
+		attestation.AttestationID = "attestation-stale-remote-decision"
+		attestation.RemoteDecisionID = "remote-decision-stale"
+		attestation.RemoteChallengeID = "remote-challenge-stale"
+		attestation.RemoteDecisionVerifiedAt = now.Add(-3 * time.Minute)
+		attestation.VerifiedAt = now.Add(-30 * time.Second)
+		attestation.ExpiresAt = now.Add(30 * time.Second)
+		att, err := SignTPMRootMigrationDestinationAttestation(attestation, attestationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := TPMRootMigrationDestinationAttestationDigest(att)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := baseAuth
+		auth.DestinationAttestationDigest = digest
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			att, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestationStale) {
+			t.Fatalf("stale remote decision should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("freshness_extension_rejected", func(t *testing.T) {
+		attestation := goodAttestation.Attestation
+		attestation.AttestationID = "attestation-freshness-extension"
+		attestation.RemoteDecisionID = "remote-decision-extension"
+		attestation.RemoteChallengeID = "remote-challenge-extension"
+		attestation.RemoteDecisionVerifiedAt = now.Add(-90 * time.Second)
+		attestation.VerifiedAt = now.Add(-20 * time.Second)
+		attestation.ExpiresAt = now.Add(60 * time.Second)
+		att, err := SignTPMRootMigrationDestinationAttestation(attestation, attestationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := TPMRootMigrationDestinationAttestationDigest(att)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := baseAuth
+		auth.DestinationAttestationDigest = digest
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			att, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestationStale) {
+			t.Fatalf("bridge that extends remote decision freshness should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("future_remote_decision_rejected", func(t *testing.T) {
+		attestation := goodAttestation.Attestation
+		attestation.AttestationID = "attestation-future-remote-decision"
+		attestation.RemoteDecisionID = "remote-decision-future"
+		attestation.RemoteChallengeID = "remote-challenge-future"
+		attestation.RemoteDecisionVerifiedAt = now.Add(10 * time.Second)
+		attestation.VerifiedAt = now
+		attestation.ExpiresAt = now.Add(30 * time.Second)
+		att, err := SignTPMRootMigrationDestinationAttestation(attestation, attestationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := TPMRootMigrationDestinationAttestationDigest(att)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := baseAuth
+		auth.DestinationAttestationDigest = digest
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			att, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestationStale) {
+			t.Fatalf("future remote decision should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("destination_generation_mismatch_rejected", func(t *testing.T) {
+		attestation := goodAttestation.Attestation
+		attestation.AttestationID = "attestation-wrong-generation"
+		attestation.DestinationGeneration = destinationBefore.Generation + 1
+		att, err := SignTPMRootMigrationDestinationAttestation(attestation, attestationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := TPMRootMigrationDestinationAttestationDigest(att)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := baseAuth
+		auth.DestinationAttestationDigest = digest
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			att, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("wrong attested destination generation should fail closed, got %v", err)
 		}
 		assertCounterUnchanged(t)
 	})
