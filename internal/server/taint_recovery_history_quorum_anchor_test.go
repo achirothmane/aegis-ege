@@ -70,7 +70,6 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer simA.Close()
 	deviceA := transport.FromReadWriter(simA)
 
 	dir := t.TempDir()
@@ -82,7 +81,10 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	if err := ProvisionTPMNVHistoryAnchor(ctx, deviceA, cfgA); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, deviceA, cfgA) })
+	t.Cleanup(func() {
+		undefineTPMHistoryAnchorNV(t, deviceA, cfgA)
+		_ = simA.Close()
+	})
 	localA, err := NewTPMNVHistoryAnchor(deviceA, cfgA)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +140,10 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 		t.Fatalf("unexpected committed anchor state: %+v", committed)
 	}
 
-	// A single witness can disappear without erasing the quorum truth.
+	waitForWitnessReplication(t, ctx, "taint-recovery/main", h2Digest, w1, w2, w3)
+
+	// After all three replicas have converged, any one witness can disappear
+	// without erasing the 2-of-3 quorum truth.
 	w1.failLoad = true
 	quorumState, err := witness.Current(ctx)
 	if err != nil {
@@ -155,7 +160,6 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	if err != nil {
 		t.Skipf("replacement TPM simulator unavailable: %v", err)
 	}
-	defer simB.Close()
 	deviceB := transport.FromReadWriter(simB)
 	cfgB := TPMNVHistoryAnchorConfig{
 		NVIndex:   tpm2.TPMHandle(0x0180A161),
@@ -165,7 +169,10 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	if err := ProvisionTPMNVHistoryAnchor(ctx, deviceB, cfgB); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, deviceB, cfgB) })
+	t.Cleanup(func() {
+		undefineTPMHistoryAnchorNV(t, deviceB, cfgB)
+		_ = simB.Close()
+	})
 	localB, err := NewTPMNVHistoryAnchor(deviceB, cfgB)
 	if err != nil {
 		t.Fatal(err)
@@ -185,6 +192,41 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	}
 	if _, _, _, err := storeB.Current(ctx, publicKey); !errors.Is(err, ErrTaintRecoveryHistoryWitnessMismatch) {
 		t.Fatalf("history remained readable after unapproved TPM replacement: %v", err)
+	}
+}
+
+func waitForWitnessReplication(
+	t *testing.T,
+	ctx context.Context,
+	historyID string,
+	headDigest string,
+	stores ...*switchableHeadStore,
+) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		all := true
+		for _, store := range stores {
+			head, err := store.store.Load(ctx, historyID)
+			if err != nil ||
+				head.Sequence != 2 ||
+				head.HeadHash != headDigest ||
+				head.KeyID != taintRecoveryHistoryExternalHeadKeyID {
+				all = false
+				break
+			}
+		}
+		if all {
+			return
+		}
+		if time.Now().After(deadline) {
+			for i, store := range stores {
+				head, err := store.store.Load(ctx, historyID)
+				t.Logf("witness[%d] head=%+v err=%v", i, head, err)
+			}
+			t.Fatal("external witness replicas did not converge before outage proof")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
