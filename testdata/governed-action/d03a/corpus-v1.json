@@ -502,6 +502,48 @@
         },
         "fixed_expected": "ALLOW_BOUND_EFFECT"
       }
+    },
+    {
+      "id": "D03A-CERTMGR-4956",
+      "repository": "cert-manager/cert-manager",
+      "domain": "certificate-issuance-control",
+      "issue": {
+        "number": 4956,
+        "url": "https://github.com/cert-manager/cert-manager/issues/4956",
+        "state": "closed",
+        "title": "cert-manager created multiple CertificateRequest objects with the same certificate-revision"
+      },
+      "ground_truth": {
+        "root_cause": "Under elevated Kubernetes API latency, cert-manager could time out waiting for a newly created CertificateRequest to become observable and retry creation with a different generated name. The first create could already have succeeded, so the retry produced another request for the same Certificate revision.",
+        "consequence": "Multiple CertificateRequest objects existed for the same certificate revision and private-key secret. Both were approved and signed, after which cert-manager detected conflicting matching requests and issuance became stuck until the duplicate condition was resolved.",
+        "fix": {
+          "type": "merged_pr",
+          "ref": "https://github.com/cert-manager/cert-manager/pull/5487",
+          "merge_commit": "cefd8ec93f2bf9dd7216ecc6a42551bed298e5da",
+          "summary": "Derive the CertificateRequest name from certificate identity and revision so repeated create attempts target the same external identity instead of creating distinct requests when the prior create outcome is uncertain."
+        }
+      },
+      "kernel_mapping": {
+        "primary_relations": [
+          "EffectIdentity",
+          "ExecutionAttempt",
+          "ClosureObligation",
+          "I3",
+          "I5"
+        ],
+        "rationale": "A timed-out observation of request creation does not establish that the effect did not occur. Retrying with a fresh identity is a second-effect attempt while the first effect remains possible; the effect identity must be stable or the prior outcome reconciled before another create is authorized.",
+        "historical_overrides": {
+          "possible_effect_exists": true,
+          "substitution_requested": true,
+          "safe_substitution_proven": false
+        },
+        "historical_expected": "REJECT_SECOND_EFFECT",
+        "historical_valid_trace": false,
+        "fixed_overrides": {
+          "emit_effect": true
+        },
+        "fixed_expected": "ALLOW_BOUND_EFFECT"
+      }
     }
   ],
   "stop_rule": "If any incident requires changing the frozen oracle, evaluator ordering, or semantic meaning to obtain the expected safety disposition, record D03-A as a falsification failure. Do not edit candidate-kernel-contract-v1 in place.",
