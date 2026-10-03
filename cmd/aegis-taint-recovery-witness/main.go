@@ -54,11 +54,10 @@ func main() {
 	tlsCertPath := requireEnv("TLS_CERT_PATH")
 	tlsCertPEM, err := os.ReadFile(tlsCertPath)
 	must(err)
-	tlsHash, err := kernelfabric.TLSCertificatePEMSHA256(tlsCertPEM)
-	must(err)
-	if tlsHash != witnessProfile.Profile().TLSTrustAnchorSHA256 {
-		log.Fatalf("mounted TLS certificate does not match signed external witness profile")
-	}
+	must(genesisBinding.VerifyMountedTLSCertificate(
+		tlsCertPEM,
+		witnessProfile,
+	))
 
 	var policy recoverywitnessprofile.StaticPolicy
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)
