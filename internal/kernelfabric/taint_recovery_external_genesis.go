@@ -105,6 +105,15 @@ func (b GenesisExternalRecoveryWitnessBinding) VerifyProfile(
 			ErrTaintRecoveryAuthorization,
 		)
 	}
+	profileAuthorityKeyID := b.policy.ProfileAuthorityKeyID
+	if profileAuthorityKeyID == trustRoot.manifest.AuthorityKeyID ||
+		profileAuthorityKeyID == trustRoot.manifest.WitnessKeyID ||
+		profileAuthorityKeyID == trustRoot.signerKeyID {
+		return nil, fmt.Errorf(
+			"%w: external witness profile authority collapses a pinned recovery role",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
 	profile, err := VerifyExternalRecoveryWitnessProfile(
 		signed,
 		b.profileAuthorityKey,
