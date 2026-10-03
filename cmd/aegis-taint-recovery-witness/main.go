@@ -45,6 +45,14 @@ func main() {
 		1,
 	)
 	must(err)
+	tlsCertPath := requireEnv("TLS_CERT_PATH")
+	tlsCertPEM, err := os.ReadFile(tlsCertPath)
+	must(err)
+	tlsHash, err := kernelfabric.TLSCertificatePEMSHA256(tlsCertPEM)
+	must(err)
+	if tlsHash != witnessProfile.Profile().TLSTrustAnchorSHA256 {
+		log.Fatalf("mounted TLS certificate does not match signed external witness profile")
+	}
 
 	var policy recoverywitnessprofile.StaticPolicy
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)
@@ -72,7 +80,7 @@ func main() {
 	if addr == "" {
 		addr = ":8443"
 	}
-	certPath := requireEnv("TLS_CERT_PATH")
+	certPath := tlsCertPath
 	keyPath := requireEnv("TLS_KEY_PATH")
 	server := &http.Server{
 		Addr:              addr,
