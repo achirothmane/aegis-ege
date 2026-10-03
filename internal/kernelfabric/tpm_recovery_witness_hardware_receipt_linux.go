@@ -123,11 +123,12 @@ func VerifyTPMRecoveryWitnessHardwareReceipt(receipt TPMRecoveryWitnessHardwareR
 	if receipt.Statement.WitnessAlgorithm != RecoveryWitnessSignatureECDSAP256SHA256 {
 		return errors.New("TPM hardware receipt requires ECDSA P-256 witness identity")
 	}
-	if receipt.Statement.WitnessPublic.Attributes&uint32(legacyTPMRequiredHardwareSignerAttributes()) != uint32(legacyTPMRequiredHardwareSignerAttributes()) {
-		return errors.New("TPM hardware receipt public area lacks required signer attributes")
+	expectedPublic, err := expectedTPMRecoveryWitnessPublicEvidence(verifier)
+	if err != nil {
+		return err
 	}
-	if receipt.Statement.WitnessPublic.Attributes&uint32(legacyTPMForbiddenHardwareSignerAttributes()) != 0 {
-		return errors.New("TPM hardware receipt public area contains forbidden signer attributes")
+	if receipt.Statement.WitnessPublic != expectedPublic {
+		return errors.New("TPM hardware receipt public area does not match pinned witness public key")
 	}
 	payload, err := canonicalTPMRecoveryWitnessHardwareStatement(receipt.Statement)
 	if err != nil {
