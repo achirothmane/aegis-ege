@@ -92,10 +92,10 @@ func runExecute(args []string) {
 
 	req := buildRequest(*value, *attempt)
 	a := &adapter{
-		workDir:       *workDir,
-		custodyPath:   *custody,
-		effectLogPath: *effectLog,
-		proofValue:    *value,
+		workDir:         *workDir,
+		custodyPath:     *custody,
+		effectLogPath:   *effectLog,
+		proofValue:      *value,
 		crashAfterApply: *crash,
 	}
 	result := gaRuntime.Run(context.Background(), req, a)
