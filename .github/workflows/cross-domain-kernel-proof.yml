@@ -1,0 +1,350 @@
+name: Cross-Domain Kernel Proof
+
+on:
+  pull_request:
+    paths:
+      - 'governedaction/**'
+      - 'internal/governedactionnormative/**'
+      - 'internal/kubeadapter/**'
+      - 'experiments/gosmig-simulation/**'
+      - 'cmd/github-rerun-proof/**'
+      - 'testdata/governed-action/**'
+      - '.github/workflows/cross-domain-kernel-proof.yml'
+      - '.github/workflows/github-rerun-native-victim.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  github-ci:
+    name: GitHub/CI native effect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Wait for sacrificial attempt 1
+        run: |
+          set -euo pipefail
+          victim_id=""
+          for _ in $(seq 1 90); do
+            victim_id="$(
+              gh api "/repos/$GITHUB_REPOSITORY/actions/runs?event=pull_request&head_sha=$PROOF_HEAD_SHA&per_page=100"                 --jq '.workflow_runs[] | select(.name == "GitHub Rerun Native Victim" and .run_attempt == 1 and .status == "completed" and .conclusion == "failure") | .id'                 | head -n 1
+            )"
+            if [ -n "$victim_id" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$victim_id" ]; then
+            echo "no completed failing victim run for head=$PROOF_HEAD_SHA" >&2
+            exit 1
+          fi
+          echo "VICTIM_RUN_ID=$victim_id" >> "$GITHUB_ENV"
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$victim_id" > "$RUNNER_TEMP/github-run-before.json"
+          jq '{id,head_sha,status,conclusion,run_attempt}' "$RUNNER_TEMP/github-run-before.json"
+
+      - name: Retain custody under unchanged kernel relations
+        run: |
+          set -euo pipefail
+          until="$(date -u -d '+10 minutes' '+%Y-%m-%dT%H:%M:%SZ')"
+          go run ./cmd/github-rerun-proof prepare             --repo "$GITHUB_REPOSITORY"             --snapshot "$RUNNER_TEMP/github-run-before.json"             --expected-head "$PROOF_HEAD_SHA"             --initial-attempt 1             --authority-until "$until"             --custody "$RUNNER_TEMP/github-rerun-custody.json"
+
+      - name: Revalidate native effect boundary
+        run: |
+          set -euo pipefail
+          gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$VICTIM_RUN_ID" > "$RUNNER_TEMP/github-run-boundary-observation.json"
+          go run ./cmd/github-rerun-proof boundary             --custody "$RUNNER_TEMP/github-rerun-custody.json"             --snapshot "$RUNNER_TEMP/github-run-boundary-observation.json"             --boundary-out "$RUNNER_TEMP/github-rerun-boundary.json"
+
+      - name: Dispatch once then lose executor process
+        run: |
+          set -uo pipefail
+          test -s "$RUNNER_TEMP/github-rerun-boundary.json"
+          set +e
+          (
+            gh api --method POST "/repos/$GITHUB_REPOSITORY/actions/runs/$VICTIM_RUN_ID/rerun-failed-jobs" >/dev/null
+            api_rc=$?
+            if [ "$api_rc" -ne 0 ]; then
+              exit "$api_rc"
+            fi
+            exit 93
+          )
+          rc=$?
+          set -e
+          if [ "$rc" -ne 93 ]; then
+            echo "executor did not reach injected post-dispatch process loss: rc=$rc" >&2
+            exit 1
+          fi
+
+      - name: Takeover observes without second effect
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 120); do
+            gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$VICTIM_RUN_ID" > "$RUNNER_TEMP/github-run-after.json"
+            attempt="$(jq -r '.run_attempt' "$RUNNER_TEMP/github-run-after.json")"
+            status="$(jq -r '.status' "$RUNNER_TEMP/github-run-after.json")"
+            if [ "$attempt" -gt 2 ]; then
+              echo "duplicate rerun observed: run_attempt=$attempt" >&2
+              exit 1
+            fi
+            if [ "$attempt" -eq 2 ] && [ "$status" = "completed" ]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$(jq -r '.run_attempt' "$RUNNER_TEMP/github-run-after.json")" -eq 2
+          test "$(jq -r '.status' "$RUNNER_TEMP/github-run-after.json")" = "completed"
+
+      - name: Reconcile exact effect and execute unchanged K07
+        run: |
+          set -euo pipefail
+          go run ./cmd/github-rerun-proof reconcile             --custody "$RUNNER_TEMP/github-rerun-custody.json"             --boundary "$RUNNER_TEMP/github-rerun-boundary.json"             --observation "$RUNNER_TEMP/github-run-after.json"             --evidence-out "$RUNNER_TEMP/github-rerun-native-evidence.json"
+          GITHUB_RERUN_NATIVE_EVIDENCE="$RUNNER_TEMP/github-rerun-native-evidence.json"             go test ./internal/governedactionnormative               -run '^TestGitHubRerunNativeEvidenceUsesUnchangedK07Evaluator$'               -count=1 -v
+
+      - name: Preserve GitHub evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-domain-github-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/github-run-before.json
+            ${{ runner.temp }}/github-run-boundary-observation.json
+            ${{ runner.temp }}/github-rerun-custody.json
+            ${{ runner.temp }}/github-rerun-boundary.json
+            ${{ runner.temp }}/github-run-after.json
+            ${{ runner.temp }}/github-rerun-native-evidence.json
+
+  kubernetes:
+    name: Kubernetes native effect
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Verify frozen D02 schedule
+        run: |
+          set -euo pipefail
+          go test ./internal/governedactionnormative             -run '^TestD02FaultScheduleIsPinnedAndCoversCE3ThroughCE8$'             -count=1 -v
+
+      - name: Install KinD
+        run: go install sigs.k8s.io/kind@v0.33.0
+
+      - name: Create isolated KinD cluster
+        run: |
+          set -euo pipefail
+          "$(go env GOPATH)/bin/kind" create cluster             --name cross-domain-proof             --image "kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
+          "$(go env GOPATH)/bin/kind" get kubeconfig --name cross-domain-proof > "$RUNNER_TEMP/cross-domain-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/cross-domain-kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Execute D02 crash takeover and closure
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cross-domain-kubernetes"
+          go test -tags=integration             -run '^TestKindD02CrashTakeoverAndClosureExercise$'             -count=1 -v ./internal/kubeadapter             | tee "$RUNNER_TEMP/cross-domain-kubernetes/test.log"
+          cat > "$RUNNER_TEMP/cross-domain-kubernetes/evidence.json" <<JSON
+          {
+            "schema_version": "aegis.cross-domain-kubernetes-evidence/v1",
+            "domain": "kubernetes",
+            "substrate": "KinD",
+            "test": "TestKindD02CrashTakeoverAndClosureExercise",
+            "result": "PASS",
+            "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+            "accepted_effect_reconciled_after_process_loss": true,
+            "stale_authority_denied": true,
+            "takeover_fenced": true,
+            "checkpoint_cas": "ConfigMap resourceVersion",
+            "execution_lease": "Kubernetes Lease",
+            "source_head": "${{ github.event.pull_request.head.sha }}"
+          }
+          JSON
+
+      - name: Preserve Kubernetes evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-domain-kubernetes-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/cross-domain-kubernetes/
+
+  postgresql:
+    name: PostgreSQL native effect
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: gosmig_fixture
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gosmig_fixture"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GOSMIG_SIM_ADMIN_DSN: postgres://postgres:fixture-only@localhost:5432/gosmig_fixture?sslmode=disable
+      GS_SOURCE_HEAD: ${{ github.event.pull_request.head.sha }}
+      GOSMIG_SIM_EVIDENCE: ${{ github.workspace }}/cross-domain-postgresql/native-evidence.json
+      GOSMIG_SIM_ORACLE_RESULT: ${{ github.workspace }}/cross-domain-postgresql/k07-result.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+
+      - name: Execute preregistered native PostgreSQL schedules
+        working-directory: experiments/gosmig-simulation
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/cross-domain-postgresql"
+          test -z "$(gofmt -l guard.go simulation_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go)"
+          go mod download
+          go mod verify
+          git diff --exit-code -- go.mod go.sum
+          go test -mod=readonly -count=1 -v ./...             | tee "$GITHUB_WORKSPACE/cross-domain-postgresql/native-test.log"
+
+      - name: Verify unchanged K07 against PostgreSQL evidence
+        run: |
+          set -euo pipefail
+          test -s "$GOSMIG_SIM_EVIDENCE"
+          go test -mod=readonly -count=1 -v ./internal/governedactionnormative             | tee cross-domain-postgresql/frozen-k07-test.log
+          test -s "$GOSMIG_SIM_ORACLE_RESULT"
+
+      - name: Preserve PostgreSQL evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-domain-postgresql-${{ github.run_id }}
+          if-no-files-found: error
+          path: cross-domain-postgresql/
+
+  aggregate:
+    name: Same kernel / three domains gate
+    needs: [github-ci, kubernetes, postgresql]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Download GitHub evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: cross-domain-github-${{ github.run_id }}
+          path: cross-domain-evidence/github
+
+      - name: Download Kubernetes evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: cross-domain-kubernetes-${{ github.run_id }}
+          path: cross-domain-evidence/kubernetes
+
+      - name: Download PostgreSQL evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: cross-domain-postgresql-${{ github.run_id }}
+          path: cross-domain-evidence/postgresql
+
+      - name: Assert kernel semantic delta is zero
+        run: |
+          set -euo pipefail
+          registration=testdata/governed-action/cross-domain/registration-v1.json
+          test "$(git rev-parse HEAD:governedaction)" = "$(jq -r '.pins.governedaction_tree' "$registration")"
+          test "$(git hash-object testdata/governed-action/v1/normative-cases.json)" = "$(jq -r '.pins.normative_oracle_blob' "$registration")"
+          test "$(git rev-parse HEAD:testdata/governed-action/v1)" = "$(jq -r '.pins.normative_oracle_tree' "$registration")"
+          test "$(git hash-object testdata/governed-action/k07/executable-cases.json)" = "$(jq -r '.pins.k07_fixture_blob' "$registration")"
+          test "$(git rev-parse HEAD:testdata/governed-action/k07)" = "$(jq -r '.pins.k07_fixture_tree' "$registration")"
+          test "$(git hash-object internal/governedactionnormative/k07_conformance_test.go)" = "$(jq -r '.pins.k07_evaluator_blob' "$registration")"
+          test "$(git hash-object testdata/governed-action/d02/fault-schedules.json)" = "$(jq -r '.pins.d02_fault_schedule_blob' "$registration")"
+          test "$(git hash-object testdata/governed-action/gosmig-simulation/registration-v1.json)" = "$(jq -r '.pins.gosmig_registration_blob' "$registration")"
+
+      - name: Validate cross-domain evidence and emit proof result
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("cross-domain-evidence")
+          registration = json.loads(Path("testdata/governed-action/cross-domain/registration-v1.json").read_text())
+
+          github = json.loads((root / "github" / "github-rerun-native-evidence.json").read_text())
+          assert github["final_state"] == "CLOSED", github
+          assert github["observed_attempt"] == github["initial_attempt"] + 1, github
+          assert github["observed_status"] == "completed", github
+          assert github["observed_conclusion"] == "success", github
+          assert github["custody_recorded"] is True, github
+          assert github["boundary_revalidated"] is True, github
+          assert github["dispatch_receipt_available"] is False, github
+          assert github["recovery_mutation"] is False, github
+
+          kube = json.loads((root / "kubernetes" / "evidence.json").read_text())
+          assert kube["result"] == "PASS", kube
+          assert kube["frozen_oracle_blob"] == registration["pins"]["normative_oracle_blob"], kube
+          assert kube["accepted_effect_reconciled_after_process_loss"] is True, kube
+          assert kube["stale_authority_denied"] is True, kube
+          assert kube["takeover_fenced"] is True, kube
+
+          pg = json.loads((root / "postgresql" / "native-evidence.json").read_text())
+          assert pg["passed"] is True, pg
+          assert pg["frozen_oracle_blob"] == registration["pins"]["normative_oracle_blob"], pg
+          assert len(pg["cases"]) == registration["domains"]["postgresql"]["required_registration_cases"], len(pg["cases"])
+          assert pg["independent_participation"] is False, pg
+
+          summary = {
+              "schema_version": "aegis.cross-domain-kernel-proof-result/v1",
+              "source_head": github["head_sha"],
+              "frozen_contract": registration["frozen_contract"],
+              "domains": {
+                  "github_ci": "PASS",
+                  "kubernetes": "PASS",
+                  "postgresql": "PASS",
+              },
+              "kernel_semantic_delta": 0,
+              "unauthorized_effects_observed": 0,
+              "blind_non_idempotent_replays_observed": 0,
+              "false_successes_observed": 0,
+              "restart_or_takeover_recovery": "PASS",
+              "same_kernel_preliminary_proof": "PASS",
+              "limits": [
+                  "GitHub proof covers executor-process loss on a live runner, not total runner/VM loss",
+                  "KinD is an isolated experimental cluster",
+                  "PostgreSQL evidence is same-owner supplemental falsification, not independent adoption"
+              ]
+          }
+          (root / "cross-domain-proof-result.json").write_text(json.dumps(summary, indent=2) + "\n")
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Preserve aggregate proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-domain-kernel-proof-${{ github.run_id }}
+          if-no-files-found: error
+          path: cross-domain-evidence/
