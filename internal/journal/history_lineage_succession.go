@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -274,7 +275,15 @@ func historyLineageSuccessionDigest(
 		"new_history_policy_hash":      plan.newEpoch.binding.policyHash,
 		"new_journal_id":               plan.newEpoch.binding.journalID,
 	}
-	canonical, err := jcs.Format(commitment)
+	raw, err := json.Marshal(commitment)
+	if err != nil {
+		return "", err
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	canonical, err := jcs.Format(value)
 	if err != nil {
 		return "", err
 	}
