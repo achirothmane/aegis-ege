@@ -37,7 +37,7 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 	signedTransfer SignedTPMHistoryContinuityTransferAuthorization,
 	transferPublicKey ed25519.PublicKey,
 	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
-	attestationPublicKey ed25519.PublicKey,
+	attestationTrust TPMRootMigrationAttestationTrust,
 ) (
 	kernelfabric.EnrolledTPMIdentity,
 	kernelfabric.SignedEnrollmentIdentityReceipt,
@@ -65,17 +65,19 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 	}
 	if len(enrollmentAuthorityKey) != ed25519.PrivateKeySize ||
 		len(successorGovernancePublicKey) != ed25519.PublicKeySize ||
-		len(transferPublicKey) != ed25519.PublicKeySize ||
-		len(attestationPublicKey) != ed25519.PublicKeySize {
-		return fail("all enrollment, governance, transfer, and attestation keys are required")
+		len(transferPublicKey) != ed25519.PublicKeySize {
+		return fail("all enrollment, governance, and transfer keys are required")
+	}
+	if err := attestationTrust.validate(); err != nil {
+		return fail("Genesis-bound destination attestation trust is required: %v", err)
 	}
 	enrollmentPublicKey := enrollmentAuthorityKey.Public().(ed25519.PublicKey)
 	if bytes.Equal(successorGovernancePublicKey, enrollmentPublicKey) ||
 		bytes.Equal(successorGovernancePublicKey, transferPublicKey) ||
-		bytes.Equal(successorGovernancePublicKey, attestationPublicKey) {
+		attestationTrust.publicKeyEquals(successorGovernancePublicKey) {
 		return fail("successor governance authority must be independent of enrollment, transfer, and destination-attestation authorities")
 	}
-	if bytes.Equal(transferPublicKey, attestationPublicKey) {
+	if attestationTrust.publicKeyEquals(transferPublicKey) {
 		return fail("continuity transfer and destination-attestation authorities must be independent")
 	}
 
@@ -97,17 +99,24 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 	); err != nil {
 		return fail("verify TPM continuity transfer authorization: %v", err)
 	}
-	if err := VerifySignedTPMRootMigrationDestinationAttestation(
+	if err := attestationTrust.verifySignedAttestation(
 		destinationAttestation,
-		attestationPublicKey,
 		effectiveNow,
 	); err != nil {
-		return fail("verify destination attestation: %v", err)
+		return fail("verify Genesis-bound destination attestation: %v", err)
 	}
 
 	successor := signedSuccessor.Authorization
 	transfer := signedTransfer.Authorization
 	attestation := destinationAttestation.Attestation
+	if !attestationTrust.matchesAuthorization(
+		transfer.DestinationAttestationGenesisEpoch,
+		transfer.DestinationAttestationTrustRootRef,
+		transfer.DestinationAttestationTrustRootEpoch,
+		transfer.DestinationAttestationPolicyHash,
+	) {
+		return fail("continuity transfer attestation trust does not match verified Genesis")
+	}
 
 	successorDigest, err := kernelfabric.EnrollmentIdentitySuccessorAuthorizationDigest(signedSuccessor)
 	if err != nil {
@@ -212,6 +221,10 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 		destinationState.PredecessorDeviceIdentity != successor.SourceDeviceIdentity ||
 		destinationState.MigrationAuthorizationDigest != transferDigest ||
 		destinationState.MigrationDestinationAttestationDigest != attestationDigest ||
+		destinationState.MigrationAttestationGenesisEpoch != transfer.DestinationAttestationGenesisEpoch ||
+		destinationState.MigrationAttestationTrustRootRef != transfer.DestinationAttestationTrustRootRef ||
+		destinationState.MigrationAttestationTrustRootEpoch != transfer.DestinationAttestationTrustRootEpoch ||
+		destinationState.MigrationAttestationPolicyHash != transfer.DestinationAttestationPolicyHash ||
 		destinationState.MigrationHistoryWitnessPolicyHash != successor.HistoryWitnessPolicyHash ||
 		destinationState.MigrationOwnershipWitnessPolicyHash != successor.OwnershipWitnessPolicyHash {
 		return fail("destination TPM migration lineage does not match successor authorization")
