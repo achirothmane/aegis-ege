@@ -22,8 +22,16 @@ import (
 )
 
 type switchableHeadStore struct {
-	store    journal.ExternalHeadStore
-	failLoad bool
+	store             journal.ExternalHeadStore
+	failLoad          bool
+	trustManifestHash string
+}
+
+func (s *switchableHeadStore) QuorumTrustManifestHash() string {
+	if s == nil {
+		return ""
+	}
+	return s.trustManifestHash
 }
 
 
@@ -84,25 +92,22 @@ func (s *switchableHeadStore) CompareAndAdvance(
 func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	ctx := context.Background()
 
-	w1 := &switchableHeadStore{store: journal.NewMemoryHeadStore()}
-	w2 := &switchableHeadStore{store: journal.NewMemoryHeadStore()}
-	w3 := &switchableHeadStore{store: journal.NewMemoryHeadStore()}
+	w1 := &switchableHeadStore{
+		store:             journal.NewMemoryHeadStore(),
+		trustManifestHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	w2 := &switchableHeadStore{
+		store:             journal.NewMemoryHeadStore(),
+		trustManifestHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	w3 := &switchableHeadStore{
+		store:             journal.NewMemoryHeadStore(),
+		trustManifestHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	}
 	quorum, err := journal.NewQuorumHeadStore([]journal.QuorumHeadMember{
-		{
-			ID:                "witness-a",
-			TrustManifestHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			Store:             w1,
-		},
-		{
-			ID:                "witness-b",
-			TrustManifestHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			Store:             w2,
-		},
-		{
-			ID:                "witness-c",
-			TrustManifestHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-			Store:             w3,
-		},
+		{ID: "witness-a", Store: w1},
+		{ID: "witness-b", Store: w2},
+		{ID: "witness-c", Store: w3},
 	}, quorumBindingForServerTest(t))
 	if err != nil {
 		t.Fatal(err)
