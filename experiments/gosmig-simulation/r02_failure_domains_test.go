@@ -39,32 +39,32 @@ type r02ProviderBState struct {
 }
 
 type r02Evidence struct {
-	SchemaVersion string `json:"schema_version"`
-	ActionRef     string `json:"action_ref"`
+	SchemaVersion  string `json:"schema_version"`
+	ActionRef      string `json:"action_ref"`
 	FailureDomains struct {
-		E1 string `json:"e1"`
-		E2 string `json:"e2"`
-		E3 string `json:"e3"`
-		Distinct bool `json:"distinct"`
+		E1       string `json:"e1"`
+		E2       string `json:"e2"`
+		E3       string `json:"e3"`
+		Distinct bool   `json:"distinct"`
 	} `json:"failure_domains"`
 	E1 struct {
 		EffectID   string `json:"effect_id"`
 		FinalState string `json:"final_state"`
 	} `json:"e1"`
 	E2 struct {
-		EffectID                string `json:"effect_id"`
-		LostAckExit             int    `json:"lost_ack_exit"`
-		UnavailableAfterExit    bool   `json:"unavailable_after_exit"`
-		BAliveDuringAPartition  bool   `json:"b_alive_during_a_partition"`
-		ObservedAfterRestart    string `json:"observed_after_restart"`
+		EffectID                string   `json:"effect_id"`
+		LostAckExit             int      `json:"lost_ack_exit"`
+		UnavailableAfterExit    bool     `json:"unavailable_after_exit"`
+		BAliveDuringAPartition  bool     `json:"b_alive_during_a_partition"`
+		ObservedAfterRestart    string   `json:"observed_after_restart"`
 		WebhookEventIDs         []string `json:"webhook_event_ids"`
 		WebhookValues           []string `json:"webhook_values"`
-		APIValue                string `json:"api_value"`
-		UnrelatedEffectID       string `json:"unrelated_effect_id"`
-		AggregateCapturedAmount int64  `json:"aggregate_captured_amount"`
+		APIValue                string   `json:"api_value"`
+		UnrelatedEffectID       string   `json:"unrelated_effect_id"`
+		AggregateCapturedAmount int64    `json:"aggregate_captured_amount"`
 	} `json:"e2"`
 	Authority struct {
-		OldFence    int64 `json:"old_fence"`
+		OldFence     int64 `json:"old_fence"`
 		CurrentFence int64 `json:"current_fence"`
 	} `json:"authority"`
 	E3 struct {
