@@ -87,7 +87,6 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 	if err != nil {
 		t.Fatalf("start TPM-A simulator: %v", err)
 	}
-	defer simA.Close()
 	deviceA := transport.FromReadWriter(simA)
 	cfgA := TPMNVHistoryAnchorConfig{
 		NVIndex:       tpm2.TPMHandle(0x0180A151),
@@ -153,6 +152,9 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 	}
 	if sourceState.Sequence != 2 || sourceState.HeadDigest != h2Digest {
 		t.Fatalf("unexpected source history state: %+v", sourceState)
+	}
+	if err := simA.Close(); err != nil {
+		t.Fatalf("close TPM-A before replacement: %v", err)
 	}
 
 	simB, err := simulator.GetWithFixedSeedInsecure(702)
@@ -257,8 +259,19 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		t.Fatalf("destination continuity mismatch: %+v", currentB)
 	}
 
-	if _, err := ownedA.Current(ctx); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
-		t.Fatalf("source TPM remained active after ownership transfer: %v", err)
+	staleSource := &staticDeviceHistoryAnchor{
+		identity: sourceState.DeviceIdentity,
+		state: kernelfabric.TaintRecoveryHistoryAnchorState{
+			Sequence:   2,
+			HeadDigest: h2Digest,
+		},
+	}
+	retiredA, err := NewOwnedConjunctiveTaintRecoveryHistoryAnchor(staleSource, historyWitness, ownership)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := retiredA.Current(ctx); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
+		t.Fatalf("source identity remained active after ownership transfer: %v", err)
 	}
 
 	h3 := tpmHistoryAnchorReceipt("transfer-h3", h2Digest, 3, now.Add(2*time.Minute))
@@ -266,8 +279,12 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storeA.Append(ctx, signedH3, publicKey); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
-		t.Fatalf("retired source appended a new history receipt: %v", err)
+	retiredStoreA := kernelfabric.AnchoredTaintRecoveryHistoryStore{
+		Store:  rawStore,
+		Anchor: retiredA,
+	}
+	if _, err := retiredStoreA.Append(ctx, signedH3, publicKey); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
+		t.Fatalf("retired source identity appended a new history receipt: %v", err)
 	}
 
 	storeB := kernelfabric.AnchoredTaintRecoveryHistoryStore{
@@ -331,7 +348,6 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer simA.Close()
 	deviceA := transport.FromReadWriter(simA)
 	cfgA := TPMNVHistoryAnchorConfig{
 		NVIndex:       tpm2.TPMHandle(0x0180A151),
@@ -377,6 +393,9 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	sourceState, ok, err := readTPMNVHistoryAnchorState(cfgA.StatePath)
 	if err != nil || !ok {
 		t.Fatal(err)
+	}
+	if err := simA.Close(); err != nil {
+		t.Fatalf("close TPM-A before replacement: %v", err)
 	}
 
 	simB, err := simulator.GetWithFixedSeedInsecure(712)
@@ -471,8 +490,19 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		quiesced.ActiveDeviceIdentity != quiescedRecoveryHistoryOwnershipIdentity(commitment) {
 		t.Fatalf("ownership did not remain quiesced after interrupted finalization: %+v", quiesced)
 	}
-	if _, err := ownedA.Current(ctx); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
-		t.Fatalf("source remained active while ownership was quiesced: %v", err)
+	staleSource := &staticDeviceHistoryAnchor{
+		identity: sourceState.DeviceIdentity,
+		state: kernelfabric.TaintRecoveryHistoryAnchorState{
+			Sequence:   1,
+			HeadDigest: h1Digest,
+		},
+	}
+	quiescedSource, err := NewOwnedConjunctiveTaintRecoveryHistoryAnchor(staleSource, historyWitness, ownership)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := quiescedSource.Current(ctx); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
+		t.Fatalf("source identity remained active while ownership was quiesced: %v", err)
 	}
 	ownedB, err := NewOwnedConjunctiveTaintRecoveryHistoryAnchor(localB, historyWitness, ownership)
 	if err != nil {
@@ -503,6 +533,33 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if currentB.Sequence != 1 || currentB.HeadDigest != h1Digest {
 		t.Fatalf("resumed transfer changed history truth: %+v", currentB)
 	}
+}
+
+type staticDeviceHistoryAnchor struct {
+	identity string
+	state    kernelfabric.TaintRecoveryHistoryAnchorState
+}
+
+func (a *staticDeviceHistoryAnchor) DeviceIdentity(context.Context) (string, error) {
+	return a.identity, nil
+}
+
+func (a *staticDeviceHistoryAnchor) Current(
+	context.Context,
+) (kernelfabric.TaintRecoveryHistoryAnchorState, error) {
+	return a.state, nil
+}
+
+func (a *staticDeviceHistoryAnchor) CompareAndAdvance(
+	_ context.Context,
+	expected,
+	next kernelfabric.TaintRecoveryHistoryAnchorState,
+) (kernelfabric.TaintRecoveryHistoryAnchorState, error) {
+	if a.state != expected {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, errors.New("static history anchor compare mismatch")
+	}
+	a.state = next
+	return next, nil
 }
 
 func newHistoryTransferQuorum(
