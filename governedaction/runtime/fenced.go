@@ -214,6 +214,19 @@ func ExecuteReservedFenced(ctx context.Context, req Request, custody FencedCusto
 	}
 	result.Custody = crossing
 
+	// Loading and committing custody may block. Revalidate after those calls,
+	// before entering the effect callback. A denial keeps CROSSING durable:
+	// never reopen this record for replay merely because this process knows
+	// it did not call the provider.
+	if err := checkRequestAtBoundary(ctx, req, adapter); err != nil {
+		result.Cause = fmt.Errorf("after crossing custody: %w", err)
+		return result
+	}
+	if err := ctx.Err(); err != nil {
+		result.Cause = err
+		return result
+	}
+
 	result.BoundaryEntered = true
 	acceptance, effectErr := adapter.ExecuteFenced(ctx, req.Transition, crossing)
 	result.Acceptance = acceptance
