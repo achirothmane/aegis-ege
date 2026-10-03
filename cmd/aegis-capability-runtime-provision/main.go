@@ -93,6 +93,10 @@ func main() {
 	witnessRuntimePath := requireEnv("WITNESS_RUNTIME_KUBECONFIG")
 	controllerBundlePath := requireEnv("TAINT_RECOVERY_CONTROLLER_BUNDLE")
 	externalHeadBundlePath := requireEnv("EXTERNAL_HEAD_WITNESS_CLIENT_BUNDLE")
+	headSignerPublicKeyPath := requireEnv("HEAD_WITNESS_SIGNER_PUBLIC_KEY_PATH")
+	headSignerEndpointPath := requireEnv("HEAD_WITNESS_SIGNER_ENDPOINT_PATH")
+	headSignerTLSCertPath := requireEnv("HEAD_WITNESS_SIGNER_TLS_CERT_PATH")
+	headSignerTLSServerNamePath := requireEnv("HEAD_WITNESS_SIGNER_TLS_SERVER_NAME_PATH")
 	preparedBundlePath := requireEnv("TAINT_RECOVERY_PREPARED_BUNDLE")
 	signedProfilePath := requireEnv("SIGNED_WITNESS_PROFILE_PATH")
 
@@ -168,6 +172,10 @@ func main() {
 		ctx,
 		witnessAdmin,
 		externalHeadBundlePath,
+		headSignerPublicKeyPath,
+		headSignerEndpointPath,
+		headSignerTLSCertPath,
+		headSignerTLSServerNamePath,
 	))
 
 	must(writeRuntimeKubeconfig(workloadRuntimePath, workloadConfig, workloadToken, workloadNamespace))
