@@ -121,6 +121,22 @@ jobs:
             exit 1
           fi
 
+      - name: Prove TPM hardware receipt contract and reject non-device fallback
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/kernelfabric \
+            -run 'TestTPM(RecoveryWitnessHardwareReceiptBindsDeviceAndLivePublicArea|HardwareIdentityEvidenceRejectsNonCharacterDevice)' \
+            -count=1 | tee "$RUNNER_TEMP/tpm-hardware-receipt-contract.log"
+          grep -q -- "--- PASS: TestTPMRecoveryWitnessHardwareReceiptBindsDeviceAndLivePublicArea" \
+            "$RUNNER_TEMP/tpm-hardware-receipt-contract.log"
+          grep -q -- "--- PASS: TestTPMHardwareIdentityEvidenceRejectsNonCharacterDevice" \
+            "$RUNNER_TEMP/tpm-hardware-receipt-contract.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-hardware-receipt-contract.log"; then
+            exit 1
+          fi
+
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
 
