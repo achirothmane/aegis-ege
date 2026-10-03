@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,18 +25,20 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-const preparedTaintRecoveryWitnessVersion = "aegis.ege/taint-recovery-prepared-witness/v1"
+const preparedTaintRecoveryWitnessVersion = "aegis.ege/taint-recovery-prepared-witness/v2"
 
 type preparedTaintRecoveryWitness struct {
 	Version                         string                                             `json:"version"`
 	AuthorityPrivateKey             string                                             `json:"authority_private_key"`
-	WitnessPrivateKey               string                                             `json:"witness_private_key"`
 	SignedTrust                     kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
 	TrustSignerPublicKey            string                                             `json:"trust_signer_public_key"`
 	Policy                          recoverywitnessprofile.StaticPolicy                `json:"policy"`
 	WitnessCAPEM                    string                                             `json:"witness_ca_pem"`
 	WitnessTLSKeyPEM                string                                             `json:"witness_tls_key_pem"`
 	WitnessTLSServerName            string                                             `json:"witness_tls_server_name"`
+	WitnessSignerEndpoint           string                                             `json:"witness_signer_endpoint"`
+	WitnessSignerCAPEM              string                                             `json:"witness_signer_ca_pem"`
+	WitnessSignerTLSServerName      string                                             `json:"witness_signer_tls_server_name"`
 	GenesisCapabilityEnvelopeBase64 string                                             `json:"genesis_capability_envelope_base64"`
 	GenesisCapabilityEnvelopeHash   string                                             `json:"genesis_capability_envelope_hash"`
 	UnsignedWitnessProfile          kernelfabric.ExternalRecoveryWitnessProfile       `json:"unsigned_witness_profile"`
@@ -45,17 +48,40 @@ func prepareTaintRecoveryWitness(
 	preparedBundlePath string,
 	unsignedProfilePath string,
 	profileAuthorityPublicKeyPath string,
+	witnessPublicKeyPath string,
+	witnessSignerEndpointPath string,
+	witnessSignerTLSCertPath string,
+	witnessSignerTLSServerNamePath string,
 ) error {
 	profileAuthorityPublic, err := readEd25519PublicKey(profileAuthorityPublicKeyPath)
 	if err != nil {
 		return fmt.Errorf("read external profile authority public key: %w", err)
 	}
-
-	authorityPublic, authorityPrivate, err := ed25519.GenerateKey(rand.Reader)
+	witnessPublic, err := readEd25519PublicKey(witnessPublicKeyPath)
 	if err != nil {
+		return fmt.Errorf("read external witness signer public key: %w", err)
+	}
+	witnessSignerEndpoint, err := readTrimmedFile(witnessSignerEndpointPath)
+	if err != nil {
+		return fmt.Errorf("read witness signer endpoint: %w", err)
+	}
+	witnessSignerCAPEM, err := os.ReadFile(witnessSignerTLSCertPath)
+	if err != nil {
+		return fmt.Errorf("read witness signer TLS certificate: %w", err)
+	}
+	witnessSignerTLSServerName, err := readTrimmedFile(witnessSignerTLSServerNamePath)
+	if err != nil {
+		return fmt.Errorf("read witness signer TLS server name: %w", err)
+	}
+	if err := validateWitnessSignerPublicConfig(
+		witnessSignerEndpoint,
+		witnessSignerCAPEM,
+		witnessSignerTLSServerName,
+	); err != nil {
 		return err
 	}
-	witnessPublic, witnessPrivate, err := ed25519.GenerateKey(rand.Reader)
+
+	authorityPublic, authorityPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return err
 	}
@@ -169,13 +195,15 @@ func prepareTaintRecoveryWitness(
 	prepared := preparedTaintRecoveryWitness{
 		Version:                         preparedTaintRecoveryWitnessVersion,
 		AuthorityPrivateKey:             base64.StdEncoding.EncodeToString(authorityPrivate),
-		WitnessPrivateKey:               base64.StdEncoding.EncodeToString(witnessPrivate),
 		SignedTrust:                     signedTrust,
 		TrustSignerPublicKey:            base64.StdEncoding.EncodeToString(trustSignerPublic),
 		Policy:                          policy,
 		WitnessCAPEM:                    string(tlsCertPEM),
 		WitnessTLSKeyPEM:                string(tlsKeyPEM),
 		WitnessTLSServerName:            recoveryWitnessServerName,
+		WitnessSignerEndpoint:           witnessSignerEndpoint,
+		WitnessSignerCAPEM:              string(witnessSignerCAPEM),
+		WitnessSignerTLSServerName:      witnessSignerTLSServerName,
 		GenesisCapabilityEnvelopeBase64: base64.StdEncoding.EncodeToString(genesisCapabilityEnvelope),
 		GenesisCapabilityEnvelopeHash:   genesisCapabilityEnvelopeHash,
 		UnsignedWitnessProfile:          unsignedProfile,
@@ -260,18 +288,25 @@ func verifyPreparedTaintRecoveryWitness(
 		return nil, fmt.Errorf("prepared witness policy differs from externally signed profile")
 	}
 
-	witnessPrivateRaw, err := base64.StdEncoding.DecodeString(prepared.WitnessPrivateKey)
-	if err != nil || len(witnessPrivateRaw) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("invalid prepared witness private key")
+	if err := validateWitnessSignerPublicConfig(
+		prepared.WitnessSignerEndpoint,
+		[]byte(prepared.WitnessSignerCAPEM),
+		prepared.WitnessSignerTLSServerName,
+	); err != nil {
+		return nil, err
 	}
-	witnessKeyID, err := kernelfabric.BootstrapKeyID(
-		ed25519.PrivateKey(witnessPrivateRaw).Public().(ed25519.PublicKey),
+	witnessPublicRaw, err := base64.StdEncoding.DecodeString(
+		prepared.SignedTrust.Manifest.WitnessPublicKey,
 	)
+	if err != nil || len(witnessPublicRaw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("prepared recovery trust witness public key is invalid")
+	}
+	witnessKeyID, err := kernelfabric.BootstrapKeyID(ed25519.PublicKey(witnessPublicRaw))
 	if err != nil {
 		return nil, err
 	}
 	if witnessKeyID != prepared.SignedTrust.Manifest.WitnessKeyID {
-		return nil, fmt.Errorf("prepared witness private key differs from recovery trust manifest")
+		return nil, fmt.Errorf("prepared recovery trust witness key id mismatch")
 	}
 
 	return &verifiedPreparedTaintRecoveryWitness{
@@ -315,9 +350,8 @@ func activateVerifiedTaintRecoveryWitness(
 		},
 		Immutable: &immutable,
 		StringData: map[string]string{
-			"witness-private-key": prepared.WitnessPrivateKey,
-			"tls.crt":             prepared.WitnessCAPEM,
-			"tls.key":             prepared.WitnessTLSKeyPEM,
+			"tls.crt": prepared.WitnessCAPEM,
+			"tls.key": prepared.WitnessTLSKeyPEM,
 		},
 	}
 	if _, err := witnessAdmin.CoreV1().Secrets(witnessNamespace).Create(
@@ -341,6 +375,9 @@ func activateVerifiedTaintRecoveryWitness(
 			"genesis-capability-envelope-hash": prepared.GenesisCapabilityEnvelopeHash,
 			"trust-signer-public-key":          prepared.TrustSignerPublicKey,
 			"policy.json":                      string(policyPayload),
+			"witness-signer-endpoint":          prepared.WitnessSignerEndpoint,
+			"witness-signer-ca.pem":            prepared.WitnessSignerCAPEM,
+			"witness-signer-tls-server-name":   prepared.WitnessSignerTLSServerName,
 		},
 	}
 	if _, err := witnessAdmin.CoreV1().ConfigMaps(witnessNamespace).Create(
@@ -371,7 +408,9 @@ func activateVerifiedTaintRecoveryWitness(
 						Image:           recoveryWitnessImage,
 						ImagePullPolicy: corev1.PullNever,
 						Env: []corev1.EnvVar{
-							{Name: "WITNESS_PRIVATE_KEY_PATH", Value: "/run/aegis-witness/secret/witness-private-key"},
+							{Name: "WITNESS_SIGNER_ENDPOINT_PATH", Value: "/run/aegis-witness/config/witness-signer-endpoint"},
+							{Name: "WITNESS_SIGNER_CA_PATH", Value: "/run/aegis-witness/config/witness-signer-ca.pem"},
+							{Name: "WITNESS_SIGNER_TLS_SERVER_NAME_PATH", Value: "/run/aegis-witness/config/witness-signer-tls-server-name"},
 							{Name: "TRUST_MANIFEST_PATH", Value: "/run/aegis-witness/config/trust-manifest.json"},
 							{Name: "EXTERNAL_WITNESS_PROFILE_PATH", Value: "/run/aegis-witness/config/external-profile.json"},
 							{Name: "GENESIS_CAPABILITY_ENVELOPE_PATH", Value: "/run/aegis-witness/config/genesis-capability-envelope.json"},
@@ -492,6 +531,36 @@ func activateVerifiedTaintRecoveryWitness(
 		Policy:                          prepared.Policy,
 	}
 	return writeJSONFile(controllerBundlePath, bundle, 0o600)
+}
+
+func validateWitnessSignerPublicConfig(
+	endpoint string,
+	caPEM []byte,
+	tlsServerName string,
+) error {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("witness signer endpoint must be an absolute HTTPS URL")
+	}
+	if strings.TrimSpace(tlsServerName) == "" {
+		return fmt.Errorf("witness signer TLS server name is required")
+	}
+	if strings.TrimSpace(string(caPEM)) == "" {
+		return fmt.Errorf("witness signer TLS certificate is required")
+	}
+	return nil
+}
+
+func readTrimmedFile(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", fmt.Errorf("file %s is empty", path)
+	}
+	return value, nil
 }
 
 func readEd25519PublicKey(path string) (ed25519.PublicKey, error) {
