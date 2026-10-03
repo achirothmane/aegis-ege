@@ -17,7 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/achirothmane/easl/genesis"
+	"github.com/achirothmane/aegis-ege/internal/genesisbootstrap"
 	"github.com/achirothmane/aegis-ege/internal/journal"
+	"github.com/achirothmane/aegis-ege/internal/integrationfixture"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -80,12 +83,44 @@ func loadIndependentQuorumFixture(t *testing.T) independentQuorumFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := journal.ParseGenesisQuorumBinding(
+	genesisFixture, err := integrationfixture.NewProductionGenesisFixture(
+		t.TempDir(),
 		envelope,
-		bundle.CapabilityEnvelopeHash,
+		bundle.GenesisEpoch,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	runtime, result, pin, err := genesisbootstrap.BootstrapProductionWithSubjectPin(
+		t.Context(),
+		genesisFixture.ManifestPath,
+		genesisFixture.BundlePath,
+		bundle.GenesisEpoch,
+		3,
+		genesis.ConformanceC3,
+		genesisFixture.Subject,
+		genesisFixture.Now,
+	)
+	if err != nil {
+		t.Fatalf("verify live quorum runtime Genesis: %v result=%+v", err, result)
+	}
+	if runtime == nil || result.State != genesis.StateReady {
+		t.Fatalf("live quorum runtime Genesis did not reach BOOTSTRAP_READY: runtime=%v result=%+v", runtime, result)
+	}
+	if pin.CapabilityEnvelopeHash() != bundle.CapabilityEnvelopeHash {
+		t.Fatalf(
+			"live bundle capability hash=%q differs from verified Genesis=%q",
+			bundle.CapabilityEnvelopeHash,
+			pin.CapabilityEnvelopeHash(),
+		)
+	}
+	binding, err := pin.ParseQuorumBinding(envelope)
+	if err != nil {
+		t.Fatalf("bind live quorum through verified Genesis pin: %v", err)
+	}
+	tamperedEnvelope := append(append([]byte(nil), envelope...), '\n')
+	if _, err := pin.ParseQuorumBinding(tamperedEnvelope); err == nil {
+		t.Fatal("tampered live quorum envelope bypassed verified Genesis pin")
 	}
 	policy, err := binding.ActivePolicy(bundle.GenesisEpoch)
 	if err != nil {

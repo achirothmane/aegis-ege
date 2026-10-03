@@ -5,6 +5,7 @@ on:
     paths:
       - "cmd/aegis-live-quorum-provision/**"
       - "internal/server/live_external_head_quorum_failure_domains_integration_test.go"
+      - "internal/integrationfixture/production_genesis_fixture.go"
       - ".github/workflows/live-quorum-failure-domains.yml"
   push:
     branches:
@@ -12,6 +13,7 @@ on:
     paths:
       - "cmd/aegis-live-quorum-provision/**"
       - "internal/server/live_external_head_quorum_failure_domains_integration_test.go"
+      - "internal/integrationfixture/production_genesis_fixture.go"
       - ".github/workflows/live-quorum-failure-domains.yml"
   workflow_dispatch:
 
@@ -34,7 +36,7 @@ jobs:
       - name: Install KinD
         run: go install sigs.k8s.io/kind@v0.33.0
 
-      - name: Build external-head witness images
+      - name: Build external-head witness images and live provisioner
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
             -o "$RUNNER_TEMP/aegis-external-head-witness" \
@@ -61,6 +63,10 @@ jobs:
             -f "$RUNNER_TEMP/Dockerfile.external-head-witness-signer" \
             -t aegis-external-head-witness-signer:ci \
             "$RUNNER_TEMP"
+
+          go build -trimpath \
+            -o "$RUNNER_TEMP/aegis-live-quorum-provision" \
+            ./cmd/aegis-live-quorum-provision
 
       - name: Create three independent witness control planes
         run: |
@@ -97,17 +103,67 @@ jobs:
           create_cluster quorum-b 30446 "$RUNNER_TEMP/quorum-b-admin-kubeconfig"
           create_cluster quorum-c 30447 "$RUNNER_TEMP/quorum-c-admin-kubeconfig"
 
-      - name: Provision Genesis-bound quorum across three control planes
+      - name: Prepare exact live quorum envelope before Genesis authority
+        env:
+          LIVE_QUORUM_TOPOLOGY: independent-control-planes
+          LIVE_QUORUM_PROVISION_PHASE: prepare
+          LIVE_QUORUM_PREPARED_BUNDLE: ${{ runner.temp }}/independent-quorum-prepared.json
         run: |
-          LIVE_QUORUM_TOPOLOGY=independent-control-planes \
-          LIVE_QUORUM_CLIENT_BUNDLE="$RUNNER_TEMP/independent-quorum-client.json" \
-          LIVE_QUORUM_WITNESS_A_ADMIN_KUBECONFIG="$RUNNER_TEMP/quorum-a-admin-kubeconfig" \
-          LIVE_QUORUM_WITNESS_B_ADMIN_KUBECONFIG="$RUNNER_TEMP/quorum-b-admin-kubeconfig" \
-          LIVE_QUORUM_WITNESS_C_ADMIN_KUBECONFIG="$RUNNER_TEMP/quorum-c-admin-kubeconfig" \
-          LIVE_QUORUM_WITNESS_A_CHAOS_KUBECONFIG="$RUNNER_TEMP/quorum-a-availability-kubeconfig" \
-          LIVE_QUORUM_WITNESS_B_CHAOS_KUBECONFIG="$RUNNER_TEMP/quorum-b-availability-kubeconfig" \
-          LIVE_QUORUM_WITNESS_C_CHAOS_KUBECONFIG="$RUNNER_TEMP/quorum-c-availability-kubeconfig" \
-            go run ./cmd/aegis-live-quorum-provision
+          "$RUNNER_TEMP/aegis-live-quorum-provision"
+          test -s "$LIVE_QUORUM_PREPARED_BUNDLE"
+
+      - name: Prove prepared bundle alone cannot activate quorum authority
+        env:
+          LIVE_QUORUM_TOPOLOGY: independent-control-planes
+          LIVE_QUORUM_PROVISION_PHASE: activate
+          LIVE_QUORUM_PREPARED_BUNDLE: ${{ runner.temp }}/independent-quorum-prepared.json
+          LIVE_QUORUM_CLIENT_BUNDLE: ${{ runner.temp }}/independent-quorum-client.json
+        run: |
+          if "$RUNNER_TEMP/aegis-live-quorum-provision"; then
+            echo "live quorum activated without verified Genesis" >&2
+            exit 1
+          fi
+          test ! -e "$LIVE_QUORUM_CLIENT_BUNDLE"
+
+      - name: Bind prepared envelope in external Genesis authority step
+        env:
+          LIVE_QUORUM_PREPARED_BUNDLE: ${{ runner.temp }}/independent-quorum-prepared.json
+          LIVE_QUORUM_GENESIS_FIXTURE_DIR: ${{ runner.temp }}/live-quorum-genesis
+          LIVE_QUORUM_GENESIS_TARGET_EXECUTABLE: ${{ runner.temp }}/aegis-live-quorum-provision
+        run: |
+          mkdir -p "$LIVE_QUORUM_GENESIS_FIXTURE_DIR"
+          set -o pipefail
+          go test -tags=integration \
+            -run '^TestWriteIndependentLiveQuorumGenesisFixtureForTargetExecutable$' \
+            -count=1 -v ./cmd/aegis-live-quorum-provision \
+            | tee "$RUNNER_TEMP/live-quorum-genesis-authority.log"
+          grep -q -- '--- PASS: TestWriteIndependentLiveQuorumGenesisFixtureForTargetExecutable' \
+            "$RUNNER_TEMP/live-quorum-genesis-authority.log"
+          if grep -q -- '--- SKIP:' "$RUNNER_TEMP/live-quorum-genesis-authority.log"; then
+            exit 1
+          fi
+          test -s "$LIVE_QUORUM_GENESIS_FIXTURE_DIR/genesis.json"
+          test -s "$LIVE_QUORUM_GENESIS_FIXTURE_DIR/verification-bundle.json"
+
+      - name: Activate quorum from production-verified Genesis pin
+        env:
+          LIVE_QUORUM_TOPOLOGY: independent-control-planes
+          LIVE_QUORUM_PROVISION_PHASE: activate
+          LIVE_QUORUM_PREPARED_BUNDLE: ${{ runner.temp }}/independent-quorum-prepared.json
+          LIVE_QUORUM_GENESIS_MANIFEST: ${{ runner.temp }}/live-quorum-genesis/genesis.json
+          LIVE_QUORUM_GENESIS_VERIFICATION_BUNDLE: ${{ runner.temp }}/live-quorum-genesis/verification-bundle.json
+          LIVE_QUORUM_CLIENT_BUNDLE: ${{ runner.temp }}/independent-quorum-client.json
+          LIVE_QUORUM_WITNESS_A_ADMIN_KUBECONFIG: ${{ runner.temp }}/quorum-a-admin-kubeconfig
+          LIVE_QUORUM_WITNESS_B_ADMIN_KUBECONFIG: ${{ runner.temp }}/quorum-b-admin-kubeconfig
+          LIVE_QUORUM_WITNESS_C_ADMIN_KUBECONFIG: ${{ runner.temp }}/quorum-c-admin-kubeconfig
+          LIVE_QUORUM_WITNESS_A_CHAOS_KUBECONFIG: ${{ runner.temp }}/quorum-a-availability-kubeconfig
+          LIVE_QUORUM_WITNESS_B_CHAOS_KUBECONFIG: ${{ runner.temp }}/quorum-b-availability-kubeconfig
+          LIVE_QUORUM_WITNESS_C_CHAOS_KUBECONFIG: ${{ runner.temp }}/quorum-c-availability-kubeconfig
+        run: |
+          "$RUNNER_TEMP/aegis-live-quorum-provision"
+          test -s "$LIVE_QUORUM_CLIENT_BUNDLE"
+          rm -f "$LIVE_QUORUM_PREPARED_BUNDLE"
+          test ! -e "$LIVE_QUORUM_PREPARED_BUNDLE"
 
       - name: Remove Kubernetes provisioning authority
         run: |
