@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "internal/server/tpm_history_anchor.go"
+      - "internal/server/tpm_history_anchor_head.go"
       - "internal/server/tpm_history_anchor_simulator_test.go"
       - "internal/kernelfabric/taint_recovery_history_anchor_linux.go"
       - ".github/workflows/tpm-history-rollback-proof.yml"
@@ -28,9 +29,11 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           set -o pipefail
-          go test -v ./internal/server -run 'TestTPMNVHistoryAnchor(RejectsWholeVolumeRollbackToValidSignedHead|RecoversCommittedPendingAfterInterruption)' -count=1 | tee "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          go test -v ./internal/server -run 'TestTPMNVHistoryAnchor(RejectsWholeVolumeRollbackToValidSignedHead|RejectsSameGenerationCompanionRewrite|RecoversCommittedPendingAfterInterruption|RecoversExactHeadBeforeCounterInterruption)' -count=1 | tee "$RUNNER_TEMP/tpm-history-anchor-proof.log"
           grep -q -- "--- PASS: TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead" "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          grep -q -- "--- PASS: TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite" "$RUNNER_TEMP/tpm-history-anchor-proof.log"
           grep -q -- "--- PASS: TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption" "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          grep -q -- "--- PASS: TestTPMNVHistoryAnchorRecoversExactHeadBeforeCounterInterruption" "$RUNNER_TEMP/tpm-history-anchor-proof.log"
           if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-history-anchor-proof.log"; then
             exit 1
           fi
