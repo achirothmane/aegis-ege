@@ -202,7 +202,7 @@ func (s *RemoteRecoveryWitnessSigner) Sign(
 		return nil, errors.New("recovery witness signer response identity mismatch")
 	}
 	signature, err := base64.StdEncoding.DecodeString(result.Signature)
-	if err != nil || len(signature) != ed25519.SignatureSize {
+	if err != nil || len(signature) == 0 {
 		return nil, errors.New("recovery witness signer returned invalid signature encoding")
 	}
 	if !s.verifier.Verify(payload, signature) {
