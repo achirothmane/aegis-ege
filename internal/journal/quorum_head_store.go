@@ -402,15 +402,6 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 	if len(observations) < s.threshold {
 		return ExternalHead{}, ErrExternalHeadQuorum
 	}
-	if len(targetObservations) >= s.threshold {
-		return aggregateQuorumHead(
-			targetSemantic,
-			targetObservations,
-			s.threshold,
-			s.policyHash,
-		)
-	}
-
 	advanceResults := make(chan quorumAdvanceResult, len(observations))
 	pending := 0
 	for _, observation := range observations {
@@ -422,8 +413,9 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 		go func() {
 			memberTarget := target
 			memberTarget.StoreVersion = ""
-			head, err := observation.member.Store.CompareAndAdvance(
+			head, err := s.compareAndAdvanceMember(
 				ctx,
+				observation.member,
 				observation.head,
 				memberTarget,
 			)

@@ -57,7 +57,6 @@ func (p VerifiedGenesisPin) ParseQuorumBinding(
 	)
 }
 
-
 func (p VerifiedGenesisPin) ParseHistoryBinding(
 	capabilityEnvelope []byte,
 	purpose string,
@@ -143,6 +142,7 @@ func (p VerifiedGenesisPin) ParseEnrollmentSuccessorGovernanceBinding(
 		capabilityEnvelope,
 		p.capabilityEnvelopeHash,
 		p.genesisEpoch,
+		p.manifestPayloadHash,
 	)
 }
 

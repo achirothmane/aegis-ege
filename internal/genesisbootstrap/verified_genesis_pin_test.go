@@ -234,6 +234,9 @@ func TestProductionGenesisPinBindsSuccessorGovernanceAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if binding.GenesisManifestHash() != pin.ManifestPayloadHash() {
+		t.Fatal("successor authority escaped verified Genesis manifest provenance")
+	}
 	boundKey, err := binding.PublicKey()
 	if err != nil {
 		t.Fatal(err)

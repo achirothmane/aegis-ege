@@ -29,6 +29,7 @@ func TestGenesisSuccessorGovernanceBindingPinsExactAuthority(t *testing.T) {
 		envelope,
 		envelopeHash,
 		13,
+		sha256Digest([]byte("binding-test-manifest")),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +69,7 @@ func TestGenesisSuccessorGovernanceBindingPinsExactAuthority(t *testing.T) {
 		substituted,
 		envelopeHash,
 		13,
+		sha256Digest([]byte("binding-test-manifest")),
 	); err == nil || !strings.Contains(err.Error(), "capability envelope hash mismatch") {
 		t.Fatalf("substituted governance authority = %v, want exact Genesis envelope rejection", err)
 	}
@@ -79,6 +81,7 @@ func TestGenesisSuccessorGovernanceBindingRejectsMalformedPolicy(t *testing.T) {
 		envelope,
 		sha256Digest(envelope),
 		1,
+		sha256Digest([]byte("binding-test-manifest")),
 	); err == nil {
 		t.Fatal("malformed successor governance public key was accepted")
 	}

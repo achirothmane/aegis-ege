@@ -1,0 +1,12 @@
+Baseline #230 head f02826b395d85f06e3badda626997fb9f2b568f4 + #232 main, Go 1.25.3.
+failed to start telemetry sidecar: os.Executable: readlink /proc/self/exe: no such file or directory
+--- FAIL: TestVCS14RejectsMixedGenesisProvenance (0.01s)
+    --- FAIL: TestVCS14RejectsMixedGenesisProvenance/envelope (0.00s)
+        successor_governance_counterexample_test.go:18: accepted quorum provenance from a different Genesis source
+    --- FAIL: TestVCS14RejectsMixedGenesisProvenance/manifest (0.00s)
+        successor_governance_counterexample_test.go:18: accepted quorum provenance from a different Genesis source
+--- FAIL: TestVCS14RejectsDifferentTransitionAfterCompletion (0.00s)
+    successor_governance_counterexample_test.go:63: claimed completion for a transition that never froze or committed
+FAIL
+FAIL	github.com/achirothmane/aegis-ege/internal/journal	0.021s
+FAIL
