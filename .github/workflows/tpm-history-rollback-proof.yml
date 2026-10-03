@@ -1,0 +1,36 @@
+name: TPM history rollback proof
+
+on:
+  pull_request:
+    paths:
+      - "internal/server/tpm_history_anchor.go"
+      - "internal/server/tpm_history_anchor_simulator_test.go"
+      - "internal/kernelfabric/taint_recovery_history_anchor_linux.go"
+      - ".github/workflows/tpm-history-rollback-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tpm-history-rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Prove rollback rejection and interrupted commit recovery
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run 'TestTPMNVHistoryAnchor(RejectsWholeVolumeRollbackToValidSignedHead|RecoversCommittedPendingAfterInterruption)' -count=1 | tee "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          grep -q -- "--- PASS: TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead" "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          grep -q -- "--- PASS: TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption" "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-history-anchor-proof.log"; then
+            exit 1
+          fi
