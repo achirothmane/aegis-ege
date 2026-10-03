@@ -13,8 +13,8 @@ import (
 	"sync"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -582,7 +582,7 @@ func TestKindSeparateLeaseCannotNativelyFenceTargetMutation(t *testing.T) {
 	lease, err := adapter.client.CoordinationV1().Leases(adapter.namespace).Create(ctx, &coordinationv1.Lease{
 		ObjectMeta: metav1.ObjectMeta{Name: "separate-fence", Namespace: adapter.namespace},
 		Spec: coordinationv1.LeaseSpec{
-			HolderIdentity:    &holderA,
+			HolderIdentity:   &holderA,
 			LeaseTransitions: &transitions1,
 		},
 	}, metav1.CreateOptions{})
