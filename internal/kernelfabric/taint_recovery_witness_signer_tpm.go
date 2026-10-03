@@ -40,7 +40,6 @@ func legacyTPMForbiddenHardwareSignerAttributes() legacytpm2.KeyProp {
 type TPMRecoveryWitnessPublicEvidence struct {
 	PublicAreaSHA256    string `json:"public_area_sha256"`
 	NameHex             string `json:"name_hex"`
-	QualifiedNameHex    string `json:"qualified_name_hex"`
 	Type                uint16 `json:"type"`
 	NameAlgorithm       uint16 `json:"name_algorithm"`
 	Attributes          uint32 `json:"attributes"`
@@ -200,7 +199,7 @@ func (s *TPMRecoveryWitnessSigner) PublicEvidence() (TPMRecoveryWitnessPublicEvi
 	if s.closed || s.rw == nil {
 		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness signer is closed")
 	}
-	public, name, qualifiedName, err := legacytpm2.ReadPublic(s.rw, s.handle)
+	public, name, _, err := legacytpm2.ReadPublic(s.rw, s.handle)
 	if err != nil {
 		return TPMRecoveryWitnessPublicEvidence{}, fmt.Errorf("read TPM recovery witness public area: %w", err)
 	}
@@ -218,10 +217,74 @@ func (s *TPMRecoveryWitnessSigner) PublicEvidence() (TPMRecoveryWitnessPublicEvi
 		return TPMRecoveryWitnessPublicEvidence{}, fmt.Errorf("encode TPM recovery witness public area: %w", err)
 	}
 	sum := sha256.Sum256(encodedPublic)
-	return TPMRecoveryWitnessPublicEvidence{
+	observed := TPMRecoveryWitnessPublicEvidence{
 		PublicAreaSHA256:   "sha256:" + hex.EncodeToString(sum[:]),
 		NameHex:            hex.EncodeToString(name),
-		QualifiedNameHex:   hex.EncodeToString(qualifiedName),
+		Type:               uint16(public.Type),
+		NameAlgorithm:      uint16(public.NameAlg),
+		Attributes:         uint32(public.Attributes),
+		Curve:              uint16(public.ECCParameters.CurveID),
+		SignatureAlgorithm: uint16(public.ECCParameters.Sign.Alg),
+		SignatureHash:      uint16(public.ECCParameters.Sign.Hash),
+	}
+	expected, err := expectedTPMRecoveryWitnessPublicEvidence(s.verifier)
+	if err != nil {
+		return TPMRecoveryWitnessPublicEvidence{}, err
+	}
+	if observed != expected {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("live TPM recovery witness public area differs from pinned signer template")
+	}
+	return observed, nil
+}
+
+func expectedTPMRecoveryWitnessPublicEvidence(
+	verifier RecoveryWitnessVerifier,
+) (TPMRecoveryWitnessPublicEvidence, error) {
+	if verifier.Algorithm() != RecoveryWitnessSignatureECDSAP256SHA256 ||
+		verifier.ecdsa == nil {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness requires ECDSA P-256 verifier")
+	}
+	x := verifier.ecdsa.X.Bytes()
+	y := verifier.ecdsa.Y.Bytes()
+	if len(x) > 32 || len(y) > 32 {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("invalid P-256 recovery witness coordinates")
+	}
+	xRaw := make([]byte, 32)
+	yRaw := make([]byte, 32)
+	copy(xRaw[32-len(x):], x)
+	copy(yRaw[32-len(y):], y)
+	public := legacytpm2.Public{
+		Type:       legacytpm2.AlgECC,
+		NameAlg:    legacytpm2.AlgSHA256,
+		Attributes: legacyTPMRequiredHardwareSignerAttributes(),
+		ECCParameters: &legacytpm2.ECCParams{
+			Sign: &legacytpm2.SigScheme{
+				Alg:  legacytpm2.AlgECDSA,
+				Hash: legacytpm2.AlgSHA256,
+			},
+			CurveID: legacytpm2.CurveNISTP256,
+			Point: legacytpm2.ECPoint{
+				XRaw: tpmutil.U16Bytes(xRaw),
+				YRaw: tpmutil.U16Bytes(yRaw),
+			},
+		},
+	}
+	encoded, err := public.Encode()
+	if err != nil {
+		return TPMRecoveryWitnessPublicEvidence{}, err
+	}
+	sum := sha256.Sum256(encoded)
+	name, err := public.Name()
+	if err != nil || name.Digest == nil {
+		return TPMRecoveryWitnessPublicEvidence{}, errors.New("compute TPM recovery witness public name")
+	}
+	nameRaw, err := name.Digest.Encode()
+	if err != nil {
+		return TPMRecoveryWitnessPublicEvidence{}, err
+	}
+	return TPMRecoveryWitnessPublicEvidence{
+		PublicAreaSHA256:   "sha256:" + hex.EncodeToString(sum[:]),
+		NameHex:            hex.EncodeToString(nameRaw),
 		Type:               uint16(public.Type),
 		NameAlgorithm:      uint16(public.NameAlg),
 		Attributes:         uint32(public.Attributes),
