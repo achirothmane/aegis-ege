@@ -38,6 +38,7 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, device, cfg) })
 	anchor, err := NewTPMNVHistoryAnchor(device, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -257,6 +258,31 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	}
 	if _, err := os.Stat(cfg.StatePath + ".pending"); !os.IsNotExist(err) {
 		t.Fatalf("pending state was not consumed: %v", err)
+	}
+}
+
+func undefineTPMHistoryAnchorNV(
+	t *testing.T,
+	device transport.TPM,
+	cfg TPMNVHistoryAnchorConfig,
+) {
+	t.Helper()
+	response, err := (tpm2.NVReadPublic{NVIndex: cfg.NVIndex}).Execute(device)
+	if err != nil {
+		t.Logf("read TPM history NV public during cleanup: %v", err)
+		return
+	}
+	if _, err := (tpm2.NVUndefineSpace{
+		AuthHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(cfg.OwnerAuth),
+		},
+		NVIndex: tpm2.NamedHandle{
+			Handle: cfg.NVIndex,
+			Name:   response.NVName,
+		},
+	}).Execute(device); err != nil {
+		t.Logf("undefine TPM history NV counter during cleanup: %v", err)
 	}
 }
 
