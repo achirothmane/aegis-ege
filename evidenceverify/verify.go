@@ -206,6 +206,12 @@ func Verify(bundleJSON, policyJSON []byte) Report {
 		a.fail("unsupported or incomplete schema/policy")
 		return a.r
 	}
+	if a.p.RequiredClaimType != "EXACT_EFFECT" && a.p.RequiredClaimType != "POSTCONDITION" {
+		a.r.Structure = "INVALID"
+		a.fail("independent policy must require EXACT_EFFECT or POSTCONDITION")
+		return a.r
+	}
+	a.r.RequiredClaimType = a.p.RequiredClaimType
 	a.r.Signatures, a.r.TrustRoots = "VALID", "VALID"
 	var e Execution
 	if !a.statement("execution", b.Execution, &e) {
@@ -228,6 +234,9 @@ func Verify(bundleJSON, policyJSON []byte) Report {
 	}
 	if e.ClaimType != "EXACT_EFFECT" && e.ClaimType != "POSTCONDITION" {
 		a.fail("unsupported claim type")
+	}
+	if e.ClaimType != a.p.RequiredClaimType {
+		a.fail("execution claim type does not match the independent policy requirement")
 	}
 	var admission Admission
 	if a.statement("admission", b.Admission, &admission) {
@@ -311,7 +320,7 @@ func (a *assessment) destination(e Execution, d Destination) {
 	}
 	if d.Observed == e.Request.After {
 		a.r.EffectEvidence, a.r.Causality = "POSTCONDITION_ONLY", "STATE_ONLY"
-		if e.ClaimType == "POSTCONDITION" {
+		if a.p.RequiredClaimType == "POSTCONDITION" {
 			a.r.Closure = "CLOSED"
 		}
 	}

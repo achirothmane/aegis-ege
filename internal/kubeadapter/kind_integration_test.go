@@ -26,15 +26,15 @@ func TestKindServerDryRunAcceptsPlanWithoutPersistingMutations(t *testing.T) {
 	env := newKindUnmanagedIntegrationEnv(t, "dryrun")
 	policy := integrationExecutionPolicy()
 
-	preparation, err := env.adapter.PrepareNodeDrainExecution(
-		context.Background(),
+	// The API server can update this fixture's Node before dry-run. Obtain a
+	// fresh plan through the existing bounded preparation helper.
+	preparation := prepareKindDrainWithFreshAuthorization(
+		t,
+		env.adapter,
 		"act-kind-dryrun",
 		env.nodeName,
 		policy,
 	)
-	if err != nil {
-		t.Fatalf("PrepareNodeDrainExecution returned error: %v", err)
-	}
 	if preparation.Decision != decision.Allow {
 		t.Fatalf("expected ALLOW, got %s reasons=%v dryRun=%+v", preparation.Decision, preparation.ReasonCodes, preparation.DryRun)
 	}
@@ -184,7 +184,6 @@ func TestKindLiveRevalidationDetectsPodSemanticDrift(t *testing.T) {
 		t.Fatalf("expected %s, got %v", decision.ExecutionPlanChanged, revalidation.ReasonCodes)
 	}
 }
-
 
 func TestKindExecutionLeasePreventsConcurrentDrainOnSameNode(t *testing.T) {
 	env := newKindUnmanagedIntegrationEnv(t, "lock")
@@ -379,7 +378,6 @@ func (e *driftAfterCordonExecutor) EvictPod(ctx context.Context, pod PodStateRef
 	e.evictions++
 	return e.delegate.EvictPod(ctx, pod)
 }
-
 
 func TestKindPartialFailurePersistsCheckpointAndResumesWithFreshAuthorization(t *testing.T) {
 	env := newKindUnmanagedIntegrationEnv(t, "recovery")
@@ -860,7 +858,6 @@ func markPodRunningAndReady(
 	return *updated
 }
 
-
 func newKindUnmanagedIntegrationEnv(t *testing.T, suffix string) kindIntegrationEnv {
 	t.Helper()
 
@@ -1005,8 +1002,6 @@ func waitForPDBStatus(
 		}
 	}
 }
-
-
 
 func TestKindD02CrashTakeoverAndClosureExercise(t *testing.T) {
 	env := newKindUnmanagedIntegrationEnv(t, "d02")

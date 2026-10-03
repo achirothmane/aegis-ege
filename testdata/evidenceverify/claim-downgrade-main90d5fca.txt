@@ -1,0 +1,10 @@
+Baseline: main 90d5fcaaafa50987a4eede0f3eea43ad8fac4cb0
+Test: TestIndependentPolicyRejectsBundleClaimDowngrade
+Original policy shape; real journal producer; unit-grade fixture only.
+
+=== RUN   TestIndependentPolicyRejectsBundleClaimDowngrade
+    verify_test.go:247: bundle-selected postcondition satisfied the independent exact-effect obligation: {Schema:aegis/composite-evidence/v1 Structure:VALID Signatures:VALID TrustRoots:VALID Admitted:true IntentID:intent-1 EffectID:sha256:c5d1daab48b77610790cb8b41d65ea1e38875070e0eccf9d79a3406459f307f3 AttemptID:attempt-1 AuthorityAtCommit:UNPROVEN AuthorityCurrentlyActive:0xc0001b9040 EffectEvidence:POSTCONDITION_ONLY ExternallyCommittedEffects:0xc0001b9030 Causality:STATE_ONLY Closure:CLOSED HistoricalTrust:TRUSTED_HISTORY ClaimType:POSTCONDITION Grade:unit ClaimsSupported:true Uncertainty:[Matching state does not establish causality for this attempt] Errors:[] SuccessionValidity:NOT_PROVIDED CurrentCustodian:<nil> CustodianAuthority:UNPROVEN EvidenceGrades:<nil>}
+--- FAIL: TestIndependentPolicyRejectsBundleClaimDowngrade (0.00s)
+FAIL
+FAIL	github.com/achirothmane/aegis-ege/evidenceverify	0.009s
+FAIL

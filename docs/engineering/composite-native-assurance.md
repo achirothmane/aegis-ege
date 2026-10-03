@@ -9,8 +9,8 @@ go build -o aegis-evidence-inspect ./cmd/aegis-evidence-inspect
 ```
 
 Supply the policy through your own trusted channel. Obtain the expected build,
-case, admission policy, role keys, stable history identity and exact checkpoint
-from the relying party's provisioning or witness channel. Never promote keys or
+case, admission policy, required claim type, role keys, stable history identity
+and exact checkpoint from the relying party's provisioning or witness channel. Never promote keys or
 a policy downloaded with an untrusted bundle into trust because that bundle asks
 you to. The CLI has no root discovery, network access, database connection,
 mutation adapter or signing key. It reads two local files, capped at 8 MiB each.
@@ -19,6 +19,22 @@ Exit 0 means the reported **claims are supported**, including a supported
 UNKNOWN claim. It does not mean an effect succeeded or may be retried. Exit 1
 means a claim exceeds its evidence; exit 2 means input/usage could not be read.
 Operational closure, history and causality are independent report dimensions.
+
+The policy must explicitly set `required_claim_type` to `EXACT_EFFECT` or
+`POSTCONDITION`. This fixes the relying party's question before inspecting the
+bundle. The signed execution must name the same type. Under `EXACT_EFFECT`, a
+matching post-state without this attempt's exact commit remains UNKNOWN, even
+when the producer instead signs a truthful `POSTCONDITION` claim and anchors it
+in trusted history. `POSTCONDITION` closes on state alone only when the
+independent policy explicitly selects that obligation; it grants no attempt
+causality. Both types can truthfully remain UNKNOWN. The report shows both the
+claimed and required types.
+
+Experimental policies produced before this field was introduced fail closed.
+Reprovision them through the relying party's trusted channel; never infer the
+requirement from a bundle or copy it from its claim. The native lost-ack and
+succession fixtures now independently require `EXACT_EFFECT` for both CLOSED
+and UNKNOWN cases. No retained history or runtime contract is changed.
 
 ## The experiment
 

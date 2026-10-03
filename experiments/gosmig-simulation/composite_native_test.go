@@ -277,7 +277,7 @@ func runPostgresCompositeCase(t *testing.T, caseID string, withheld, succession 
 		t.Fatal(err)
 	}
 	keys := map[string]ed25519.PrivateKey{}
-	p := v.Policy{Schema: v.Schema, BuildSHA: build, CaseID: caseID, DestinationProfile: "postgresql/native-fence/v1", AdmissionPolicyHash: v.ContentDigest([]byte("native profile: exact subject/state/transition; active authority; exact custody generation")), MaximumGrade: "native", HistoryID: "history:composite:" + caseID, PublicKeys: map[string]string{}, RoleKeys: map[string]string{}}
+	p := v.Policy{Schema: v.Schema, BuildSHA: build, CaseID: caseID, DestinationProfile: "postgresql/native-fence/v1", AdmissionPolicyHash: v.ContentDigest([]byte("native profile: exact subject/state/transition; active authority; exact custody generation")), RequiredClaimType: "EXACT_EFFECT", MaximumGrade: "native", HistoryID: "history:composite:" + caseID, PublicKeys: map[string]string{}, RoleKeys: map[string]string{}}
 	for _, role := range []string{"admission", "execution", "destination", "history", "witness"} {
 		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
@@ -552,7 +552,7 @@ func runPostgresCompositeCase(t *testing.T, caseID string, withheld, succession 
 		if err := json.Unmarshal(output, &report); err != nil {
 			t.Fatal(err)
 		}
-		if !report.ClaimsSupported || report.Closure != caseID || report.HistoricalTrust != "TRUSTED_HISTORY" || report.Grade != e.Grade || report.Causality != e.ClaimedCausality {
+		if !report.ClaimsSupported || report.Closure != caseID || report.HistoricalTrust != "TRUSTED_HISTORY" || report.Grade != e.Grade || report.Causality != e.ClaimedCausality || report.RequiredClaimType != p.RequiredClaimType {
 			t.Fatalf("separate verifier changed native judgment: %+v", report)
 		}
 		if succession && (report.SuccessionValidity != "VALID" || report.CustodianAuthority != "AUTHORIZED_AT_CHECKPOINT" || report.CurrentCustodian == nil || *report.CurrentCustodian != p.Succession.NewCustodian) {

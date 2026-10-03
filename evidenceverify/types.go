@@ -124,12 +124,15 @@ type Bundle struct {
 
 // Policy must be provisioned through the relying party's independent channel.
 // A copy packaged alongside a bundle is demonstration data, not a trust grant.
+// RequiredClaimType fixes the relying party's question independently of the
+// signed execution claim. It does not require a successful outcome.
 type Policy struct {
 	Schema              string            `json:"schema"`
 	BuildSHA            string            `json:"build_sha"`
 	CaseID              string            `json:"case_id"`
 	DestinationProfile  string            `json:"destination_profile"`
 	AdmissionPolicyHash string            `json:"admission_policy_hash"`
+	RequiredClaimType   string            `json:"required_claim_type"`
 	MaximumGrade        string            `json:"maximum_grade"`
 	PublicKeys          map[string]string `json:"public_keys"`
 	RoleKeys            map[string]string `json:"role_keys"`
@@ -155,6 +158,7 @@ type Report struct {
 	Closure                    string          `json:"closure"`
 	HistoricalTrust            string          `json:"historical_trust"`
 	ClaimType                  string          `json:"claim_type"`
+	RequiredClaimType          string          `json:"required_claim_type"`
 	Grade                      string          `json:"grade"`
 	ClaimsSupported            bool            `json:"claims_supported"`
 	Uncertainty                []string        `json:"uncertainty"`
