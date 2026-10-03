@@ -459,7 +459,10 @@ func preflightTPMHistoryContinuityDestination(
 		state.HeadDigest != "" ||
 		state.PredecessorDeviceIdentity != "" ||
 		state.MigrationSourceStateDigest != "" ||
-		state.MigrationAuthorizationDigest != "" {
+		state.MigrationAuthorizationDigest != "" ||
+		state.MigrationDestinationAttestationDigest != "" ||
+		state.MigrationHistoryWitnessPolicyHash != "" ||
+		state.MigrationOwnershipWitnessPolicyHash != "" {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf(
 			"%w: destination is not the authorized fresh anchor",
 			ErrTPMHistoryContinuityDestination,
@@ -507,6 +510,9 @@ func importTPMHistoryContinuityDestination(
 	pending.PredecessorDeviceIdentity = auth.SourceDeviceIdentity
 	pending.MigrationSourceStateDigest = auth.SourceStateDigest
 	pending.MigrationAuthorizationDigest = authorizationDigest
+	pending.MigrationDestinationAttestationDigest = auth.DestinationAttestationDigest
+	pending.MigrationHistoryWitnessPolicyHash = auth.HistoryWitnessPolicyHash
+	pending.MigrationOwnershipWitnessPolicyHash = auth.OwnershipWitnessPolicyHash
 	pending.Digest = ""
 
 	pendingPath := destination.cfg.StatePath + ".pending"
@@ -551,7 +557,10 @@ func isPreparedTPMHistoryContinuityDestination(
 		state.TransitionKind == tpmHistoryTransitionMigrationImport &&
 		state.PredecessorDeviceIdentity == auth.SourceDeviceIdentity &&
 		state.MigrationSourceStateDigest == auth.SourceStateDigest &&
-		state.MigrationAuthorizationDigest == authorizationDigest
+		state.MigrationAuthorizationDigest == authorizationDigest &&
+		state.MigrationDestinationAttestationDigest == auth.DestinationAttestationDigest &&
+		state.MigrationHistoryWitnessPolicyHash == auth.HistoryWitnessPolicyHash &&
+		state.MigrationOwnershipWitnessPolicyHash == auth.OwnershipWitnessPolicyHash
 }
 
 func requireExactHistoryWitness(
