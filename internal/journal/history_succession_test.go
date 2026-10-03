@@ -15,6 +15,7 @@ type historySuccessionFixture struct {
 	newStore   *QuorumHeadStore
 	oldBinding GenesisHistoryBinding
 	newBinding GenesisHistoryBinding
+	stores     map[string]*rotationPolicyTestStore
 	head       ExternalHead
 }
 
@@ -190,6 +191,7 @@ func newHistorySuccessionFixture(t *testing.T) historySuccessionFixture {
 		newStore:   newStore,
 		oldBinding: oldHistoryBinding,
 		newBinding: newHistoryBinding,
+		stores:     stores,
 		head:       head,
 	}
 }
@@ -260,6 +262,60 @@ func TestGovernedHistorySuccessionPreservesExactLineageAcrossGenesis(t *testing.
 	next.HeadHash = sha256Digest([]byte("governed-history-head-10"))
 	if _, err := newHistory.CompareAndAdvance(ctx, got, next); err != nil {
 		t.Fatalf("successor could not continue inherited lineage: %v", err)
+	}
+}
+
+func TestGovernedHistorySuccessionRetriesAfterOldAuthorityIsFenced(t *testing.T) {
+	fixture := newHistorySuccessionFixture(t)
+	ctx := context.Background()
+	newPolicy := fixture.plan.quorumPlan.newEpoch.activePolicy()
+
+	// Fail one activation only after phase 1 has fenced every OLD witness.
+	// The first attempt must report interruption without inventing a rollback.
+	fixture.stores["witness-c"].failActiveHash = newPolicy.PolicyHash
+	fixture.stores["witness-c"].failActive = 1
+
+	if _, err := ExecuteGovernedHistorySuccession(
+		ctx,
+		fixture.plan,
+		fixture.oldStore,
+		fixture.newStore,
+	); err == nil {
+		t.Fatal("phase-2 interruption unexpectedly reported succession success")
+	}
+
+	if _, err := fixture.oldStore.Load(
+		ctx,
+		fixture.head.JournalID,
+	); !errors.Is(err, ErrExternalHeadQuorum) {
+		t.Fatalf("OLD authority resurrected after phase-2 interruption: %v", err)
+	}
+
+	result, err := ExecuteGovernedHistorySuccession(
+		ctx,
+		fixture.plan,
+		fixture.oldStore,
+		fixture.newStore,
+	)
+	if err != nil {
+		t.Fatalf("retry could not resume from frozen shared history head: %v", err)
+	}
+	if !sameSemanticHead(result.Head, fixture.head) ||
+		!validSHA256Digest(result.TransitionHash) ||
+		!validSHA256Digest(result.QuorumTransitionHash) {
+		t.Fatalf("retry changed succession truth: %+v", result)
+	}
+
+	successor, err := NewGenesisBoundHistoryStore(
+		fixture.newStore,
+		fixture.newBinding,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := successor.Load(ctx, fixture.head.JournalID); err != nil ||
+		!sameSemanticHead(got, fixture.head) {
+		t.Fatalf("successor did not converge after retry: head=%+v err=%v", got, err)
 	}
 }
 
