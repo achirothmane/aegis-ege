@@ -34,10 +34,14 @@ func newWitnessSignerPublicFixture(t *testing.T, dir string) witnessSignerPublic
 		tlsServerNamePath: filepath.Join(dir, "witness-signer-server-name"),
 		privateKey:        privateKey,
 	}
+	certPEM, _, err := newWitnessTLSCertificate("recovery-witness-signer.example")
+	if err != nil {
+		t.Fatal(err)
+	}
 	files := map[string]string{
 		fixture.publicPath:        base64.StdEncoding.EncodeToString(publicKey) + "\n",
 		fixture.endpointPath:      "https://recovery-witness-signer.example:9443\n",
-		fixture.tlsCertPath:       "-----BEGIN CERTIFICATE-----\nY2k=\n-----END CERTIFICATE-----\n",
+		fixture.tlsCertPath:       string(certPEM),
 		fixture.tlsServerNamePath: "recovery-witness-signer.example\n",
 	}
 	for path, value := range files {
