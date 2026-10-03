@@ -1,0 +1,64 @@
+{
+  "schema_version": "aegis.native-destination-fence-postgresql/v1",
+  "source_head": "bf4f61c1d55d5e79f043355209662d8917194661",
+  "dependency": {
+    "pull_request": 173,
+    "branch": "runtime/fenced-executor-takeover-v1",
+    "claim": "reference fenced runtime only; frozen candidate kernel v1 unchanged"
+  },
+  "substrate": {
+    "kind": "PostgreSQL",
+    "version": "16.6",
+    "linearization": "single serializable transaction with row locks",
+    "destination_effect": "insert exact effect row and advance exact target state"
+  },
+  "pins": {
+    "runtime_blob": "7e4b77757eb6490b18086d13fd22dbae02d277de",
+    "fenced_runtime_blob": "bff1a1b1fc7524fd6cdebe5cad905bf9efb7be77",
+    "proof_test_blob": "88162a88702b0207ef1b49f8c6a928bf4fff7904"
+  },
+  "native_boundary_checks": [
+    "exact effect_id and attempt_id",
+    "exact owner identity",
+    "exact monotonic generation",
+    "CROSSING phase",
+    "exact pre-effect target revision and digest",
+    "active exact admission binding"
+  ],
+  "falsification_cases": [
+    {
+      "id": "NF-PG-01",
+      "name": "stale owner after takeover",
+      "expected": "old owner/generation denied at PostgreSQL destination; new owner closes exactly one effect"
+    },
+    {
+      "id": "NF-PG-02",
+      "name": "state drift after successful runtime revalidation",
+      "expected": "destination transaction denies effect and runtime remains UNKNOWN"
+    },
+    {
+      "id": "NF-PG-03",
+      "name": "authority revoked after successful runtime revalidation",
+      "expected": "destination transaction denies effect and runtime remains UNKNOWN"
+    },
+    {
+      "id": "NF-PG-04",
+      "name": "exact valid fencing token replay",
+      "expected": "second destination mutation denied; effect cardinality remains one"
+    }
+  ],
+  "success_criteria": {
+    "unauthorized_native_effects": 0,
+    "stale_generation_effects": 0,
+    "effects_after_state_drift": 0,
+    "effects_after_authority_revocation": 0,
+    "duplicate_exact_effects": 0,
+    "current_owner_effect_cardinality": 1
+  },
+  "limits": [
+    "This proves one PostgreSQL destination profile, not universal native fencing.",
+    "It does not manufacture distributed consensus outside PostgreSQL.",
+    "It does not change the frozen governed-action v1 primitive contract.",
+    "Other destinations must supply equivalent complete mediation and atomic checks in their own substrate."
+  ]
+}
