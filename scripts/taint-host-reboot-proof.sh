@@ -10,7 +10,17 @@ rm -f "$STATE"
 
 run_phase() {
   local phase="$1"
-  sudo -E env     "PATH=$PATH"     "CGO_ENABLED=0"     "$VIMTO"       -kernel "$KERNEL" --       env         "AEGIS_TAINT_REBOOT_PHASE=$phase"         "AEGIS_TAINT_REBOOT_STATE=$STATE"         go test -count=1 -tags=taintnative           -run "^TestNativeTaintHostRebootBoundary$"           -v ./internal/kernelfabric
+
+  sudo -E env \
+    "PATH=$PATH" \
+    "CGO_ENABLED=0" \
+    "AEGIS_TAINT_REBOOT_PHASE=$phase" \
+    "AEGIS_TAINT_REBOOT_STATE=$STATE" \
+    "$VIMTO" \
+      -kernel "$KERNEL" -- \
+      go test -count=1 -tags=taintnative \
+        -run "^TestNativeTaintHostRebootBoundary$" \
+        -v ./internal/kernelfabric
 }
 
 echo "== boot A: establish boot-bound authority and real bpffs pin =="
@@ -21,9 +31,9 @@ if [[ ! -s "$STATE" ]]; then
   exit 1
 fi
 
-echo "== boot B: require trust reset and fresh boot authority =="
+echo "== boot B: reset old authority, re-enroll fresh source, and restore effect authority =="
 run_phase after
 
 rm -f "$STATE"
 
-echo "host reboot trust-reset proof passed"
+echo "host reboot trust-reset and fresh re-enrollment proof passed"
