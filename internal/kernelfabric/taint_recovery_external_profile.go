@@ -16,14 +16,14 @@ import (
 const ExternalRecoveryWitnessProfileVersion = "aegis.ege/external-recovery-witness-profile/v1"
 
 type ExternalRecoveryWitnessProfile struct {
-	Version               string `json:"version"`
-	ProfileEpoch          uint64 `json:"profile_epoch"`
-	WitnessID             string `json:"witness_id"`
-	WitnessKeyID          string `json:"witness_key_id"`
-	Endpoint              string `json:"endpoint"`
-	TLSTrustAnchorSHA256  string `json:"tls_trust_anchor_sha256"`
-	PolicyEpoch           uint64 `json:"policy_epoch"`
-	PolicyHash            string `json:"policy_hash"`
+	Version              string `json:"version"`
+	ProfileEpoch         uint64 `json:"profile_epoch"`
+	WitnessID            string `json:"witness_id"`
+	WitnessKeyID         string `json:"witness_key_id"`
+	Endpoint             string `json:"endpoint"`
+	TLSTrustAnchorSHA256 string `json:"tls_trust_anchor_sha256"`
+	PolicyEpoch          uint64 `json:"policy_epoch"`
+	PolicyHash           string `json:"policy_hash"`
 }
 
 type SignedExternalRecoveryWitnessProfile struct {
@@ -56,9 +56,9 @@ func SignExternalRecoveryWitnessProfile(
 		return SignedExternalRecoveryWitnessProfile{}, err
 	}
 	return SignedExternalRecoveryWitnessProfile{
-		Profile: normalized,
+		Profile:     normalized,
 		SignerKeyID: keyID,
-		Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(signerPrivateKey, payload)),
+		Signature:   base64.StdEncoding.EncodeToString(ed25519.Sign(signerPrivateKey, payload)),
 	}, nil
 }
 
