@@ -88,6 +88,13 @@ func (s *rotationPolicyTestStore) CurrentQuorumPolicy(
 	return s.policy, nil
 }
 
+func (s *rotationPolicyTestStore) ObserveQuorumRotationHead(
+	ctx context.Context,
+	journalID string,
+) (ExternalHead, error) {
+	return s.base.Load(ctx, journalID)
+}
+
 func (s *rotationPolicyTestStore) CompareAndTransitionQuorumPolicy(
 	ctx context.Context,
 	expected QuorumPolicyState,
