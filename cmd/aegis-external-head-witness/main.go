@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/journal"
+	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -22,10 +25,45 @@ func main() {
 	namespace := requireEnv("WITNESS_STATE_NAMESPACE")
 	stateName := requireEnv("WITNESS_STATE_NAME")
 	keyID := requireEnv("WITNESS_KEY_ID")
-	privateKey := decodePrivateKey(requireFile("HEAD_WITNESS_SIGNING_KEY_PATH"))
 
 	var expectedPolicy journal.QuorumPolicyState
 	mustJSONFile("WITNESS_POLICY_PATH", &expectedPolicy)
+
+	signerPublic := decodePublicKey(
+		requireFile("HEAD_WITNESS_SIGNER_PUBLIC_KEY_PATH"),
+	)
+	expectedKeyID, err := kernelfabric.BootstrapKeyID(signerPublic)
+	must(err)
+	if expectedKeyID != keyID {
+		log.Fatalf(
+			"external head witness signer public key id=%q want=%q",
+			expectedKeyID,
+			keyID,
+		)
+	}
+	signerRoots := x509.NewCertPool()
+	if !signerRoots.AppendCertsFromPEM(
+		requireFile("HEAD_WITNESS_SIGNER_TLS_CA_PATH"),
+	) {
+		log.Fatal("external head witness signer CA is invalid")
+	}
+	signerClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    signerRoots,
+				ServerName: requireEnv("HEAD_WITNESS_SIGNER_TLS_SERVER_NAME"),
+			},
+		},
+		Timeout: 5 * time.Second,
+	}
+	signer, err := journal.NewRemoteExternalHeadWitnessSigner(
+		requireEnv("HEAD_WITNESS_SIGNER_ENDPOINT"),
+		keyID,
+		signerPublic,
+		signerClient,
+	)
+	must(err)
 
 	config, err := rest.InClusterConfig()
 	must(err)
@@ -45,10 +83,10 @@ func main() {
 		log.Fatalf("verify governed witness startup state: %v", err)
 	}
 
-	handler, err := journal.NewGovernedRemoteWitnessHandler(
+	handler, err := journal.NewGovernedRemoteWitnessHandlerWithSigner(
 		stateStore,
 		keyID,
-		privateKey,
+		signer,
 	)
 	must(err)
 
@@ -107,17 +145,17 @@ func mustJSONFile(envName string, target any) {
 	}
 }
 
-func decodePrivateKey(payload []byte) ed25519.PrivateKey {
+func decodePublicKey(payload []byte) ed25519.PublicKey {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(payload)))
 	must(err)
-	if len(raw) != ed25519.PrivateKeySize {
+	if len(raw) != ed25519.PublicKeySize {
 		log.Fatalf(
-			"witness private key size=%d want=%d",
+			"external head witness signer public key size=%d want=%d",
 			len(raw),
-			ed25519.PrivateKeySize,
+			ed25519.PublicKeySize,
 		)
 	}
-	return ed25519.PrivateKey(raw)
+	return ed25519.PublicKey(raw)
 }
 
 func must(err error) {
