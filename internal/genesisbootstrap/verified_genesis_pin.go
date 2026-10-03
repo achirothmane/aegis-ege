@@ -77,6 +77,57 @@ func (p VerifiedGenesisPin) ParseHistoryBinding(
 	)
 }
 
+// ParseHistorySuccessionEpochs derives the quorum and history epochs used by
+// governed cross-Genesis history succession from one already-verified Genesis
+// pin and the exact capability envelope pinned by that Genesis state. Callers
+// cannot mix an epoch, manifest identity, quorum binding, or history binding
+// from separate runtime configuration sources.
+func (p VerifiedGenesisPin) ParseHistorySuccessionEpochs(
+	capabilityEnvelope []byte,
+	purpose string,
+) (journal.GovernedQuorumEpoch, journal.GovernedHistoryEpoch, error) {
+	if !p.ready ||
+		p.genesisEpoch == 0 ||
+		p.capabilityEnvelopeHash == "" ||
+		p.manifestPayloadHash == "" {
+		return journal.GovernedQuorumEpoch{}, journal.GovernedHistoryEpoch{}, errors.New(
+			"verified Genesis pin is unavailable",
+		)
+	}
+	quorumBinding, err := journal.ParseGenesisQuorumBinding(
+		capabilityEnvelope,
+		p.capabilityEnvelopeHash,
+	)
+	if err != nil {
+		return journal.GovernedQuorumEpoch{}, journal.GovernedHistoryEpoch{}, err
+	}
+	historyBinding, err := journal.ParseGenesisHistoryBinding(
+		capabilityEnvelope,
+		p.capabilityEnvelopeHash,
+		purpose,
+	)
+	if err != nil {
+		return journal.GovernedQuorumEpoch{}, journal.GovernedHistoryEpoch{}, err
+	}
+	quorumEpoch, err := journal.NewGovernedQuorumEpoch(
+		quorumBinding,
+		p.genesisEpoch,
+		p.manifestPayloadHash,
+	)
+	if err != nil {
+		return journal.GovernedQuorumEpoch{}, journal.GovernedHistoryEpoch{}, err
+	}
+	historyEpoch, err := journal.NewGovernedHistoryEpoch(
+		historyBinding,
+		p.genesisEpoch,
+		p.manifestPayloadHash,
+	)
+	if err != nil {
+		return journal.GovernedQuorumEpoch{}, journal.GovernedHistoryEpoch{}, err
+	}
+	return quorumEpoch, historyEpoch, nil
+}
+
 func (p VerifiedGenesisPin) ParseEnrollmentSuccessorGovernanceBinding(
 	capabilityEnvelope []byte,
 ) (journal.GenesisEnrollmentSuccessorGovernanceBinding, error) {
