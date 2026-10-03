@@ -381,3 +381,54 @@ The TPM root recovery protocol is exercised at the three consequential interrupt
 ```
 
 The third case is deliberately fail-closed. A counter value proves that a newer root transition occurred, but without the durable pending snapshot Aegis does not invent or infer which authority snapshot was committed.
+
+## TPM device identity binding
+
+A monotonic counter is not sufficient if the application can silently attach an old companion state to a different TPM whose counter happens to match. The TPM root now binds every committed state to the deterministic endorsement-primary identity derived from the TPM endorsement hierarchy.
+
+At provisioning:
+
+```text
+TPM endorsement primary
+        |
+        v
+stable TPM object Name
+        |
+        v
+SHA-256 device identity
+        |
+        +-- stored inside sealed root state
+        +-- covered by the state digest
+```
+
+On every recovery and Effect Boundary revalidation, Aegis recreates the same endorsement primary from the live TPM and compares the observed identity with the identity enrolled in the root state.
+
+The executable proof keeps the NV counter and companion state unchanged, rotates the TPM endorsement primary seed, and then presents a permit that was valid before the rotation:
+
+```text
+counter = C
+state.device_identity = TPM-A
+permit = valid under TPM-A
+        |
+        v
+TPM2_ChangeEPS
+        |
+        v
+counter still = C
+companion state unchanged
+live endorsement identity = TPM-B
+        |
+        v
+CAPABILITY_ROOT_DEVICE_CHANGED
+        |
+        v
+mutation controller calls = 0
+```
+
+This distinguishes a monotonic-state failure from a device-root replacement. A device identity change is not treated as rollback and is not repaired implicitly.
+
+The root-state format is now `aegis.ege/tpm-nv-monotonic-root/v2`. Existing v1 companion state does not silently migrate because it contains no device binding. It fails closed and requires an explicit migration or reprovisioning procedure.
+
+### Claim boundary
+
+This proves software-visible binding to the TPM endorsement hierarchy in the TPM2 simulator model. It does not claim resistance to a compromised TPM implementation that reproduces the enrolled endorsement identity, nor does it define a cross-device root migration protocol. Legitimate TPM replacement therefore requires an explicit separately authorized migration path rather than automatic reset.
