@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -24,7 +26,6 @@ func main() {
 		log.Fatalf("inspect Kubernetes service account token path: %v", err)
 	}
 
-	witnessPrivate := mustDecodeEd25519Private(requireFile("WITNESS_PRIVATE_KEY_PATH"))
 	var signedTrust kernelfabric.SignedTaintRecoveryTrustManifest
 	mustJSONFile("TRUST_MANIFEST_PATH", &signedTrust)
 	trustSignerPublic := mustDecodeEd25519Public(requireFile("TRUST_SIGNER_PUBLIC_KEY_PATH"))
@@ -63,9 +64,37 @@ func main() {
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)
 	must(policy.Validate())
 
-	handler, err := kernelfabric.NewProfiledTaintRecoveryWitnessHandler(
+	witnessPublic := mustDecodeEd25519Public([]byte(signedTrust.Manifest.WitnessPublicKey))
+	signerEndpoint := strings.TrimSpace(string(requireFile("WITNESS_SIGNER_ENDPOINT_PATH")))
+	signerCAPEM := requireFile("WITNESS_SIGNER_CA_PATH")
+	signerServerName := strings.TrimSpace(
+		string(requireFile("WITNESS_SIGNER_TLS_SERVER_NAME_PATH")),
+	)
+	signerRoots := x509.NewCertPool()
+	if ok := signerRoots.AppendCertsFromPEM(signerCAPEM); !ok {
+		log.Fatal("witness signer TLS CA is invalid")
+	}
+	signerHTTPClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    signerRoots,
+				ServerName: signerServerName,
+			},
+		},
+		Timeout: 5 * time.Second,
+	}
+	witnessSigner, err := kernelfabric.NewRemoteRecoveryWitnessSigner(
+		signerEndpoint,
+		signedTrust.Manifest.WitnessKeyID,
+		witnessPublic,
+		signerHTTPClient,
+	)
+	must(err)
+
+	handler, err := kernelfabric.NewProfiledTaintRecoveryWitnessHandlerWithSigner(
 		root,
-		witnessPrivate,
+		witnessSigner,
 		policy,
 		witnessProfile,
 		time.Now,
@@ -121,15 +150,6 @@ func mustJSONFile(envName string, target any) {
 	if err := json.Unmarshal(payload, target); err != nil {
 		log.Fatalf("decode %s: %v", envName, err)
 	}
-}
-
-func mustDecodeEd25519Private(payload []byte) ed25519.PrivateKey {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(payload)))
-	must(err)
-	if len(raw) != ed25519.PrivateKeySize {
-		log.Fatalf("witness private key size=%d want=%d", len(raw), ed25519.PrivateKeySize)
-	}
-	return ed25519.PrivateKey(raw)
 }
 
 func mustDecodeEd25519Public(payload []byte) ed25519.PublicKey {
