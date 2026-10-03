@@ -61,6 +61,10 @@ type tpmNVRootState struct {
 	MigrationSourceStateDigest   string                                           `json:"migration_source_state_digest,omitempty"`
 	MigrationAuthorizationDigest           string                                           `json:"migration_authorization_digest,omitempty"`
 	MigrationDestinationAttestationDigest string                                           `json:"migration_destination_attestation_digest,omitempty"`
+	MigrationAttestationGenesisEpoch      uint64                                           `json:"migration_attestation_genesis_epoch,omitempty"`
+	MigrationAttestationTrustRootRef      string                                           `json:"migration_attestation_trust_root_ref,omitempty"`
+	MigrationAttestationTrustRootEpoch    uint64                                           `json:"migration_attestation_trust_root_epoch,omitempty"`
+	MigrationAttestationPolicyHash        string                                           `json:"migration_attestation_policy_hash,omitempty"`
 	Scopes                                 map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
 	Digest                       string                                           `json:"digest"`
 }

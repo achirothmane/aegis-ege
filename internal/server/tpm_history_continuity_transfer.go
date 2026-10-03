@@ -51,8 +51,12 @@ type TPMHistoryContinuityTransferAuthorization struct {
 	DestinationGeneration              uint64    `json:"destination_generation"`
 	DestinationNVIndex                 uint32    `json:"destination_nv_index"`
 	DestinationHeadNVIndex             uint32    `json:"destination_head_nv_index"`
-	DestinationAttestationDigest       string    `json:"destination_attestation_digest"`
-	NotBefore                          time.Time `json:"not_before"`
+	DestinationAttestationDigest         string    `json:"destination_attestation_digest"`
+	DestinationAttestationGenesisEpoch   uint64    `json:"destination_attestation_genesis_epoch"`
+	DestinationAttestationTrustRootRef   string    `json:"destination_attestation_trust_root_ref"`
+	DestinationAttestationTrustRootEpoch uint64    `json:"destination_attestation_trust_root_epoch"`
+	DestinationAttestationPolicyHash     string    `json:"destination_attestation_policy_hash"`
+	NotBefore                            time.Time `json:"not_before"`
 	ExpiresAt                          time.Time `json:"expires_at"`
 }
 
@@ -75,8 +79,14 @@ func ValidateTPMHistoryContinuityTransferAuthorization(
 	}
 	if !validSHA256Ref(auth.HistoryWitnessPolicyHash) ||
 		!validSHA256Ref(auth.OwnershipWitnessPolicyHash) ||
-		!validSHA256Ref(auth.DestinationAttestationDigest) {
+		!validSHA256Ref(auth.DestinationAttestationDigest) ||
+		!validSHA256Ref(auth.DestinationAttestationPolicyHash) {
 		return fmt.Errorf("%w: witness policy or destination attestation binding is invalid", ErrTPMHistoryContinuityAuthorization)
+	}
+	if auth.DestinationAttestationGenesisEpoch == 0 ||
+		auth.DestinationAttestationTrustRootEpoch == 0 ||
+		strings.TrimSpace(auth.DestinationAttestationTrustRootRef) == "" {
+		return fmt.Errorf("%w: destination attestation trust binding is invalid", ErrTPMHistoryContinuityAuthorization)
 	}
 	if !validSHA256Ref(auth.SourceDeviceIdentity) ||
 		!validSHA256Ref(auth.SourceMeasuredBootIdentity) ||
@@ -211,7 +221,7 @@ func TransferTPMNVHistoryContinuity(
 	signed SignedTPMHistoryContinuityTransferAuthorization,
 	transferPublicKey ed25519.PublicKey,
 	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
-	attestationPublicKey ed25519.PublicKey,
+	attestationTrust TPMRootMigrationAttestationTrust,
 	now time.Time,
 ) error {
 	if destination == nil || historyWitness == nil || ownership == nil {
@@ -220,22 +230,27 @@ func TransferTPMNVHistoryContinuity(
 	if err := VerifySignedTPMHistoryContinuityTransferAuthorization(signed, transferPublicKey, now); err != nil {
 		return err
 	}
-	if err := VerifySignedTPMRootMigrationDestinationAttestation(
-		destinationAttestation,
-		attestationPublicKey,
-		now,
-	); err != nil {
+	if err := attestationTrust.verifySignedAttestation(destinationAttestation, now); err != nil {
 		return err
 	}
-	if len(transferPublicKey) != ed25519.PublicKeySize ||
-		len(attestationPublicKey) != ed25519.PublicKeySize ||
-		string(transferPublicKey) == string(attestationPublicKey) {
+	if len(transferPublicKey) != ed25519.PublicKeySize || attestationTrust.publicKeyEquals(transferPublicKey) {
 		return fmt.Errorf(
 			"%w: transfer and destination-attestation authorities must be independent",
 			ErrTPMHistoryContinuityAuthorization,
 		)
 	}
 	auth := signed.Authorization
+	if !attestationTrust.matchesAuthorization(
+		auth.DestinationAttestationGenesisEpoch,
+		auth.DestinationAttestationTrustRootRef,
+		auth.DestinationAttestationTrustRootEpoch,
+		auth.DestinationAttestationPolicyHash,
+	) {
+		return fmt.Errorf(
+			"%w: destination attestation trust state does not match Genesis binding",
+			ErrTPMHistoryContinuityAuthorization,
+		)
+	}
 	att := destinationAttestation.Attestation
 	attestationDigest, err := TPMRootMigrationDestinationAttestationDigest(destinationAttestation)
 	if err != nil {
@@ -462,6 +477,10 @@ func preflightTPMHistoryContinuityDestination(
 		state.MigrationSourceStateDigest != "" ||
 		state.MigrationAuthorizationDigest != "" ||
 		state.MigrationDestinationAttestationDigest != "" ||
+		state.MigrationAttestationGenesisEpoch != 0 ||
+		state.MigrationAttestationTrustRootRef != "" ||
+		state.MigrationAttestationTrustRootEpoch != 0 ||
+		state.MigrationAttestationPolicyHash != "" ||
 		state.MigrationHistoryWitnessPolicyHash != "" ||
 		state.MigrationOwnershipWitnessPolicyHash != "" {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf(
@@ -512,6 +531,10 @@ func importTPMHistoryContinuityDestination(
 	pending.MigrationSourceStateDigest = auth.SourceStateDigest
 	pending.MigrationAuthorizationDigest = authorizationDigest
 	pending.MigrationDestinationAttestationDigest = auth.DestinationAttestationDigest
+	pending.MigrationAttestationGenesisEpoch = auth.DestinationAttestationGenesisEpoch
+	pending.MigrationAttestationTrustRootRef = auth.DestinationAttestationTrustRootRef
+	pending.MigrationAttestationTrustRootEpoch = auth.DestinationAttestationTrustRootEpoch
+	pending.MigrationAttestationPolicyHash = auth.DestinationAttestationPolicyHash
 	pending.MigrationHistoryWitnessPolicyHash = auth.HistoryWitnessPolicyHash
 	pending.MigrationOwnershipWitnessPolicyHash = auth.OwnershipWitnessPolicyHash
 	pending.Digest = ""
@@ -560,6 +583,10 @@ func isPreparedTPMHistoryContinuityDestination(
 		state.MigrationSourceStateDigest == auth.SourceStateDigest &&
 		state.MigrationAuthorizationDigest == authorizationDigest &&
 		state.MigrationDestinationAttestationDigest == auth.DestinationAttestationDigest &&
+		state.MigrationAttestationGenesisEpoch == auth.DestinationAttestationGenesisEpoch &&
+		state.MigrationAttestationTrustRootRef == auth.DestinationAttestationTrustRootRef &&
+		state.MigrationAttestationTrustRootEpoch == auth.DestinationAttestationTrustRootEpoch &&
+		state.MigrationAttestationPolicyHash == auth.DestinationAttestationPolicyHash &&
 		state.MigrationHistoryWitnessPolicyHash == auth.HistoryWitnessPolicyHash &&
 		state.MigrationOwnershipWitnessPolicyHash == auth.OwnershipWitnessPolicyHash
 }
@@ -602,6 +629,8 @@ func canonicalTPMHistoryContinuityTransferAuthorizationPayload(
 	auth.DestinationDeviceIdentity = strings.TrimSpace(auth.DestinationDeviceIdentity)
 	auth.DestinationMeasuredBootIdentity = strings.TrimSpace(auth.DestinationMeasuredBootIdentity)
 	auth.DestinationStateDigest = strings.TrimSpace(auth.DestinationStateDigest)
+	auth.DestinationAttestationTrustRootRef = strings.TrimSpace(auth.DestinationAttestationTrustRootRef)
+	auth.DestinationAttestationPolicyHash = strings.TrimSpace(auth.DestinationAttestationPolicyHash)
 	auth.NotBefore = auth.NotBefore.UTC()
 	auth.ExpiresAt = auth.ExpiresAt.UTC()
 	body, err := json.Marshal(auth)

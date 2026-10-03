@@ -235,6 +235,13 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	attestationTrust := migrationAttestationTrustForTest(
+		t,
+		attestationPub,
+		21,
+		13,
+		"sha256:"+strings.Repeat("c", 64),
+	)
 	transferID := "history-a-to-b-1"
 	destinationAttestation := signHistoryTransferDestinationAttestationForTest(
 		t,
@@ -269,8 +276,12 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		DestinationGeneration:           destinationState.Generation,
 		DestinationNVIndex:              uint32(cfgB.NVIndex),
 		DestinationHeadNVIndex:          uint32(cfgB.HeadNVIndex),
-		DestinationAttestationDigest:    destinationAttestationDigest,
-		NotBefore:                       now.Add(-time.Minute),
+		DestinationAttestationDigest:         destinationAttestationDigest,
+		DestinationAttestationGenesisEpoch:   attestationTrust.genesisEpoch,
+		DestinationAttestationTrustRootRef:   attestationTrust.trustRootRef,
+		DestinationAttestationTrustRootEpoch: attestationTrust.trustRootEpoch,
+		DestinationAttestationPolicyHash:     attestationTrust.attestationPolicyHash,
+		NotBefore:                            now.Add(-time.Minute),
 		ExpiresAt:                  now.Add(5 * time.Minute),
 	}
 	signedTransfer, err := SignTPMHistoryContinuityTransferAuthorization(auth, transferPriv)
@@ -320,11 +331,36 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 			badSigned,
 			transferPub,
 			destinationAttestation,
-			attestationPub,
+			attestationTrust,
 			now,
 		)
 		if !errors.Is(err, ErrTPMHistoryContinuityAuthorization) {
 			t.Fatalf("history quorum policy substitution was not rejected: %v", err)
+		}
+		assertNoTransferMutation(t)
+	})
+
+	t.Run("attestation_policy_substitution_rejected", func(t *testing.T) {
+		badAuth := auth
+		badAuth.DestinationAttestationPolicyHash = "sha256:" + strings.Repeat("e", 64)
+		badSigned, err := SignTPMHistoryContinuityTransferAuthorization(badAuth, transferPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = TransferTPMNVHistoryContinuity(
+			ctx,
+			cfgA.StatePath,
+			localB,
+			historyWitness,
+			ownership,
+			badSigned,
+			transferPub,
+			destinationAttestation,
+			attestationTrust,
+			now,
+		)
+		if !errors.Is(err, ErrTPMHistoryContinuityAuthorization) {
+			t.Fatalf("attestation policy substitution was not rejected: %v", err)
 		}
 		assertNoTransferMutation(t)
 	})
@@ -343,8 +379,16 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		if err != nil {
 			t.Fatal(err)
 		}
+		sameAuthorityTrust := migrationAttestationTrustForTest(
+			t,
+			transferPub,
+			attestationTrust.genesisEpoch,
+			attestationTrust.trustRootEpoch,
+			attestationTrust.attestationPolicyHash,
+		)
 		sameAuth := auth
 		sameAuth.DestinationAttestationDigest = digest
+		sameAuth.DestinationAttestationTrustRootRef = sameAuthorityTrust.trustRootRef
 		sameSigned, err := SignTPMHistoryContinuityTransferAuthorization(sameAuth, transferPriv)
 		if err != nil {
 			t.Fatal(err)
@@ -358,7 +402,7 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 			sameSigned,
 			transferPub,
 			sameAuthorityAttestation,
-			transferPub,
+			sameAuthorityTrust,
 			now,
 		)
 		if !errors.Is(err, ErrTPMHistoryContinuityAuthorization) {
@@ -376,7 +420,7 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	); err != nil {
 		t.Fatalf("authorized continuity transfer failed: %v", err)
@@ -412,6 +456,10 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		t.Fatalf("read migrated destination state: ok=%t err=%v", ok, err)
 	}
 	if migratedState.MigrationDestinationAttestationDigest != auth.DestinationAttestationDigest ||
+		migratedState.MigrationAttestationGenesisEpoch != auth.DestinationAttestationGenesisEpoch ||
+		migratedState.MigrationAttestationTrustRootRef != auth.DestinationAttestationTrustRootRef ||
+		migratedState.MigrationAttestationTrustRootEpoch != auth.DestinationAttestationTrustRootEpoch ||
+		migratedState.MigrationAttestationPolicyHash != auth.DestinationAttestationPolicyHash ||
 		migratedState.MigrationHistoryWitnessPolicyHash != auth.HistoryWitnessPolicyHash ||
 		migratedState.MigrationOwnershipWitnessPolicyHash != auth.OwnershipWitnessPolicyHash {
 		t.Fatalf("destination TPM lost transfer trust lineage: %+v", migratedState)
@@ -470,7 +518,7 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	); !errors.Is(err, ErrTPMHistoryContinuityReplay) {
 		t.Fatalf("completed transfer replay was not rejected: %v", err)
@@ -599,6 +647,13 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	attestationTrust := migrationAttestationTrustForTest(
+		t,
+		attestationPub,
+		22,
+		14,
+		"sha256:"+strings.Repeat("d", 64),
+	)
 	transferID := "history-resume-a-to-b"
 	destinationAttestation := signHistoryTransferDestinationAttestationForTest(
 		t,
@@ -633,8 +688,12 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		DestinationGeneration:           destState.Generation,
 		DestinationNVIndex:              uint32(cfgB.NVIndex),
 		DestinationHeadNVIndex:          uint32(cfgB.HeadNVIndex),
-		DestinationAttestationDigest:    destinationAttestationDigest,
-		NotBefore:                       now.Add(-time.Minute),
+		DestinationAttestationDigest:         destinationAttestationDigest,
+		DestinationAttestationGenesisEpoch:   attestationTrust.genesisEpoch,
+		DestinationAttestationTrustRootRef:   attestationTrust.trustRootRef,
+		DestinationAttestationTrustRootEpoch: attestationTrust.trustRootEpoch,
+		DestinationAttestationPolicyHash:     attestationTrust.attestationPolicyHash,
+		NotBefore:                            now.Add(-time.Minute),
 		ExpiresAt:                  now.Add(5 * time.Minute),
 	}
 	signedTransfer, err := SignTPMHistoryContinuityTransferAuthorization(auth, transferPriv)
@@ -660,7 +719,7 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	); err == nil {
 		t.Fatal("ownership finalization interruption unexpectedly succeeded")
@@ -708,7 +767,7 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	); err != nil {
 		t.Fatalf("retry did not resume quiesced transfer: %v", err)
