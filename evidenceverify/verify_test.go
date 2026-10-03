@@ -55,7 +55,7 @@ func (f *fixture) verify(t *testing.T) v.Report { return v.Verify(marshal(t, f.b
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	f := &fixture{b: v.Bundle{Schema: v.Schema}, p: v.Policy{Schema: v.Schema, BuildSHA: strings.Repeat("a", 40), CaseID: "unit-case", DestinationProfile: "postgresql/native-fence/v1", AdmissionPolicyHash: v.ContentDigest([]byte("exact active admission policy")), MaximumGrade: "unit", HistoryID: "history:unit-case", PublicKeys: map[string]string{}, RoleKeys: map[string]string{}}, keys: map[string]ed25519.PrivateKey{}}
+	f := &fixture{b: v.Bundle{Schema: v.Schema}, p: v.Policy{Schema: v.Schema, BuildSHA: strings.Repeat("a", 40), CaseID: "unit-case", DestinationProfile: "postgresql/native-fence/v1", AdmissionPolicyHash: v.ContentDigest([]byte("exact active admission policy")), RequiredClaimType: "EXACT_EFFECT", MaximumGrade: "unit", HistoryID: "history:unit-case", PublicKeys: map[string]string{}, RoleKeys: map[string]string{}}, keys: map[string]ed25519.PrivateKey{}}
 	for _, role := range []string{"admission", "execution", "destination", "history", "witness"} {
 		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
@@ -224,6 +224,7 @@ func TestClosureAndHistoryRemainIndependentDimensions(t *testing.T) {
 
 func TestPostconditionDoesNotClaimAttemptCausality(t *testing.T) {
 	f := newFixture(t)
+	f.p.RequiredClaimType = "POSTCONDITION"
 	f.e.ClaimType = "POSTCONDITION"
 	f.e.ClaimedCausality = "STATE_ONLY"
 	f.d.Commit = nil
@@ -231,6 +232,55 @@ func TestPostconditionDoesNotClaimAttemptCausality(t *testing.T) {
 	r := f.verify(t)
 	if !r.ClaimsSupported || r.Closure != "CLOSED" || r.Causality != "STATE_ONLY" || r.AuthorityAtCommit != "UNPROVEN" {
 		t.Fatalf("post-state became causal evidence: %+v", r)
+	}
+}
+
+func TestIndependentPolicyRejectsBundleClaimDowngrade(t *testing.T) {
+	f := newFixture(t)
+	// The relying party asks about the exact effect, but the signed producer
+	// substitutes a truthful, weaker statement about matching destination state.
+	f.e.ClaimType = "POSTCONDITION"
+	f.e.ClaimedCausality = "STATE_ONLY"
+	f.d.Commit = nil
+	f.addHistory(t)
+	r := f.verify(t)
+	if r.ClaimsSupported || r.Closure != "UNKNOWN" || r.Signatures != "VALID" || r.HistoricalTrust != "TRUSTED_HISTORY" {
+		t.Fatalf("bundle-selected postcondition satisfied the independent exact-effect obligation: %+v", r)
+	}
+	if !strings.Contains(strings.Join(r.Errors, "\n"), "claim type does not match the independent policy requirement") {
+		t.Fatalf("downgrade was not rejected by the independent obligation: %+v", r)
+	}
+}
+
+func TestIndependentClaimRequirementMustBeExplicit(t *testing.T) {
+	for _, requirement := range []string{"", "ANY", "exact_effect", "EXACT_EFFECT "} {
+		t.Run(requirement, func(t *testing.T) {
+			f := newFixture(t)
+			f.p.RequiredClaimType = requirement
+			r := f.verify(t)
+			if r.ClaimsSupported || r.Structure != "INVALID" || r.Closure != "UNKNOWN" || r.Signatures != "NOT_CHECKED" {
+				t.Fatalf("missing/invalid independent obligation accepted: %+v", r)
+			}
+		})
+	}
+	f := newFixture(t)
+	var policy map[string]any
+	if err := json.Unmarshal(marshal(t, f.p), &policy); err != nil {
+		t.Fatal(err)
+	}
+	delete(policy, "required_claim_type")
+	r := v.Verify(marshal(t, f.b), marshal(t, policy))
+	if r.ClaimsSupported || r.Structure != "INVALID" {
+		t.Fatalf("legacy policy silently delegated its obligation to the bundle: %+v", r)
+	}
+}
+
+func TestIndependentPostconditionRequirementRejectsDifferentClaim(t *testing.T) {
+	f := newFixture(t)
+	f.p.RequiredClaimType = "POSTCONDITION"
+	r := f.verify(t)
+	if r.ClaimsSupported || !strings.Contains(strings.Join(r.Errors, "\n"), "claim type does not match the independent policy requirement") {
+		t.Fatalf("signed exact-effect claim silently changed the relying party's question: %+v", r)
 	}
 }
 

@@ -56,7 +56,7 @@ func run() int {
 			return 2
 		}
 	} else {
-		fmt.Printf("Result: %s\nHistory: %s\nClaim: %s (%s evidence)\nIntent: %s\nAttempt: %s\nEffect: %s\nAdmitted: %t\nAuthority at commitment: %s\nEffect evidence: %s\nCausality: %s\n", r.Closure, r.HistoricalTrust, r.ClaimType, r.Grade, r.IntentID, r.AttemptID, r.EffectID, r.Admitted, r.AuthorityAtCommit, r.EffectEvidence, r.Causality)
+		fmt.Printf("Result: %s\nHistory: %s\nClaim: %s (%s evidence)\nRequired claim: %s\nIntent: %s\nAttempt: %s\nEffect: %s\nAdmitted: %t\nAuthority at commitment: %s\nEffect evidence: %s\nCausality: %s\n", r.Closure, r.HistoricalTrust, r.ClaimType, r.Grade, r.RequiredClaimType, r.IntentID, r.AttemptID, r.EffectID, r.Admitted, r.AuthorityAtCommit, r.EffectEvidence, r.Causality)
 		if r.AuthorityCurrentlyActive != nil {
 			fmt.Printf("Authority active when observed: %t\n", *r.AuthorityCurrentlyActive)
 		}

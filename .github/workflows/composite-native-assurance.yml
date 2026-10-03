@@ -114,6 +114,30 @@ jobs:
           assert expected <= passed, (expected - passed)
           PY
 
+      - name: Preserve executable pre-fix claim-downgrade counterexample
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git show "$BASE_SHA:evidenceverify/verify.go" > "$RUNNER_TEMP/base-verify.go"
+          if grep -q 'a.p.RequiredClaimType' "$RUNNER_TEMP/base-verify.go"; then
+            echo 'Baseline already enforces the independent claim obligation.' > "$COMPOSITE_ARTIFACT_DIR/claim-baseline.txt"
+            exit 0
+          fi
+          # Keep the additive policy field/test fixture, then run the actual
+          # previous evaluator. It must not be able to ignore the obligation.
+          cp evidenceverify/verify.go "$RUNNER_TEMP/current-verify.go"
+          trap 'cp "$RUNNER_TEMP/current-verify.go" evidenceverify/verify.go' EXIT
+          cp "$RUNNER_TEMP/base-verify.go" evidenceverify/verify.go
+          set +e
+          go test -race -mod=readonly -count=1 -v -run '^TestIndependentPolicyRejectsBundleClaimDowngrade$' ./evidenceverify > "$COMPOSITE_ARTIFACT_DIR/claim-baseline.log" 2>&1
+          result=$?
+          set -e
+          test "$result" -ne 0
+          grep -q 'bundle-selected postcondition satisfied the independent exact-effect obligation:' "$COMPOSITE_ARTIFACT_DIR/claim-baseline.log"
+          grep -q 'Closure:CLOSED.*ClaimsSupported:true' "$COMPOSITE_ARTIFACT_DIR/claim-baseline.log"
+
       - name: Preserve executable pre-fix authority counterexample
         if: github.event_name == 'pull_request'
         env:
