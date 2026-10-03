@@ -162,14 +162,54 @@ jobs:
         env:
           KUBECONFIG: ${{ runner.temp }}/workload-admin-kubeconfig
         run: go test -tags=integration -run "^TestKind" -v ./internal/kubeadapter ./internal/server ./internal/journal
-      - name: Provision narrow runtime capabilities
+      - name: Create external profile authority custody material
         env:
+          PROFILE_AUTHORITY_MODE: generate
+          PROFILE_AUTHORITY_PRIVATE_KEY_PATH: ${{ runner.temp }}/profile-authority/private-key
+          PROFILE_AUTHORITY_PUBLIC_KEY_PATH: ${{ runner.temp }}/profile-authority/public-key
+        run: go run ./cmd/aegis-profile-authority
+      - name: Prepare witness activation request without profile authority private key
+        env:
+          PROVISION_PHASE: prepare
+          PROFILE_AUTHORITY_PUBLIC_KEY_PATH: ${{ runner.temp }}/profile-authority/public-key
+          TAINT_RECOVERY_PREPARED_BUNDLE: ${{ runner.temp }}/taint-recovery-prepared-bundle.json
+          UNSIGNED_WITNESS_PROFILE_PATH: ${{ runner.temp }}/unsigned-witness-profile.json
+        run: |
+          test ! -z "$PROFILE_AUTHORITY_PUBLIC_KEY_PATH"
+          go run ./cmd/aegis-capability-runtime-provision
+          test -s "$TAINT_RECOVERY_PREPARED_BUNDLE"
+          test -s "$UNSIGNED_WITNESS_PROFILE_PATH"
+      - name: Sign witness profile in external authority step
+        env:
+          PROFILE_AUTHORITY_MODE: sign
+          PROFILE_AUTHORITY_PRIVATE_KEY_PATH: ${{ runner.temp }}/profile-authority/private-key
+          UNSIGNED_WITNESS_PROFILE_PATH: ${{ runner.temp }}/unsigned-witness-profile.json
+          SIGNED_WITNESS_PROFILE_PATH: ${{ runner.temp }}/signed-witness-profile.json
+        run: |
+          go run ./cmd/aegis-profile-authority
+          test -s "$SIGNED_WITNESS_PROFILE_PATH"
+          rm -f "$PROFILE_AUTHORITY_PRIVATE_KEY_PATH"
+          test ! -e "$PROFILE_AUTHORITY_PRIVATE_KEY_PATH"
+      - name: Activate narrow runtime capabilities without profile authority private key
+        env:
+          PROVISION_PHASE: activate
           WORKLOAD_ADMIN_KUBECONFIG: ${{ runner.temp }}/workload-admin-kubeconfig
           WITNESS_ADMIN_KUBECONFIG: ${{ runner.temp }}/witness-admin-kubeconfig
           WORKLOAD_RUNTIME_KUBECONFIG: ${{ runner.temp }}/workload-runtime-kubeconfig
           WITNESS_RUNTIME_KUBECONFIG: ${{ runner.temp }}/witness-runtime-kubeconfig
           TAINT_RECOVERY_CONTROLLER_BUNDLE: ${{ runner.temp }}/taint-recovery-controller-bundle.json
-        run: go run ./cmd/aegis-capability-runtime-provision
+          TAINT_RECOVERY_PREPARED_BUNDLE: ${{ runner.temp }}/taint-recovery-prepared-bundle.json
+          SIGNED_WITNESS_PROFILE_PATH: ${{ runner.temp }}/signed-witness-profile.json
+          PROFILE_AUTHORITY_PRIVATE_KEY_PATH: ${{ runner.temp }}/profile-authority/private-key
+        run: |
+          test ! -e "$PROFILE_AUTHORITY_PRIVATE_KEY_PATH"
+          if find cmd/aegis-capability-runtime-provision \
+            -name '*.go' ! -name '*_test.go' -print0 \
+            | xargs -0 grep -n "SignExternalRecoveryWitnessProfile"; then
+            echo "activation production source contains profile self-signing path" >&2
+            exit 1
+          fi
+          go run ./cmd/aegis-capability-runtime-provision
       - name: Remove provisioning authority
         run: |
           rm -f "$RUNNER_TEMP/workload-admin-kubeconfig"
