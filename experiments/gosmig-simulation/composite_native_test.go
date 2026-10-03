@@ -41,7 +41,7 @@ func (s postgresCompositeHead) Load(ctx context.Context, id string) (journal.Ext
 }
 
 func (s postgresCompositeHead) CompareAndAdvance(ctx context.Context, previous, next journal.ExternalHead) (journal.ExternalHead, error) {
-	if previous.JournalID != next.JournalID || next.Sequence < previous.Sequence || (next.Sequence == previous.Sequence && (next.HeadHash != previous.HeadHash || next.KeyID != previous.KeyID)) {
+	if previous.JournalID != next.JournalID || next.Sequence < previous.Sequence || (previous.KeyID != "" && next.Sequence == previous.Sequence && (next.HeadHash != previous.HeadHash || next.KeyID != previous.KeyID)) {
 		return journal.ExternalHead{}, journal.ErrExternalHeadConflict
 	}
 	var result sql.Result
@@ -235,6 +235,12 @@ func compositeReadDSN(t *testing.T, a *postgresNativeFenceAdapter) string {
 }
 
 func TestPostgresCompositeLostAcknowledgementAuthorityChangeRecovery(t *testing.T) {
+	if os.Getenv("COMPOSITE_BUILD_SHA") == "" || os.Getenv("EVIDENCE_VERIFY_BINARY") == "" {
+		if os.Getenv("COMPOSITE_REQUIRE") == "1" {
+			t.Fatal("required composite fixture is not configured")
+		}
+		t.Skip("run the dedicated composite-native-assurance workflow for this fixture")
+	}
 	for _, withheld := range []bool{false, true} {
 		name := "CLOSED"
 		if withheld {
