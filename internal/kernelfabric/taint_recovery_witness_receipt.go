@@ -1,6 +1,7 @@
 package kernelfabric
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
@@ -38,8 +39,32 @@ func signWitnessRecoveryReceipt(
 	evaluatedAt time.Time,
 	witnessPrivateKey ed25519.PrivateKey,
 ) (WitnessRecoveryReceipt, error) {
-	if len(witnessPrivateKey) != ed25519.PrivateKeySize {
-		return WitnessRecoveryReceipt{}, fmt.Errorf("invalid witness receipt signing key")
+	signer, err := NewEd25519RecoveryWitnessSigner(witnessPrivateKey)
+	if err != nil {
+		return WitnessRecoveryReceipt{}, err
+	}
+	return signWitnessRecoveryReceiptWithSigner(
+		context.Background(),
+		profile,
+		authorizationID,
+		commitment,
+		nonce,
+		evaluatedAt,
+		signer,
+	)
+}
+
+func signWitnessRecoveryReceiptWithSigner(
+	ctx context.Context,
+	profile ExternalRecoveryWitnessProfile,
+	authorizationID string,
+	commitment [32]byte,
+	nonce string,
+	evaluatedAt time.Time,
+	signer RecoveryWitnessSigner,
+) (WitnessRecoveryReceipt, error) {
+	if signer == nil {
+		return WitnessRecoveryReceipt{}, fmt.Errorf("recovery witness receipt signer is unavailable")
 	}
 	receipt := WitnessRecoveryReceipt{
 		Version:              WitnessRecoveryReceiptVersion,
@@ -59,7 +84,14 @@ func signWitnessRecoveryReceipt(
 	if err != nil {
 		return WitnessRecoveryReceipt{}, err
 	}
-	receipt.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(witnessPrivateKey, payload))
+	signature, err := signer.Sign(ctx, payload)
+	if err != nil {
+		return WitnessRecoveryReceipt{}, fmt.Errorf("sign recovery witness receipt: %w", err)
+	}
+	if len(signature) != ed25519.SignatureSize {
+		return WitnessRecoveryReceipt{}, fmt.Errorf("recovery witness receipt signer returned invalid signature size")
+	}
+	receipt.Signature = base64.StdEncoding.EncodeToString(signature)
 	return receipt, nil
 }
 

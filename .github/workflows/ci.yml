@@ -123,7 +123,7 @@ jobs:
       - run: go mod download
       - name: Install KinD
         run: go install sigs.k8s.io/kind@v0.33.0
-      - name: Build isolated recovery witness image
+      - name: Build isolated recovery witness and signer images
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
             -o "$RUNNER_TEMP/aegis-taint-recovery-witness" \
@@ -136,6 +136,19 @@ jobs:
           docker build \
             -f "$RUNNER_TEMP/Dockerfile.recovery-witness" \
             -t aegis-taint-recovery-witness:ci \
+            "$RUNNER_TEMP"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -o "$RUNNER_TEMP/aegis-recovery-witness-signer" \
+            ./cmd/aegis-recovery-witness-signer
+          cat > "$RUNNER_TEMP/Dockerfile.recovery-witness-signer" <<'EOF'
+          FROM scratch
+          COPY aegis-recovery-witness-signer /aegis-recovery-witness-signer
+          ENTRYPOINT ["/aegis-recovery-witness-signer"]
+          EOF
+          docker build \
+            -f "$RUNNER_TEMP/Dockerfile.recovery-witness-signer" \
+            -t aegis-recovery-witness-signer:ci \
             "$RUNNER_TEMP"
       - name: Create isolated workload and witness control planes
         run: |
@@ -162,6 +175,9 @@ jobs:
           "$(go env GOPATH)/bin/kind" load docker-image \
             --name aegis-witness \
             aegis-taint-recovery-witness:ci
+          "$(go env GOPATH)/bin/kind" load docker-image \
+            --name aegis-witness \
+            aegis-recovery-witness-signer:ci
       - name: Run baseline KinD integration suite
         env:
           KUBECONFIG: ${{ runner.temp }}/workload-admin-kubeconfig
@@ -172,14 +188,43 @@ jobs:
           PROFILE_AUTHORITY_PRIVATE_KEY_PATH: ${{ runner.temp }}/profile-authority/private-key
           PROFILE_AUTHORITY_PUBLIC_KEY_PATH: ${{ runner.temp }}/profile-authority/public-key
         run: go run ./cmd/aegis-profile-authority
-      - name: Prepare witness activation request without profile authority private key
+      - name: Create external B signer custody material
+        env:
+          WITNESS_SIGNER_CUSTODY_MODE: generate
+          WITNESS_SIGNER_PRIVATE_KEY_PATH: ${{ runner.temp }}/witness-signer/private-key
+          WITNESS_SIGNER_PUBLIC_KEY_PATH: ${{ runner.temp }}/witness-signer/public-key
+          WITNESS_SIGNER_TLS_CERT_PATH: ${{ runner.temp }}/witness-signer/tls.crt
+          WITNESS_SIGNER_TLS_KEY_PATH: ${{ runner.temp }}/witness-signer/tls.key
+          WITNESS_SIGNER_ENDPOINT_PATH: ${{ runner.temp }}/witness-signer/endpoint
+          WITNESS_SIGNER_TLS_SERVER_NAME_PATH: ${{ runner.temp }}/witness-signer/server-name
+        run: go run ./cmd/aegis-recovery-witness-signer-custody
+      - name: Install B signer custody service and remove local private material
+        env:
+          WITNESS_SIGNER_CUSTODY_MODE: install
+          WITNESS_ADMIN_KUBECONFIG: ${{ runner.temp }}/witness-admin-kubeconfig
+          WITNESS_SIGNER_PRIVATE_KEY_PATH: ${{ runner.temp }}/witness-signer/private-key
+          WITNESS_SIGNER_TLS_CERT_PATH: ${{ runner.temp }}/witness-signer/tls.crt
+          WITNESS_SIGNER_TLS_KEY_PATH: ${{ runner.temp }}/witness-signer/tls.key
+        run: |
+          go run ./cmd/aegis-recovery-witness-signer-custody
+          rm -f "$WITNESS_SIGNER_PRIVATE_KEY_PATH"
+          rm -f "$WITNESS_SIGNER_TLS_KEY_PATH"
+          test ! -e "$WITNESS_SIGNER_PRIVATE_KEY_PATH"
+          test ! -e "$WITNESS_SIGNER_TLS_KEY_PATH"
+      - name: Prepare witness activation request with public signer material only
         env:
           PROVISION_PHASE: prepare
           PROFILE_AUTHORITY_PUBLIC_KEY_PATH: ${{ runner.temp }}/profile-authority/public-key
+          WITNESS_SIGNER_PUBLIC_KEY_PATH: ${{ runner.temp }}/witness-signer/public-key
+          WITNESS_SIGNER_ENDPOINT_PATH: ${{ runner.temp }}/witness-signer/endpoint
+          WITNESS_SIGNER_TLS_CERT_PATH: ${{ runner.temp }}/witness-signer/tls.crt
+          WITNESS_SIGNER_TLS_SERVER_NAME_PATH: ${{ runner.temp }}/witness-signer/server-name
+          WITNESS_SIGNER_PRIVATE_KEY_PATH: ${{ runner.temp }}/witness-signer/private-key
           TAINT_RECOVERY_PREPARED_BUNDLE: ${{ runner.temp }}/taint-recovery-prepared-bundle.json
           UNSIGNED_WITNESS_PROFILE_PATH: ${{ runner.temp }}/unsigned-witness-profile.json
         run: |
           test ! -z "$PROFILE_AUTHORITY_PUBLIC_KEY_PATH"
+          test ! -e "$WITNESS_SIGNER_PRIVATE_KEY_PATH"
           go run ./cmd/aegis-capability-runtime-provision
           test -s "$TAINT_RECOVERY_PREPARED_BUNDLE"
           test -s "$UNSIGNED_WITNESS_PROFILE_PATH"
@@ -207,6 +252,11 @@ jobs:
           PROFILE_AUTHORITY_PRIVATE_KEY_PATH: ${{ runner.temp }}/profile-authority/private-key
         run: |
           test ! -e "$PROFILE_AUTHORITY_PRIVATE_KEY_PATH"
+          test ! -e "$RUNNER_TEMP/witness-signer/private-key"
+          if grep -R "WITNESS_PRIVATE_KEY_PATH\|witness-private-key" cmd/aegis-taint-recovery-witness cmd/aegis-capability-runtime-provision --include='*.go' --exclude='*_test.go'; then
+            echo "B runtime or Aegis activation still references raw B signing key" >&2
+            exit 1
+          fi
           if find cmd/aegis-capability-runtime-provision \
             -name '*.go' ! -name '*_test.go' -print0 \
             | xargs -0 grep -n "SignExternalRecoveryWitnessProfile"; then
