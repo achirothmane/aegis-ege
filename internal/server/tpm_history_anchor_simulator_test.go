@@ -26,14 +26,16 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer sim.Close()
+	t.Cleanup(func() { _ = sim.Close() })
 	device := transport.FromReadWriter(sim)
 
 	dir := t.TempDir()
 	cfg := TPMNVHistoryAnchorConfig{
-		NVIndex:   tpm2.TPMHandle(0x0180A151),
-		StatePath: filepath.Join(dir, "history-anchor.json"),
-		IndexAuth: []byte("aegis-history-anchor-test"),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
+		StatePath:     filepath.Join(dir, "history-anchor.json"),
+		IndexAuth:     []byte("aegis-history-anchor-test"),
+		HeadIndexAuth: []byte("aegis-history-head-test"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
@@ -204,18 +206,21 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer sim.Close()
+	t.Cleanup(func() { _ = sim.Close() })
 	device := transport.FromReadWriter(sim)
 
 	dir := t.TempDir()
 	cfg := TPMNVHistoryAnchorConfig{
-		NVIndex:   tpm2.TPMHandle(0x0180A152),
-		StatePath: filepath.Join(dir, "history-anchor.json"),
-		IndexAuth: []byte("aegis-history-anchor-crash"),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
+		StatePath:     filepath.Join(dir, "history-anchor.json"),
+		IndexAuth:     []byte("aegis-history-anchor-crash"),
+		HeadIndexAuth: []byte("aegis-history-head-crash"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, device, cfg) })
 	anchor, err := NewTPMNVHistoryAnchor(device, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +240,13 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	next.HeadDigest = nextDigest
 	next.Digest = ""
 	if err := writeTPMNVHistoryAnchorStateAtomic(cfg.StatePath+".pending", next); err != nil {
+		t.Fatal(err)
+	}
+	if err := anchor.writeProtectedHead(context.Background(), tpmNVHistoryProtectedHead{
+		Generation: next.Generation,
+		Sequence:   next.Sequence,
+		HeadDigest: next.HeadDigest,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	counter, err := anchor.helper.incrementCounter(context.Background())
@@ -261,28 +273,209 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	}
 }
 
+func TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite(t *testing.T) {
+
+	sim, err := simulator.Get()
+	if err != nil {
+		t.Skipf("TPM simulator unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = sim.Close() })
+	device := transport.FromReadWriter(sim)
+
+	dir := t.TempDir()
+	cfg := TPMNVHistoryAnchorConfig{
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
+		StatePath:     filepath.Join(dir, "history-anchor.json"),
+		IndexAuth:     []byte("history-anchor-sg"),
+		HeadIndexAuth: []byte("history-head-sg"),
+	}
+	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, device, cfg) })
+	anchor, err := NewTPMNVHistoryAnchor(device, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawStore := kernelfabric.TaintRecoveryHistoryStore{
+		Dir: filepath.Join(dir, "recovery-history"),
+	}
+	store := kernelfabric.AnchoredTaintRecoveryHistoryStore{
+		Store:  rawStore,
+		Anchor: anchor,
+	}
+	receipt := tpmHistoryAnchorReceipt(
+		"same-generation-h1",
+		"",
+		1,
+		time.Date(2026, 10, 3, 2, 20, 0, 0, time.UTC),
+	)
+	signed, err := kernelfabric.SignTaintRecoveryHistoryReceipt(receipt, privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := store.Append(context.Background(), signed, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state, ok, err := readTPMNVHistoryAnchorState(cfg.StatePath)
+	if err != nil || !ok {
+		t.Fatalf("read committed companion state: ok=%t err=%v", ok, err)
+	}
+	protected, err := anchor.readProtectedHead(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !protectedTPMHistoryHeadMatches(protected, state) || protected.HeadDigest != digest {
+		t.Fatalf("TPM exact head does not match committed H1: protected=%+v state=%+v", protected, state)
+	}
+
+	// Rewrite only the writable companion at the same TPM generation and
+	// recompute its unkeyed self-hash. A counter-only design would accept this.
+	forged := state
+	forged.HeadDigest = "sha256:" + strings.Repeat("b", 64)
+	if forged.HeadDigest == digest {
+		t.Fatal("forged digest unexpectedly equals committed digest")
+	}
+	forged.Digest = ""
+	if err := writeTPMNVHistoryAnchorStateAtomic(cfg.StatePath, forged); err != nil {
+		t.Fatal(err)
+	}
+	rewritten, ok, err := readTPMNVHistoryAnchorState(cfg.StatePath)
+	if err != nil || !ok {
+		t.Fatalf("rewritten companion did not remain internally valid: ok=%t err=%v", ok, err)
+	}
+	if rewritten.Generation != state.Generation || rewritten.HeadDigest != forged.HeadDigest {
+		t.Fatalf("same-generation rewrite did not take effect: %+v", rewritten)
+	}
+	counter, err := anchor.helper.readCounter(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counter != state.Generation {
+		t.Fatalf("same-generation rewrite unexpectedly changed TPM counter: got=%d want=%d", counter, state.Generation)
+	}
+
+	if _, err := anchor.Current(context.Background()); !errors.Is(err, ErrTPMHistoryAnchorRollback) {
+		t.Fatalf("TPM exact head did not reject same-generation companion rewrite: %v", err)
+	}
+	if _, _, _, err := store.Current(context.Background(), publicKey); err == nil ||
+		!errors.Is(err, ErrTPMHistoryAnchorRollback) {
+		t.Fatalf("anchored store accepted same-generation companion rewrite: %v", err)
+	}
+}
+
+func TestTPMNVHistoryAnchorRecoversExactHeadBeforeCounterInterruption(t *testing.T) {
+	sim, err := simulator.Get()
+	if err != nil {
+		t.Skipf("TPM simulator unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = sim.Close() })
+	device := transport.FromReadWriter(sim)
+
+	dir := t.TempDir()
+	cfg := TPMNVHistoryAnchorConfig{
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
+		StatePath:     filepath.Join(dir, "history-anchor.json"),
+		IndexAuth:     []byte("aegis-history-anchor-head-first"),
+		HeadIndexAuth: []byte("aegis-history-head-head-first"),
+	}
+	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, device, cfg) })
+	anchor, err := NewTPMNVHistoryAnchor(device, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, ok, err := readTPMNVHistoryAnchorState(cfg.StatePath)
+	if err != nil || !ok {
+		t.Fatalf("read initial history anchor: ok=%t err=%v", ok, err)
+	}
+	nextDigest := "sha256:" + strings.Repeat("c", 64)
+	next := current
+	next.PreviousGeneration = current.Generation
+	next.Generation = current.Generation + 1
+	next.PreviousSequence = current.Sequence
+	next.Sequence = current.Sequence + 1
+	next.PreviousHeadDigest = current.HeadDigest
+	next.HeadDigest = nextDigest
+	next.Digest = ""
+	if err := writeTPMNVHistoryAnchorStateAtomic(cfg.StatePath+".pending", next); err != nil {
+		t.Fatal(err)
+	}
+	if err := anchor.writeProtectedHead(context.Background(), tpmNVHistoryProtectedHead{
+		Generation: next.Generation,
+		Sequence:   next.Sequence,
+		HeadDigest: next.HeadDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	counterBefore, err := anchor.helper.readCounter(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counterBefore != current.Generation {
+		t.Fatalf("counter advanced before simulated interruption: got=%d want=%d", counterBefore, current.Generation)
+	}
+
+	restarted, err := NewTPMNVHistoryAnchor(device, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := restarted.Current(context.Background())
+	if err != nil {
+		t.Fatalf("exact-head-before-counter interruption did not recover: %v", err)
+	}
+	if recovered.Sequence != next.Sequence || recovered.HeadDigest != nextDigest {
+		t.Fatalf("recovered state=%+v want=(%d,%s)", recovered, next.Sequence, nextDigest)
+	}
+	counterAfter, err := restarted.helper.readCounter(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counterAfter != next.Generation {
+		t.Fatalf("recovery did not finish TPM counter: got=%d want=%d", counterAfter, next.Generation)
+	}
+	if _, err := os.Stat(cfg.StatePath + ".pending"); !os.IsNotExist(err) {
+		t.Fatalf("pending state was not promoted: %v", err)
+	}
+}
+
 func undefineTPMHistoryAnchorNV(
 	t *testing.T,
 	device transport.TPM,
 	cfg TPMNVHistoryAnchorConfig,
 ) {
 	t.Helper()
-	response, err := (tpm2.NVReadPublic{NVIndex: cfg.NVIndex}).Execute(device)
-	if err != nil {
-		t.Logf("read TPM history NV public during cleanup: %v", err)
-		return
-	}
-	if _, err := (tpm2.NVUndefineSpace{
-		AuthHandle: tpm2.AuthHandle{
-			Handle: tpm2.TPMRHOwner,
-			Auth:   tpm2.PasswordAuth(cfg.OwnerAuth),
-		},
-		NVIndex: tpm2.NamedHandle{
-			Handle: cfg.NVIndex,
-			Name:   response.NVName,
-		},
-	}).Execute(device); err != nil {
-		t.Logf("undefine TPM history NV counter during cleanup: %v", err)
+	for _, handle := range []tpm2.TPMHandle{cfg.HeadNVIndex, cfg.NVIndex} {
+		response, err := (tpm2.NVReadPublic{NVIndex: handle}).Execute(device)
+		if err != nil {
+			t.Logf("read TPM history NV public 0x%x during cleanup: %v", uint32(handle), err)
+			continue
+		}
+		if _, err := (tpm2.NVUndefineSpace{
+			AuthHandle: tpm2.AuthHandle{
+				Handle: tpm2.TPMRHOwner,
+				Auth:   tpm2.PasswordAuth(cfg.OwnerAuth),
+			},
+			NVIndex: tpm2.NamedHandle{
+				Handle: handle,
+				Name:   response.NVName,
+			},
+		}).Execute(device); err != nil {
+			t.Logf("undefine TPM history NV 0x%x during cleanup: %v", uint32(handle), err)
+		}
 	}
 }
 
