@@ -211,29 +211,76 @@ func crossGenesisBindingForServerTest(
 	return binding
 }
 
-func newCrossGenesisRotatableQuorum(
+func crossGenesisHistoryBindingForServerTest(
+	t *testing.T,
+	purpose,
+	journalID string,
+	ids ...string,
+) (
+	journal.GenesisQuorumBinding,
+	journal.GenesisHistoryBinding,
+) {
+	t.Helper()
+	sorted := append([]string(nil), ids...)
+	sort.Strings(sorted)
+	members := make([]journal.QuorumTrustPolicyMember, 0, len(sorted))
+	for _, id := range sorted {
+		members = append(members, journal.QuorumTrustPolicyMember{
+			ID:                id,
+			TrustManifestHash: crossGenesisTrustHashForTest(id),
+		})
+	}
+	envelope := struct {
+		Version               string                             `json:"version"`
+		ExternalWitnessQuorum journal.QuorumTrustPolicy          `json:"external_witness_quorum"`
+		GovernedHistories     journal.GovernedHistoryTrustPolicy `json:"governed_histories"`
+	}{
+		Version: "aegis-ege/capability-envelope/v1",
+		ExternalWitnessQuorum: journal.QuorumTrustPolicy{
+			Protocol:  journal.QuorumTrustPolicyVersion,
+			Threshold: 2,
+			Members:   members,
+		},
+		GovernedHistories: journal.GovernedHistoryTrustPolicy{
+			Protocol: journal.GovernedHistoryTrustPolicyVersion,
+			Histories: []journal.GovernedHistoryIdentity{{
+				Purpose:   purpose,
+				JournalID: journalID,
+			}},
+		},
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := crossGenesisDigestForTest(string(raw))
+	quorumBinding, err := journal.ParseGenesisQuorumBinding(raw, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyBinding, err := journal.ParseGenesisHistoryBinding(
+		raw,
+		hash,
+		purpose,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return quorumBinding, historyBinding
+}
+
+func newCrossGenesisRotatableQuorumFromBindings(
 	t *testing.T,
 	oldGenesisEpoch,
 	newGenesisEpoch uint64,
+	oldBinding,
+	newBinding journal.GenesisQuorumBinding,
 ) (
 	*journal.QuorumHeadStore,
 	*journal.QuorumHeadStore,
 	journal.QuorumRotationPlan,
 ) {
 	t.Helper()
-
-	oldBinding := crossGenesisBindingForServerTest(
-		t,
-		"witness-a",
-		"witness-b",
-		"witness-c",
-	)
-	newBinding := crossGenesisBindingForServerTest(
-		t,
-		"witness-a",
-		"witness-b",
-		"witness-d",
-	)
 
 	a := &crossGenesisPolicyStore{
 		base:              journal.NewMemoryHeadStore(),
@@ -316,13 +363,115 @@ func newCrossGenesisRotatableQuorum(
 	return oldStore, newStore, plan
 }
 
+func newCrossGenesisRotatableQuorum(
+	t *testing.T,
+	oldGenesisEpoch,
+	newGenesisEpoch uint64,
+) (
+	*journal.QuorumHeadStore,
+	*journal.QuorumHeadStore,
+	journal.QuorumRotationPlan,
+) {
+	t.Helper()
+
+	oldBinding := crossGenesisBindingForServerTest(
+		t,
+		"witness-a",
+		"witness-b",
+		"witness-c",
+	)
+	newBinding := crossGenesisBindingForServerTest(
+		t,
+		"witness-a",
+		"witness-b",
+		"witness-d",
+	)
+	return newCrossGenesisRotatableQuorumFromBindings(
+		t,
+		oldGenesisEpoch,
+		newGenesisEpoch,
+		oldBinding,
+		newBinding,
+	)
+}
+
+func newCrossGenesisRotatableHistoryQuorum(
+	t *testing.T,
+	oldGenesisEpoch,
+	newGenesisEpoch uint64,
+	purpose,
+	journalID string,
+) (
+	*journal.QuorumHeadStore,
+	*journal.QuorumHeadStore,
+	journal.HistorySuccessionPlan,
+) {
+	t.Helper()
+
+	oldQuorumBinding, oldHistoryBinding := crossGenesisHistoryBindingForServerTest(
+		t,
+		purpose,
+		journalID,
+		"witness-a",
+		"witness-b",
+		"witness-c",
+	)
+	newQuorumBinding, newHistoryBinding := crossGenesisHistoryBindingForServerTest(
+		t,
+		purpose,
+		journalID,
+		"witness-a",
+		"witness-b",
+		"witness-d",
+	)
+	oldStore, newStore, quorumPlan := newCrossGenesisRotatableQuorumFromBindings(
+		t,
+		oldGenesisEpoch,
+		newGenesisEpoch,
+		oldQuorumBinding,
+		newQuorumBinding,
+	)
+
+	oldHistoryEpoch, err := journal.NewGovernedHistoryEpoch(
+		oldHistoryBinding,
+		oldGenesisEpoch,
+		crossGenesisDigestForTest("genesis-old"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newHistoryEpoch, err := journal.NewGovernedHistoryEpoch(
+		newHistoryBinding,
+		newGenesisEpoch,
+		crossGenesisDigestForTest("genesis-new"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	successionPlan, err := journal.NewHistorySuccessionPlan(
+		oldHistoryEpoch,
+		newHistoryEpoch,
+		quorumPlan,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return oldStore, newStore, successionPlan
+}
+
 func TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 3, 6, 0, 0, 0, time.UTC)
 
-	historyOld, historyNew, historyRotation :=
-		newCrossGenesisRotatableQuorum(t, 41, 42)
+	historyOld, historyNew, historySuccession :=
+		newCrossGenesisRotatableHistoryQuorum(
+			t,
+			41,
+			42,
+			"taint-recovery-history",
+			"taint-recovery/main",
+		)
 	ownershipOldStore, ownershipNewStore, ownershipRotation :=
 		newCrossGenesisRotatableQuorum(t, 41, 42)
 
@@ -427,15 +576,18 @@ func TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement
 		t.Fatalf("TPM-A did not commit H2: %+v", sourceState)
 	}
 
-	historyResult, err := journal.ExecuteQuorumRotation(
+	historyResult, err := journal.ExecuteGovernedHistorySuccession(
 		ctx,
-		historyRotation,
+		historySuccession,
 		historyOld,
 		historyNew,
-		"taint-recovery/main",
 	)
 	if err != nil {
-		t.Fatalf("rotate history quorum across Genesis: %v", err)
+		t.Fatalf("govern history succession across Genesis: %v", err)
+	}
+	if historyResult.TransitionHash == "" ||
+		historyResult.QuorumTransitionHash == "" {
+		t.Fatal("cross-Genesis history succession omitted transition commitments")
 	}
 	if historyResult.Head.Sequence != 2 || historyResult.Head.HeadHash != h2Digest {
 		t.Fatalf("history rotation changed exact H2 truth: %+v", historyResult.Head)
