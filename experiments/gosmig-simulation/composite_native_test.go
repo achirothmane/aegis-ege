@@ -251,6 +251,10 @@ func TestPostgresCompositeLostAcknowledgementAuthorityChangeRecovery(t *testing.
 }
 
 func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
+	runPostgresCompositeCase(t, caseID, withheld, false)
+}
+
+func runPostgresCompositeCase(t *testing.T, caseID string, withheld, succession bool) {
 	a, req := setupPostgresNativeFence(t)
 	ctx := context.Background()
 	build := os.Getenv("COMPOSITE_BUILD_SHA")
@@ -260,6 +264,9 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 	}
 	dir := t.TempDir()
 	if root := os.Getenv("COMPOSITE_ARTIFACT_DIR"); root != "" {
+		if succession {
+			root = filepath.Join(root, "succession")
+		}
 		dir = filepath.Join(root, caseID)
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
@@ -281,6 +288,10 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 		p.RoleKeys[role] = id
 		p.PublicKeys[id] = base64.StdEncoding.EncodeToString(pub)
 	}
+	var handoff *compositeSuccession
+	if succession {
+		handoff = prepareCompositeSuccession(t, a, &p, keys)
+	}
 	seal := func(role string, value any) v.Envelope {
 		env, err := v.Seal(role, p.RoleKeys[role], keys[role], value)
 		if err != nil {
@@ -288,7 +299,11 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 		}
 		return env
 	}
-	signer, err := journal.NewEd25519Signer(p.RoleKeys["history"], keys["history"])
+	historyRole := "history"
+	if succession {
+		historyRole = "old_history"
+	}
+	signer, err := journal.NewEd25519Signer(p.RoleKeys[historyRole], keys[historyRole])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,11 +311,29 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 	if err := keyring.Add(signer.KeyID(), signer.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
-	witness := postgresCompositeHead{a.db}
+	var witness journal.ExternalHeadStore = postgresCompositeHead{a.db}
+	if succession {
+		witness = handoff.oldHistory
+		if err := keyring.Add(p.RoleKeys["history"], keys["history"].Public().(ed25519.PublicKey)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	journalPath, anchorPath := filepath.Join(dir, "history.jsonl"), filepath.Join(dir, "history.anchor.json")
 	j, err := journal.CreateAnchoredFileJournal(ctx, journalPath, anchorPath, p.HistoryID, signer, keyring, witness)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if succession {
+		// Provision the initial exact seed on every readable witness before
+		// later succession depends on the stable shared subset.
+		seed, err := witness.Load(ctx, p.HistoryID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handoff.enrollmentHead = seed
+		if _, err := handoff.oldWriter.ConvergeAuthorizedTransition(ctx, []journal.ExternalHead{{JournalID: p.HistoryID}, seed}, seed); err != nil {
+			t.Fatal(err)
+		}
 	}
 	prep, err := gaRuntime.ReserveFenced(ctx, req, a)
 	if err != nil {
@@ -312,6 +345,11 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 	initialHead, err := witness.Load(ctx, p.HistoryID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if succession {
+		if _, err := handoff.oldWriter.ConvergeAuthorizedTransition(ctx, []journal.ExternalHead{handoff.enrollmentHead, initialHead}, initialHead); err != nil {
+			t.Fatal(err)
+		}
 	}
 	writeCompositeJSON(t, filepath.Join(dir, "before-interruption-head.json"), initialHead)
 	cmd, cancel := compositeProcess(t, req, "execute", "", false)
@@ -342,7 +380,9 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 	if count := nativeEffectCount(t, a); count != 1 {
 		t.Fatalf("barrier lacks native commit: %d", count)
 	}
-	if _, err := a.db.Exec("UPDATE "+nativeFenceTable("authority")+" SET active=FALSE,generation=generation+1 WHERE binding_digest=$1", req.Admission.BindingDigest); err != nil {
+	if succession {
+		handoff.rotate(t, a, &p, keys, initialHead, anchorPath)
+	} else if _, err := a.db.Exec("UPDATE "+nativeFenceTable("authority")+" SET active=FALSE,generation=generation+1 WHERE binding_digest=$1", req.Admission.BindingDigest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := stdin.Write([]byte{1}); err != nil {
@@ -426,6 +466,12 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 	e := v.Execution{BuildSHA: build, CaseID: caseID, Grade: "native", ClaimType: "EXACT_EFFECT", IntentID: "intent:composite:" + caseID, Request: request, EffectID: prep.Custody.EffectID, CustodyGeneration: prep.Custody.Generation, AuthorityEpoch: 1, AuthorityGeneration: 1, Admitted: true, AcknowledgementLost: true, RecoveredBy: v.Identity{ID: "recovery:read-only", Kind: "observer"}, ClaimedClosure: caseID, ClaimedCausality: "EXACT_COMMIT_RECORD", ClaimedHistory: "TRUSTED_HISTORY"}
 	d := v.Destination{BuildSHA: build, CaseID: caseID, Profile: p.DestinationProfile, Observed: convertState(state), EffectCount: uint64(nativeEffectCount(t, a)), Commit: &commit, AuthorityCurrentlyActive: active, CurrentAuthorityGeneration: currentGeneration}
 	admission := v.Admission{BuildSHA: build, CaseID: caseID, PolicyHash: p.AdmissionPolicyHash, RequestBinding: req.Admission.BindingDigest, ObservedBefore: request.Before, AllowedOperation: req.Transition.Operation, AuthorityEpoch: 1, AuthorityGeneration: 1, AuthorityActive: true}
+	if succession {
+		e.Grade = "simulation"
+		e.EvidenceGrades = &p.Succession.Grades
+		e.AuthorityEpoch = handoff.oldPin.GenesisEpoch()
+		admission.AuthorityEpoch = e.AuthorityEpoch
+	}
 	// Native raw evidence retains the commit even when the evaluated evidence
 	// set intentionally withholds it. UNKNOWN must survive that loss.
 	writeCompositeJSON(t, filepath.Join(dir, "native-observation.json"), struct {
@@ -441,6 +487,14 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 	}
 	dest := seal("destination", d)
 	b := v.Bundle{Schema: v.Schema, Admission: seal("admission", admission), Execution: seal("execution", e), Destination: &dest}
+	if succession {
+		b.Succession = &handoff.proof
+		witness = handoff.newHistory
+		signer, err = journal.NewEd25519Signer(p.RoleKeys["history"], keys["history"])
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Restart opens existing identity/head. It never creates a replacement.
 	j, err = journal.OpenAnchoredFileJournal(ctx, journalPath, anchorPath, p.HistoryID, signer, keyring, witness)
 	if err != nil {
@@ -470,6 +524,15 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 		h.Entries = append(h.Entries, append(json.RawMessage(nil), line...))
 	}
 	b.History = h
+	if succession {
+		trace, current := successionObservation(t, a.db, handoff.members, p.HistoryID, journal.SuccessorGovernanceAuthorityJournalID)
+		handoff.observation.Transitions, handoff.observation.Current = trace, current
+		handoff.observation.BuildSHA, handoff.observation.CaseID = build, caseID
+		handoff.observation.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		p.Succession.EvaluationTime = time.Now().UTC().Format(time.RFC3339Nano)
+		handoff.proof.Witness = seal("succession_witness", handoff.observation)
+		writeCompositeJSON(t, filepath.Join(dir, "succession-native-observation.json"), handoff.observation)
+	}
 	bundlePath, policyPath := filepath.Join(dir, "bundle.json"), filepath.Join(dir, "fixture-policy.json")
 	writeCompositeJSON(t, bundlePath, b)
 	writeCompositeJSON(t, policyPath, p)
@@ -489,12 +552,18 @@ func runPostgresComposite(t *testing.T, caseID string, withheld bool) {
 		if err := json.Unmarshal(output, &report); err != nil {
 			t.Fatal(err)
 		}
-		if !report.ClaimsSupported || report.Closure != caseID || report.HistoricalTrust != "TRUSTED_HISTORY" || report.Grade != "native" || report.Causality != e.ClaimedCausality {
+		if !report.ClaimsSupported || report.Closure != caseID || report.HistoricalTrust != "TRUSTED_HISTORY" || report.Grade != e.Grade || report.Causality != e.ClaimedCausality {
 			t.Fatalf("separate verifier changed native judgment: %+v", report)
+		}
+		if succession && (report.SuccessionValidity != "VALID" || report.CustodianAuthority != "AUTHORIZED_AT_CHECKPOINT" || report.CurrentCustodian == nil || *report.CurrentCustodian != p.Succession.NewCustodian) {
+			t.Fatalf("new custodian lacks independently verified continuation: %+v", report)
 		}
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("report-%d.json", i+1)), output, 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if succession {
+		falsifySuccessionBundle(t, dir, b, p, keys)
 	}
 	writeCompositeJSON(t, filepath.Join(dir, "first-use.json"), map[string]any{"scope": "automated fixture; no human usability claim", "first_report_ms": durations[0], "second_report_ms": durations[1], "permissions": []string{"read bundle", "read independently provisioned policy"}, "configuration_steps": 2, "mutation_credentials": 0, "support_required": "not measured with a human", "points_of_confusion": []string{"where independently trusted policy comes from", "supported UNKNOWN exit code is not effect success"}, "decision": caseID, "independent_operator_reproduction": false})
 	// Losing local history cannot authorize reenrollment of the same identity.

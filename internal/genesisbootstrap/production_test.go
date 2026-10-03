@@ -238,9 +238,11 @@ type productionFixture struct {
 }
 
 func buildProductionFixture(t *testing.T) productionFixture {
+	return buildProductionFixtureAt(t, t.TempDir(), time.Date(2026, 9, 28, 5, 0, 0, 0, time.UTC))
+}
+
+func buildProductionFixtureAt(t *testing.T, dir string, now time.Time) productionFixture {
 	t.Helper()
-	dir := t.TempDir()
-	now := time.Date(2026, 9, 28, 5, 0, 0, 0, time.UTC)
 
 	doctrinePub, doctrinePriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

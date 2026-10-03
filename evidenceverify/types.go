@@ -48,22 +48,23 @@ type Admission struct {
 }
 
 type Execution struct {
-	BuildSHA            string   `json:"build_sha"`
-	CaseID              string   `json:"case_id"`
-	Grade               string   `json:"grade"`
-	ClaimType           string   `json:"claim_type"`
-	IntentID            string   `json:"intent_id"`
-	Request             Request  `json:"request"`
-	EffectID            string   `json:"effect_id"`
-	CustodyGeneration   uint64   `json:"custody_generation"`
-	AuthorityEpoch      uint64   `json:"authority_epoch"`
-	AuthorityGeneration uint64   `json:"authority_generation"`
-	Admitted            bool     `json:"admitted"`
-	AcknowledgementLost bool     `json:"acknowledgement_lost"`
-	RecoveredBy         Identity `json:"recovered_by"`
-	ClaimedClosure      string   `json:"claimed_closure"`
-	ClaimedCausality    string   `json:"claimed_causality"`
-	ClaimedHistory      string   `json:"claimed_history"`
+	BuildSHA            string          `json:"build_sha"`
+	CaseID              string          `json:"case_id"`
+	Grade               string          `json:"grade"`
+	ClaimType           string          `json:"claim_type"`
+	IntentID            string          `json:"intent_id"`
+	Request             Request         `json:"request"`
+	EffectID            string          `json:"effect_id"`
+	CustodyGeneration   uint64          `json:"custody_generation"`
+	AuthorityEpoch      uint64          `json:"authority_epoch"`
+	AuthorityGeneration uint64          `json:"authority_generation"`
+	Admitted            bool            `json:"admitted"`
+	AcknowledgementLost bool            `json:"acknowledgement_lost"`
+	RecoveredBy         Identity        `json:"recovered_by"`
+	ClaimedClosure      string          `json:"claimed_closure"`
+	ClaimedCausality    string          `json:"claimed_causality"`
+	ClaimedHistory      string          `json:"claimed_history"`
+	EvidenceGrades      *EvidenceGrades `json:"evidence_grades,omitempty"`
 }
 
 type Commit struct {
@@ -113,11 +114,12 @@ type History struct {
 }
 
 type Bundle struct {
-	Schema      string    `json:"schema"`
-	Admission   Envelope  `json:"admission"`
-	Execution   Envelope  `json:"execution"`
-	Destination *Envelope `json:"destination,omitempty"`
-	History     *History  `json:"history,omitempty"`
+	Schema      string      `json:"schema"`
+	Admission   Envelope    `json:"admission"`
+	Execution   Envelope    `json:"execution"`
+	Destination *Envelope   `json:"destination,omitempty"`
+	History     *History    `json:"history,omitempty"`
+	Succession  *Succession `json:"succession,omitempty"`
 }
 
 // Policy must be provisioned through the relying party's independent channel.
@@ -133,27 +135,32 @@ type Policy struct {
 	RoleKeys            map[string]string `json:"role_keys"`
 	HistoryID           string            `json:"history_id"`
 	Checkpoint          *Head             `json:"checkpoint,omitempty"`
+	Succession          *SuccessionPolicy `json:"succession,omitempty"`
 }
 
 type Report struct {
-	Schema                     string   `json:"schema"`
-	Structure                  string   `json:"structure"`
-	Signatures                 string   `json:"signatures"`
-	TrustRoots                 string   `json:"trust_roots"`
-	Admitted                   bool     `json:"admitted"`
-	IntentID                   string   `json:"intent_id"`
-	EffectID                   string   `json:"effect_id"`
-	AttemptID                  string   `json:"attempt_id"`
-	AuthorityAtCommit          string   `json:"authority_at_commit"`
-	AuthorityCurrentlyActive   *bool    `json:"authority_currently_active,omitempty"`
-	EffectEvidence             string   `json:"effect_evidence"`
-	ExternallyCommittedEffects *uint64  `json:"externally_committed_effects,omitempty"`
-	Causality                  string   `json:"causality"`
-	Closure                    string   `json:"closure"`
-	HistoricalTrust            string   `json:"historical_trust"`
-	ClaimType                  string   `json:"claim_type"`
-	Grade                      string   `json:"grade"`
-	ClaimsSupported            bool     `json:"claims_supported"`
-	Uncertainty                []string `json:"uncertainty"`
-	Errors                     []string `json:"errors"`
+	Schema                     string          `json:"schema"`
+	Structure                  string          `json:"structure"`
+	Signatures                 string          `json:"signatures"`
+	TrustRoots                 string          `json:"trust_roots"`
+	Admitted                   bool            `json:"admitted"`
+	IntentID                   string          `json:"intent_id"`
+	EffectID                   string          `json:"effect_id"`
+	AttemptID                  string          `json:"attempt_id"`
+	AuthorityAtCommit          string          `json:"authority_at_commit"`
+	AuthorityCurrentlyActive   *bool           `json:"authority_currently_active,omitempty"`
+	EffectEvidence             string          `json:"effect_evidence"`
+	ExternallyCommittedEffects *uint64         `json:"externally_committed_effects,omitempty"`
+	Causality                  string          `json:"causality"`
+	Closure                    string          `json:"closure"`
+	HistoricalTrust            string          `json:"historical_trust"`
+	ClaimType                  string          `json:"claim_type"`
+	Grade                      string          `json:"grade"`
+	ClaimsSupported            bool            `json:"claims_supported"`
+	Uncertainty                []string        `json:"uncertainty"`
+	Errors                     []string        `json:"errors"`
+	SuccessionValidity         string          `json:"succession_validity"`
+	CurrentCustodian           *Identity       `json:"current_custodian,omitempty"`
+	CustodianAuthority         string          `json:"custodian_authority"`
+	EvidenceGrades             *EvidenceGrades `json:"evidence_grades,omitempty"`
 }

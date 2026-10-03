@@ -232,8 +232,15 @@ func (s *QuorumHeadStore) CompareAndAdvance(
 	if previous.JournalID != "" && previous.JournalID != next.JournalID {
 		return ExternalHead{}, ErrExternalHeadConflict
 	}
+	// FileJournal names the selected identity even when it has never existed.
+	// Treat only that identity-only expectation as enrollment. Member loads
+	// and native CAS must still establish absence; a retained sequence-zero
+	// anchor has a key and cannot be reset through this normalization.
+	if previous.JournalID != "" && previous.Sequence == 0 && previous.HeadHash == "" && previous.KeyID == "" && previous.StoreVersion == "" {
+		previous = ExternalHead{}
+	}
 	if previous.JournalID == "" {
-		if next.Sequence != 0 {
+		if previous != (ExternalHead{}) || next.Sequence != 0 {
 			return ExternalHead{}, ErrExternalHeadConflict
 		}
 	} else {
@@ -357,6 +364,7 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 	allowedSet := make(map[quorumSemanticHead]struct{}, len(allowed))
 	targetSemantic := semanticExternalHead(target)
 	targetAllowed := false
+	absenceAllowed := false
 	for _, head := range allowed {
 		semantic := semanticExternalHead(head)
 		if semantic.JournalID != target.JournalID ||
@@ -364,6 +372,14 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 			return ExternalHead{}, ErrExternalHeadConflict
 		}
 		allowedSet[semantic] = struct{}{}
+		if semantic.Sequence == 0 && semantic.HeadHash == "" && semantic.KeyID == "" {
+			// Absence is an explicit provisioning state, not a missing-prefix
+			// repair grant. It can seed only an exact sequence-zero target.
+			if target.Sequence != 0 || head.StoreVersion != "" {
+				return ExternalHead{}, ErrExternalHeadConflict
+			}
+			absenceAllowed = true
+		}
 		if semantic == targetSemantic {
 			targetAllowed = true
 		}
@@ -381,7 +397,9 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 		case <-ctx.Done():
 			return ExternalHead{}, fmt.Errorf("%w: %v", ErrExternalHeadQuorum, ctx.Err())
 		case observation := <-results:
-			if observation.err != nil || observation.notFound {
+			if observation.notFound && absenceAllowed {
+				observation.head = ExternalHead{JournalID: target.JournalID}
+			} else if observation.err != nil || observation.notFound {
 				continue
 			}
 			semantic := semanticExternalHead(observation.head)
@@ -413,10 +431,14 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 		go func() {
 			memberTarget := target
 			memberTarget.StoreVersion = ""
+			previous := observation.head
+			if observation.notFound {
+				previous = ExternalHead{}
+			}
 			head, err := s.compareAndAdvanceMember(
 				ctx,
 				observation.member,
-				observation.head,
+				previous,
 				memberTarget,
 			)
 			advanceResults <- quorumAdvanceResult{
@@ -435,6 +457,9 @@ func (s *QuorumHeadStore) ConvergeAuthorizedTransition(
 		case result := <-advanceResults:
 			pending--
 			if result.err != nil || !sameSemanticHead(result.head, target) {
+				if absenceAllowed {
+					return ExternalHead{}, fmt.Errorf("%w: exact Genesis enrollment did not converge at %s", ErrExternalHeadQuorum, result.member.ID)
+				}
 				continue
 			}
 			successes = append(successes, quorumMemberObservation{

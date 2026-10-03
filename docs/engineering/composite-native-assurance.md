@@ -105,8 +105,67 @@ Human confusion, support effort and whether a second human use is easier have
 not been measured. These are pending product experiments, not inferred from
 an automated rerun.
 
-The next highest-information experiment is composition with an actual
-Verified-Genesis-derived succession orchestration boundary. The current
-succession libraries remain library-capable, not production-orchestrated;
-this experiment deliberately uses a native authority-generation transition
-rather than fabricating a production Genesis caller.
+## Genesis and custodian handoff during lost acknowledgement
+
+The next corpus composes the existing protocols in one bounded native case:
+freeze successor-governance authority, rotate the quorum over the exact operation
+history head, activate the co-signed new authority, then append the recovery
+outcome under a distinct history custodian. Both epoch sets come from actual
+production-issued `VerifiedGenesisPin.ParseHistorySuccessionEpochs` calls for
+the exact native executable. Those are experiment callers; production succession
+remains library-capable, not production-orchestrated.
+
+PostgreSQL holds four logical witness policies and per-history heads. Each CAS
+locks policy and head in the same transaction. Policy transitions retain both
+the frozen history head and frozen authority head. The first shared witness
+freeze commits before its response is lost; resumption uses retained SQL state.
+The old custodian cannot self-promote using the new public policy/key: a narrow
+SQL function checks `session_user`, epoch, selected history and key at the CAS
+boundary. Neither history account has destination mutation or policy mutation
+permission. The controller/SQL administrator remains trusted. This is one SQL
+failure domain, not independent-provider consensus.
+
+The first native run exposed a real composition gap: FileJournal's identity-only
+absent enrollment expectation was interpreted as an existing sequence-zero
+head by QuorumHeadStore. The permanent producer regression reproduces this
+failure on main, then verifies proper absent enrollment, refusal to replace a
+retained empty anchor, and refusal to discard nonzero predecessor hints. The
+fix changes this existing relation; it adds no Core primitive.
+
+A subsequent run exposed authority provisioning's omitted minority. Initializing
+a current majority did not seed a readable missing witness, so the later shared
+handoff could not retain its frozen authority head. A stronger executable
+counterexample also found that two absent heads could hide the third witness's
+actual co-signed `JOINT_FROZEN` head: initialization recreated sequence zero and
+made OLD current again. Initialization now validates every readable retained
+state before writing and converges only absence or the exact Genesis seed.
+Absence is explicitly authorized for sequence-zero provisioning; it cannot
+authorize missing-prefix recovery. Positive/minority/reset regressions and the
+actual pre-fix source run remain in CI evidence.
+
+The portable proof includes both exact canonical signed Genesis payloads and
+envelopes, both authority approvals, their exact predecessor, the old signed
+anchor, and an ordered native quorum transcript. The independent policy must
+provide both expected manifest hashes/roots, both authority roots, both history
+keys, old history/authority checkpoints, expected new custodian, current
+checkpoint and evaluation time. The final chain must still contain the retained
+old prefix. A new signer who rehashes and signs a replacement prefix is rejected
+even with a freshly attested final head. The transcript may not enable NEW before
+every shared witness is frozen, or claim a different authority completion.
+
+The evaluator's succession canonicalizer supports ASCII values and exact
+nonnegative integers through 2^53-1. Unsupported encodings fail closed; tests
+compare the supported encoding with the actual producer canonicalizer. It does
+not reimplement the whole Genesis bootstrap assurance system. The existing
+bootstrap fixtures use simulated attestation/proof records. Machine-readable
+component grades therefore report effect=native, succession=native,
+Genesis=simulation, and overall=simulation. A signed proof is not physical TPM
+evidence or independent operator reproduction.
+
+The report identifies the new holder as `AUTHORIZED_AT_CHECKPOINT` only when
+authority handoff and predecessor continuity both verify. This is append/observe
+authority at the retained checkpoint, not new destination effect permission or
+an indefinite future lease. `UNKNOWN + TRUSTED_HISTORY` remains UNKNOWN without
+exact effect evidence. The corpus exports re-signed semantic falsifications,
+including prefix rewrite, mixed Genesis source, old-key continuation, early
+activation and grade inflation, alongside both positive reports.
