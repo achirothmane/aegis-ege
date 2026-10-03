@@ -294,3 +294,111 @@ The executable recovery corpus covers:
 The claim remains bounded: native storage must make `LoadCustody` faithful to
 the durable record, and the adapter still owns trust verification, storage
 durability, fencing and observation authenticity.
+
+
+## Fenced executor takeover v1
+
+The next hardening layer addresses executor replacement without allowing two
+workers to hold effect authority at the same time.
+
+It introduces a durable composite custody state:
+
+```text
+EffectID
+AttemptID
+Target
+Owner Identity
+Generation
+Phase
+```
+
+`Generation` is a monotonic fencing token. `Phase` is one of:
+
+```text
+RESERVED
+CROSSING
+UNKNOWN
+CLOSED
+```
+
+These are runtime state carried by the existing semantic basis; they are not
+new semantic primitive types.
+
+### Safe transfer boundary
+
+Only `RESERVED` custody may transfer execution ownership:
+
+```text
+A owns generation 1 / RESERVED
+        ↓
+fresh takeover Attestation
+        ↓
+atomic CAS
+        ↓
+B owns generation 2 / RESERVED
+```
+
+The old generation cannot cross the native effect boundary after the transfer.
+
+```text
+A(gen=1) returns late ──> DENY
+B(gen=2) current       ──> may continue
+```
+
+The adapter must enforce Owner + Generation at the native effect boundary.
+A userspace pre-check alone is not sufficient because transfer can race between
+check and use.
+
+### Crash boundary
+
+Execution moves durable custody to `CROSSING` **before** calling the external
+effect:
+
+```text
+RESERVED
+  ↓ durable CAS
+CROSSING
+  ↓ external effect callback
+UNKNOWN
+  ↓ exact trusted observation
+CLOSED
+```
+
+This makes a critical distinction explicit:
+
+- `RESERVED`: no effect has been allowed to enter through this fenced path;
+- `CROSSING` / `UNKNOWN`: an effect may have happened;
+- `CLOSED`: exact trusted observation proved the intended after-state.
+
+Therefore takeover is denied from `CROSSING`, `UNKNOWN`, or `CLOSED`.
+Those phases can be observed/reconciled, but they cannot be reopened as safe
+execution merely because another worker is available.
+
+### Executable checks
+
+The v1 takeover corpus proves:
+
+- normal fenced execution reaches CLOSED;
+- A can reserve, disappear, and transfer exact RESERVED custody to B;
+- the transfer atomically advances the fencing generation;
+- a late A holding the old generation is denied by native fencing;
+- B can execute the exact retained effect;
+- concurrent B/C takeover attempts have exactly one CAS winner;
+- a second takeover fences the intermediate owner;
+- new-owner substitution invalidates takeover authorization;
+- fresh target state is still revalidated after takeover;
+- CROSSING, UNKNOWN and CLOSED cannot be converted back to executable RESERVED.
+
+### Claim boundary
+
+This is still an experimental reference runtime.
+
+The safety claim requires **complete mediation for the tested effect path**:
+all mutations participating in executor takeover must pass through an adapter
+that atomically enforces the exact current Owner + Generation at the native
+effect boundary. Code that can bypass that destination fence is outside the
+claim.
+
+This layer does not manufacture distributed consensus. The adapter must supply
+the linearizable compare-and-swap / transaction / uniqueness primitive used for
+custody reservation and transfer.
