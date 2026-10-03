@@ -280,6 +280,17 @@ func provisionTaintRecoveryWitness(
 							ContainerPort: 8443,
 							Protocol:      corev1.ProtocolTCP,
 						}},
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler: corev1.ProbeHandler{
+								HTTPGet: &corev1.HTTPGetAction{
+									Path:   "/healthz",
+									Port:   intstr.FromInt(8443),
+									Scheme: corev1.URISchemeHTTPS,
+								},
+							},
+							PeriodSeconds:    1,
+							FailureThreshold: 30,
+						},
 						VolumeMounts: []corev1.VolumeMount{
 							{Name: "secret", MountPath: "/run/aegis-witness/secret", ReadOnly: true},
 							{Name: "config", MountPath: "/run/aegis-witness/config", ReadOnly: true},
