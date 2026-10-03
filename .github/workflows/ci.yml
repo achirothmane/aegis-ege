@@ -367,6 +367,9 @@ jobs:
             exit 1
           fi
           go run ./cmd/aegis-capability-runtime-provision
+          LIVE_QUORUM_CLIENT_BUNDLE="$RUNNER_TEMP/live-quorum-client.json" \
+          LIVE_QUORUM_CHAOS_KUBECONFIG="$RUNNER_TEMP/live-quorum-chaos-kubeconfig" \
+            go run ./cmd/aegis-live-quorum-provision
       - name: Remove provisioning authority
         run: |
           rm -f "$RUNNER_TEMP/workload-admin-kubeconfig"
@@ -378,15 +381,31 @@ jobs:
           test -s "$RUNNER_TEMP/witness-runtime-kubeconfig"
           test -s "$RUNNER_TEMP/taint-recovery-controller-bundle.json"
           test -s "$RUNNER_TEMP/external-head-witness-client.json"
+          test -s "$RUNNER_TEMP/live-quorum-client.json"
+          test -s "$RUNNER_TEMP/live-quorum-chaos-kubeconfig"
           test ! -e "$RUNNER_TEMP/head-witness-signer/private-key"
           test ! -e "$RUNNER_TEMP/head-witness-signer/tls.key"
           echo "KUBECONFIG=$RUNNER_TEMP/workload-runtime-kubeconfig" >> "$GITHUB_ENV"
           echo "WITNESS_KUBECONFIG=$RUNNER_TEMP/witness-runtime-kubeconfig" >> "$GITHUB_ENV"
           echo "TAINT_RECOVERY_CONTROLLER_BUNDLE=$RUNNER_TEMP/taint-recovery-controller-bundle.json" >> "$GITHUB_ENV"
           echo "EXTERNAL_HEAD_WITNESS_CLIENT_BUNDLE=$RUNNER_TEMP/external-head-witness-client.json" >> "$GITHUB_ENV"
+          echo "LIVE_QUORUM_CLIENT_BUNDLE=$RUNNER_TEMP/live-quorum-client.json" >> "$GITHUB_ENV"
+          echo "LIVE_QUORUM_CHAOS_KUBECONFIG=$RUNNER_TEMP/live-quorum-chaos-kubeconfig" >> "$GITHUB_ENV"
           echo "TAINT_RECOVERY_WITNESS_ENDPOINT=https://127.0.0.1:30443" >> "$GITHUB_ENV"
       - name: Run cross-cluster witness proof without admin credentials
         run: go test -tags=integration -run "^TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback$" -v ./internal/server
+      - name: Prove live 2-of-3 external head quorum
+        run: |
+          set -o pipefail
+          go test -tags=integration \
+            -run "^TestKindLiveTwoOfThreeExternalHeadQuorum$" \
+            -count=1 -v ./internal/server \
+            | tee "$RUNNER_TEMP/live-2of3-quorum.log"
+          grep -q -- "--- PASS: TestKindLiveTwoOfThreeExternalHeadQuorum" \
+            "$RUNNER_TEMP/live-2of3-quorum.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/live-2of3-quorum.log"; then
+            exit 1
+          fi
       - name: Prove recovery witness control-plane separation without admin credentials
         run: |
           set -o pipefail
