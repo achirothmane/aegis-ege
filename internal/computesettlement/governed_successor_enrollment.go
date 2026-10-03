@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/achirothmane/aegis-ege/internal/journal"
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 )
 
@@ -36,7 +37,7 @@ func CaptureGovernedSuccessorEnrollmentBoundAegisExecutionRoot(
 	receiptSource kernelfabric.EnrollmentIdentityReceiptReader,
 	enrollmentAuthorityPublicKey ed25519.PublicKey,
 	signedSuccessor kernelfabric.SignedEnrollmentIdentitySuccessorAuthorization,
-	successorGovernancePublicKey ed25519.PublicKey,
+	successorGovernance journal.GenesisEnrollmentSuccessorGovernanceBinding,
 	now time.Time,
 ) (GovernedSuccessorEnrollmentBoundAegisExecutionRoot, error) {
 	root, err := CaptureDurableEnrollmentBoundAegisExecutionRoot(
@@ -57,12 +58,23 @@ func CaptureGovernedSuccessorEnrollmentBoundAegisExecutionRoot(
 		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, err
 	}
 	receipt := root.EnrollmentReceipt.Receipt
-	if len(enrollmentAuthorityPublicKey) != ed25519.PublicKeySize ||
-		len(successorGovernancePublicKey) != ed25519.PublicKeySize {
-		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, errors.New("enrollment and successor-governance public keys are required")
+	if len(enrollmentAuthorityPublicKey) != ed25519.PublicKeySize {
+		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, errors.New("enrollment authority public key is required")
+	}
+	successorGovernancePublicKey, err := successorGovernance.PublicKey()
+	if err != nil {
+		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, fmt.Errorf("Genesis-bound successor governance trust is required: %w", err)
 	}
 	if string(enrollmentAuthorityPublicKey) == string(successorGovernancePublicKey) {
 		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, errors.New("successor governance authority must differ from enrollment authority")
+	}
+	if signedSuccessor.Authorization.Version != kernelfabric.EnrollmentIdentitySuccessorAuthorizationVersionV2 {
+		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, errors.New("VCS-13 requires Genesis-bound successor authorization v2")
+	}
+	if signedSuccessor.Authorization.GovernanceGenesisEpoch != successorGovernance.GenesisEpoch() ||
+		signedSuccessor.Authorization.GovernanceCapabilityEnvelopeHash != successorGovernance.CapabilityEnvelopeHash() ||
+		signedSuccessor.Authorization.GovernancePolicyHash != successorGovernance.PolicyHash() {
+		return GovernedSuccessorEnrollmentBoundAegisExecutionRoot{}, errors.New("successor governance authorization does not match verified Genesis binding")
 	}
 	// Authorization freshness is consumed at the successor transition boundary.
 	// A committed R2 must remain verifiable after that short-lived authorization
