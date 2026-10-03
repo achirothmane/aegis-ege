@@ -31,8 +31,9 @@ const (
 	taintRecoveryCrashHelperEnv = "AEGIS_TAINT_RECOVERY_CRASH_HELPER"
 	taintRecoveryPlanEnv        = "AEGIS_TAINT_RECOVERY_PLAN"
 	taintRecoveryAuthEnv        = "AEGIS_TAINT_RECOVERY_AUTH"
-	taintRecoveryKeyEnv         = "AEGIS_TAINT_RECOVERY_KEY"
-	taintRecoveryWitnessKeyEnv  = "AEGIS_TAINT_RECOVERY_WITNESS_KEY"
+	taintRecoveryTrustManifestEnv = "AEGIS_TAINT_RECOVERY_TRUST_MANIFEST"
+	taintRecoveryTrustSignerEnv   = "AEGIS_TAINT_RECOVERY_TRUST_SIGNER"
+	taintRecoveryTrustEpochEnv    = "AEGIS_TAINT_RECOVERY_TRUST_EPOCH"
 	taintRecoveryNowEnv         = "AEGIS_TAINT_RECOVERY_NOW"
 	taintRecoveryBoundaryEnv    = "AEGIS_TAINT_RECOVERY_BOUNDARY"
 )
@@ -83,19 +84,32 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 	if err := json.Unmarshal(payload, &signed); err != nil {
 		t.Fatalf("decode crash recovery authorization: %v", err)
 	}
-	keyBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryKeyEnv))
+	trustPayload, err := os.ReadFile(os.Getenv(taintRecoveryTrustManifestEnv))
 	if err != nil {
-		t.Fatalf("decode crash recovery authority key: %v", err)
+		t.Fatalf("read crash recovery trust manifest: %v", err)
 	}
-	if len(keyBytes) != ed25519.PublicKeySize {
-		t.Fatalf("crash recovery authority key size=%d want=%d", len(keyBytes), ed25519.PublicKeySize)
+	var signedTrust SignedTaintRecoveryTrustManifest
+	if err := json.Unmarshal(trustPayload, &signedTrust); err != nil {
+		t.Fatalf("decode crash recovery trust manifest: %v", err)
 	}
-	witnessKeyBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryWitnessKeyEnv))
+	trustSignerBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryTrustSignerEnv))
 	if err != nil {
-		t.Fatalf("decode crash recovery witness key: %v", err)
+		t.Fatalf("decode crash recovery trust signer key: %v", err)
 	}
-	if len(witnessKeyBytes) != ed25519.PublicKeySize {
-		t.Fatalf("crash recovery witness key size=%d want=%d", len(witnessKeyBytes), ed25519.PublicKeySize)
+	if len(trustSignerBytes) != ed25519.PublicKeySize {
+		t.Fatalf("crash recovery trust signer key size=%d want=%d", len(trustSignerBytes), ed25519.PublicKeySize)
+	}
+	minimumTrustEpoch, err := strconv.ParseUint(os.Getenv(taintRecoveryTrustEpochEnv), 10, 64)
+	if err != nil {
+		t.Fatalf("parse crash recovery trust epoch: %v", err)
+	}
+	recoveryTrust, err := NewTaintRecoveryTrustRoot(
+		signedTrust,
+		ed25519.PublicKey(trustSignerBytes),
+		minimumTrustEpoch,
+	)
+	if err != nil {
+		t.Fatalf("verify crash recovery trust root: %v", err)
 	}
 	now, err := time.Parse(time.RFC3339Nano, os.Getenv(taintRecoveryNowEnv))
 	if err != nil {
@@ -105,10 +119,9 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 	req := TaintRecoveryRequest{
 		BPFFSRoot:            os.Getenv(taintNativeHelperBPFFSRoot),
 		Plan:                 plan,
-		SignedAuthorization:  signed,
-		RecoveryAuthorityKey: ed25519.PublicKey(keyBytes),
-		RecoveryWitnessKey:   ed25519.PublicKey(witnessKeyBytes),
-		Now:                  now,
+		SignedAuthorization: signed,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	}
 	switch os.Getenv(taintRecoveryBoundaryEnv) {
 	case "epoch":
@@ -606,6 +619,43 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	recoveryTrustSignerPublic, recoveryTrustSignerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryAuthorityKeyID, err := BootstrapKeyID(recoveryPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryWitnessKeyID, err := BootstrapKeyID(recoveryWitnessPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const recoveryTrustEpoch uint64 = 1
+	signedRecoveryTrust, err := SignTaintRecoveryTrustManifest(
+		TaintRecoveryTrustManifest{
+			Version:            TaintRecoveryTrustManifestVersion,
+			TrustEpoch:         recoveryTrustEpoch,
+			AuthorityPrincipal: "native/recovery-authority",
+			AuthorityKeyID:     recoveryAuthorityKeyID,
+			AuthorityPublicKey: base64.StdEncoding.EncodeToString(recoveryPublic),
+			WitnessPrincipal:   "native/recovery-witness",
+			WitnessKeyID:       recoveryWitnessKeyID,
+			WitnessPublicKey:   base64.StdEncoding.EncodeToString(recoveryWitnessPublic),
+		},
+		recoveryTrustSignerPrivate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryTrust, err := NewTaintRecoveryTrustRoot(
+		signedRecoveryTrust,
+		recoveryTrustSignerPublic,
+		recoveryTrustEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	recoveryAuth := TaintRecoveryAuthorization{
 		Version:         TaintRecoveryAuthorizationVersion,
 		AuthorizationID: "native-source-recovery-epoch-1-to-2",
@@ -643,8 +693,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  authorityOnly,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err == nil {
@@ -697,6 +746,14 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err := os.WriteFile(recoveryAuthPath, recoveryAuthPayload, 0o600); err != nil {
 		t.Fatalf("write crash recovery authorization: %v", err)
 	}
+	recoveryTrustPath := filepath.Join(recoveryDir, "recovery-trust.json")
+	recoveryTrustPayload, err := json.Marshal(signedRecoveryTrust)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recoveryTrustPath, recoveryTrustPayload, 0o600); err != nil {
+		t.Fatalf("write crash recovery trust manifest: %v", err)
+	}
 	expectedCommitment, err := JointTaintRecoveryCommitmentDigest(signedRecovery)
 	if err != nil {
 		t.Fatal(err)
@@ -711,8 +768,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		taintRecoveryCrashHelperEnv+"=1",
 		taintRecoveryPlanEnv+"="+recoveryPlanPath,
 		taintRecoveryAuthEnv+"="+recoveryAuthPath,
-		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
-		taintRecoveryWitnessKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryWitnessPublic),
+		taintRecoveryTrustManifestEnv+"="+recoveryTrustPath,
+		taintRecoveryTrustSignerEnv+"="+base64.StdEncoding.EncodeToString(recoveryTrustSignerPublic),
+		taintRecoveryTrustEpochEnv+"="+strconv.FormatUint(recoveryTrustEpoch, 10),
 		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
 		taintRecoveryBoundaryEnv+"=epoch",
 		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
@@ -779,8 +837,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  signedOther,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
@@ -798,8 +855,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  signedRecovery,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err != nil {
@@ -907,8 +963,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  signedStaleFuture,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err == nil {
@@ -982,8 +1037,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		taintRecoveryCrashHelperEnv+"=1",
 		taintRecoveryPlanEnv+"="+recoveryPlanPath,
 		taintRecoveryAuthEnv+"="+cleanCrashAuthPath,
-		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
-		taintRecoveryWitnessKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryWitnessPublic),
+		taintRecoveryTrustManifestEnv+"="+recoveryTrustPath,
+		taintRecoveryTrustSignerEnv+"="+base64.StdEncoding.EncodeToString(recoveryTrustSignerPublic),
+		taintRecoveryTrustEpochEnv+"="+strconv.FormatUint(recoveryTrustEpoch, 10),
 		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
 		taintRecoveryBoundaryEnv+"=clean",
 		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
@@ -1051,8 +1107,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  signedWrongCompleted,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
@@ -1071,8 +1126,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  signedCleanCrash,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err != nil {
@@ -1131,8 +1185,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		BPFFSRoot:            bpffsRoot,
 		Plan:                 recoveryPlan,
 		SignedAuthorization:  signedCleanCrash,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
+		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
