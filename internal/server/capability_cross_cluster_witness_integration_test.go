@@ -4,12 +4,18 @@ package server
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/journal"
@@ -20,6 +26,20 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+const externalHeadWitnessBundleVersionIntegration = "aegis-ege/external-head-witness-client/v1"
+
+type externalHeadWitnessClientBundleIntegration struct {
+	Version          string                    `json:"version"`
+	Endpoint         string                    `json:"endpoint"`
+	TLSServerName    string                    `json:"tls_server_name"`
+	CAPEM            string                    `json:"ca_pem"`
+	WitnessKeyID     string                    `json:"witness_key_id"`
+	WitnessPublicKey string                    `json:"witness_public_key"`
+	Policy           journal.QuorumPolicyState `json:"policy"`
+	JournalID        string                    `json:"journal_id"`
+	StateName        string                    `json:"state_name"`
+}
 
 const (
 	kubernetesCapabilityIssueKey = "issue.json"
@@ -121,8 +141,9 @@ func runtimeConfigForForeignAPI(base *rest.Config, token string) *rest.Config {
 func TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback(t *testing.T) {
 	workloadPath := os.Getenv("KUBECONFIG")
 	witnessPath := os.Getenv("WITNESS_KUBECONFIG")
-	if workloadPath == "" || witnessPath == "" {
-		t.Skip("KUBECONFIG and WITNESS_KUBECONFIG are required")
+	externalHeadBundlePath := os.Getenv("EXTERNAL_HEAD_WITNESS_CLIENT_BUNDLE")
+	if workloadPath == "" || witnessPath == "" || externalHeadBundlePath == "" {
+		t.Skip("runtime kubeconfigs and external head witness bundle are required")
 	}
 
 	workloadConfig, err := clientcmd.BuildConfigFromFlags("", workloadPath)
@@ -145,6 +166,57 @@ func TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	rootWriterClient, err := kubernetes.NewForConfig(witnessConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bundlePayload, err := os.ReadFile(externalHeadBundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var witnessBundle externalHeadWitnessClientBundleIntegration
+	if err := json.Unmarshal(bundlePayload, &witnessBundle); err != nil {
+		t.Fatal(err)
+	}
+	if witnessBundle.Version != externalHeadWitnessBundleVersionIntegration {
+		t.Fatalf("external head witness bundle version=%q", witnessBundle.Version)
+	}
+	if witnessBundle.JournalID != "cross-cluster-capability-root" {
+		t.Fatalf("external head witness journal=%q", witnessBundle.JournalID)
+	}
+	witnessPublicRaw, err := base64.StdEncoding.DecodeString(
+		witnessBundle.WitnessPublicKey,
+	)
+	if err != nil || len(witnessPublicRaw) != ed25519.PublicKeySize {
+		t.Fatalf("invalid external head witness public key")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM([]byte(witnessBundle.CAPEM)) {
+		t.Fatal("external head witness CA PEM is invalid")
+	}
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    roots,
+				ServerName: witnessBundle.TLSServerName,
+			},
+		},
+		Timeout: 10 * time.Second,
+	}
+	remoteHeadStore, err := journal.NewRemoteHeadStore(
+		witnessBundle.Endpoint,
+		witnessBundle.WitnessKeyID,
+		ed25519.PublicKey(witnessPublicRaw),
+		httpClient,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headStore, err := journal.NewPolicyBoundExternalHeadStore(
+		remoteHeadStore,
+		witnessBundle.Policy,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +247,7 @@ func TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback(t *testing.T) {
 	}
 	if _, err := foreignWorkload.CoreV1().ConfigMaps(witnessNamespace).Get(
 		ctx,
-		witnessHeadConfigMapName,
+		witnessBundle.StateName,
 		metav1.GetOptions{},
 	); err == nil || (!apierrors.IsUnauthorized(err) && !apierrors.IsForbidden(err)) {
 		t.Fatalf("workload runtime credential crossed witness trust domain: %v", err)
@@ -215,10 +287,6 @@ func TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback(t *testing.T) {
 		client:    workloadClient,
 		namespace: workloadNamespace,
 		name:      authorityName,
-	}
-	headStore, err := journal.NewKubernetesHeadStore(rootWriterClient, witnessNamespace)
-	if err != nil {
-		t.Fatal(err)
 	}
 	anchor, err := NewExternalHeadCapabilityRootAnchor(
 		headStore,
@@ -269,14 +337,22 @@ func TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback(t *testing.T) {
 		t.Fatalf("unexpected witness head at T2: %+v", witnessT2)
 	}
 
-	// Root-writer is protocol-scoped: it can update the pre-provisioned witness
-	// head but cannot delete/recreate it.
+	// The exported witness runtime credential is no longer the persistence
+	// writer. Only the in-Pod external-head witness service account can touch
+	// the governed state object.
+	if _, err := rootWriterClient.CoreV1().ConfigMaps(witnessNamespace).Get(
+		ctx,
+		witnessBundle.StateName,
+		metav1.GetOptions{},
+	); err == nil || !apierrors.IsForbidden(err) {
+		t.Fatalf("exported witness credential read governed witness state: %v", err)
+	}
 	if err := rootWriterClient.CoreV1().ConfigMaps(witnessNamespace).Delete(
 		ctx,
-		witnessHeadConfigMapName,
+		witnessBundle.StateName,
 		metav1.DeleteOptions{},
 	); err == nil || !apierrors.IsForbidden(err) {
-		t.Fatalf("root-writer unexpectedly has delete authority over witness head: %v", err)
+		t.Fatalf("exported witness credential deleted governed witness state: %v", err)
 	}
 
 	if err := workloadClient.CoreV1().ConfigMaps(workloadNamespace).Delete(
