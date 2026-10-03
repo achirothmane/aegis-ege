@@ -15,9 +15,12 @@ const quorumHeadStoreVersion = "aegis-ege/quorum-head-store/v1"
 var ErrExternalHeadQuorum = errors.New("external journal head quorum unavailable")
 
 type QuorumHeadMember struct {
-	ID                string
-	TrustManifestHash string
-	Store             ExternalHeadStore
+	ID    string
+	Store ExternalHeadStore
+}
+
+type QuorumTrustIdentityProvider interface {
+	QuorumTrustManifestHash() string
 }
 
 type QuorumHeadStore struct {
@@ -80,7 +83,6 @@ func NewQuorumHeadStore(
 	copied := make([]QuorumHeadMember, 0, len(members))
 	for _, member := range members {
 		member.ID = strings.TrimSpace(member.ID)
-		member.TrustManifestHash = strings.TrimSpace(member.TrustManifestHash)
 		if member.ID == "" {
 			return nil, errors.New("quorum witness member id is required")
 		}
@@ -98,11 +100,21 @@ func NewQuorumHeadStore(
 				member.ID,
 			)
 		}
-		if member.TrustManifestHash != wantTrustManifestHash {
+		identityProvider, ok := member.Store.(QuorumTrustIdentityProvider)
+		if !ok {
 			return nil, fmt.Errorf(
-				"quorum witness %q trust manifest hash %s does not match Genesis binding %s",
+				"quorum witness %q store does not expose a governed trust identity",
 				member.ID,
-				member.TrustManifestHash,
+			)
+		}
+		actualTrustManifestHash := strings.TrimSpace(
+			identityProvider.QuorumTrustManifestHash(),
+		)
+		if actualTrustManifestHash != wantTrustManifestHash {
+			return nil, fmt.Errorf(
+				"quorum witness %q store trust manifest hash %s does not match Genesis binding %s",
+				member.ID,
+				actualTrustManifestHash,
 				wantTrustManifestHash,
 			)
 		}
