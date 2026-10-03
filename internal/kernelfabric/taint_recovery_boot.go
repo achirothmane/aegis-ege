@@ -6,6 +6,21 @@ import (
 	"time"
 )
 
+// ValidateTaintRecoveryAuthorizationBootBinding requires recovery authority to
+// belong to exactly the Linux boot currently executing the recovery.
+func ValidateTaintRecoveryAuthorizationBootBinding(
+	auth TaintRecoveryAuthorization,
+	currentBootIDHash string,
+) error {
+	if _, err := ParseSHA256Digest(currentBootIDHash); err != nil {
+		return fmt.Errorf("current boot identity: %w", err)
+	}
+	if auth.BootIDHash != currentBootIDHash {
+		return fmt.Errorf("%w: boot identity mismatch", ErrTaintRecoveryAuthorization)
+	}
+	return nil
+}
+
 // VerifySignedTaintRecoveryAuthorizationForBoot verifies the signed recovery
 // authorization and then binds it to exactly one Linux boot identity.
 //
@@ -21,11 +36,8 @@ func VerifySignedTaintRecoveryAuthorizationForBoot(
 	if err := VerifySignedTaintRecoveryAuthorization(signed, publicKey, now); err != nil {
 		return err
 	}
-	if _, err := ParseSHA256Digest(currentBootIDHash); err != nil {
-		return fmt.Errorf("current boot identity: %w", err)
-	}
-	if signed.Authorization.BootIDHash != currentBootIDHash {
-		return fmt.Errorf("%w: boot identity mismatch", ErrTaintRecoveryAuthorization)
-	}
-	return nil
+	return ValidateTaintRecoveryAuthorizationBootBinding(
+		signed.Authorization,
+		currentBootIDHash,
+	)
 }
