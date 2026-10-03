@@ -56,11 +56,25 @@ func quorumCapabilityEnvelopeForTest(
 	return raw
 }
 
+type quorumTrustBoundTestStore struct {
+	ExternalHeadStore
+	trustManifestHash string
+}
+
+func (s *quorumTrustBoundTestStore) QuorumTrustManifestHash() string {
+	if s == nil {
+		return ""
+	}
+	return s.trustManifestHash
+}
+
 func quorumMemberForTest(id string, store ExternalHeadStore) QuorumHeadMember {
 	return QuorumHeadMember{
-		ID:                id,
-		TrustManifestHash: quorumTrustHashForTest(id),
-		Store:             store,
+		ID: id,
+		Store: &quorumTrustBoundTestStore{
+			ExternalHeadStore:  store,
+			trustManifestHash: quorumTrustHashForTest(id),
+		},
 	}
 }
 
@@ -177,8 +191,13 @@ func TestQuorumHeadStoreRejectsWitnessTrustIdentityReplacement(t *testing.T) {
 		"witness-c",
 	)
 	base := newQuorumTestStore(nil)
-	replaced := quorumMemberForTest("witness-b", base)
-	replaced.TrustManifestHash = sha256Digest([]byte("different-runtime-key-and-endpoint"))
+	replaced := QuorumHeadMember{
+		ID: "witness-b",
+		Store: &quorumTrustBoundTestStore{
+			ExternalHeadStore:  base,
+			trustManifestHash: sha256Digest([]byte("different-runtime-key-and-endpoint")),
+		},
+	}
 
 	if _, err := NewQuorumHeadStore([]QuorumHeadMember{
 		quorumMemberForTest("witness-a", base),
