@@ -519,3 +519,43 @@ The destination attestation is a signed bridge artifact emitted by an independen
 ### Claim boundary
 
 This v1 protocol now enforces cryptographic separation between the migration authority and the destination-attestation authority and verifies that the signed attestation matches the live TPM-B device and measured-boot identities. The bridge carries a digest of the remote ALLOW decision rather than re-running the full EK/AK/PCR/IMA verification inside the migration function. Therefore the remaining trust boundary is the attestation authority that issues that bridge after remote verification, plus its key custody and verifier state.
+
+### Remote-decision freshness binding
+
+The destination-attestation bridge is v2 and cannot turn an old remote `ALLOW` into a fresh migration approval merely by issuing a new bridge timestamp.
+
+The signed bridge now commits to:
+
+```text
+destination_generation
+remote_decision_id
+remote_challenge_id
+remote_decision_digest
+remote_decision_verified_at
+```
+
+The migration path requires the attested destination generation to equal both the migration authorization and the live TPM root generation.
+
+Freshness is bounded by the remote decision itself:
+
+```text
+remote decision verified at T0
+        |
+        +-- maximum migration evidence age = 2 minutes
+        |
+bridge verified/expires inside that deadline
+        |
+        v
+migration may proceed
+```
+
+A bridge whose own `ExpiresAt` extends beyond the remote decision freshness deadline is rejected, even if the bridge signature is valid and the bridge has not yet expired. A remote decision timestamp too far in the future is also rejected.
+
+The executable falsification corpus proves, on the same TPM-B and before any counter increment:
+
+- a remote decision older than the freshness bound is denied;
+- a newly signed bridge cannot extend an older remote decision's usable lifetime;
+- a future-dated remote decision is denied;
+- an attested destination generation different from the authorized/live generation is denied.
+
+All rejected cases leave the destination TPM counter unchanged. The exact fresh attestation remains the only path that advances the destination generation.

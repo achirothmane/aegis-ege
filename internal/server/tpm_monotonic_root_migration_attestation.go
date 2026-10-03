@@ -12,9 +12,17 @@ import (
 	"time"
 )
 
-const TPMRootMigrationDestinationAttestationVersion = "aegis.ege/tpm-root-migration-destination-attestation/v1"
+const (
+	TPMRootMigrationDestinationAttestationVersion = "aegis.ege/tpm-root-migration-destination-attestation/v2"
 
-var ErrTPMRootMigrationDestinationAttestation = errors.New("TPM root migration destination attestation is invalid")
+	DefaultTPMRootMigrationRemoteDecisionMaxAge = 2 * time.Minute
+	DefaultTPMRootMigrationAttestationClockSkew = 5 * time.Second
+)
+
+var (
+	ErrTPMRootMigrationDestinationAttestation      = errors.New("TPM root migration destination attestation is invalid")
+	ErrTPMRootMigrationDestinationAttestationStale = errors.New("TPM root migration destination attestation remote decision is stale")
+)
 
 type TPMRootMigrationDestinationAttestation struct {
 	Version                         string    `json:"version"`
@@ -23,7 +31,11 @@ type TPMRootMigrationDestinationAttestation struct {
 	EnrolledDeviceID                string    `json:"enrolled_device_id"`
 	DestinationDeviceIdentity       string    `json:"destination_device_identity"`
 	DestinationMeasuredBootIdentity string    `json:"destination_measured_boot_identity"`
+	DestinationGeneration           uint64    `json:"destination_generation"`
+	RemoteDecisionID                string    `json:"remote_decision_id"`
+	RemoteChallengeID               string    `json:"remote_challenge_id"`
 	RemoteDecisionDigest            string    `json:"remote_decision_digest"`
+	RemoteDecisionVerifiedAt        time.Time `json:"remote_decision_verified_at"`
 	Decision                        string    `json:"decision"`
 	VerifiedAt                      time.Time `json:"verified_at"`
 	ExpiresAt                       time.Time `json:"expires_at"`
@@ -32,8 +44,8 @@ type TPMRootMigrationDestinationAttestation struct {
 
 type SignedTPMRootMigrationDestinationAttestation struct {
 	Attestation TPMRootMigrationDestinationAttestation `json:"attestation"`
-	KeyID       string                                 `json:"key_id"`
-	Signature   string                                 `json:"signature"`
+	KeyID       string                                  `json:"key_id"`
+	Signature   string                                  `json:"signature"`
 }
 
 func ValidateTPMRootMigrationDestinationAttestation(att TPMRootMigrationDestinationAttestation) error {
@@ -43,6 +55,8 @@ func ValidateTPMRootMigrationDestinationAttestation(att TPMRootMigrationDestinat
 	if strings.TrimSpace(att.AttestationID) == "" ||
 		strings.TrimSpace(att.MigrationID) == "" ||
 		strings.TrimSpace(att.EnrolledDeviceID) == "" ||
+		strings.TrimSpace(att.RemoteDecisionID) == "" ||
+		strings.TrimSpace(att.RemoteChallengeID) == "" ||
 		strings.TrimSpace(att.VerifierID) == "" {
 		return fmt.Errorf("%w: identity fields are required", ErrTPMRootMigrationDestinationAttestation)
 	}
@@ -51,11 +65,17 @@ func ValidateTPMRootMigrationDestinationAttestation(att TPMRootMigrationDestinat
 		!validSHA256Ref(att.RemoteDecisionDigest) {
 		return fmt.Errorf("%w: digest binding is invalid", ErrTPMRootMigrationDestinationAttestation)
 	}
+	if att.DestinationGeneration == 0 {
+		return fmt.Errorf("%w: destination_generation must be non-zero", ErrTPMRootMigrationDestinationAttestation)
+	}
 	if att.Decision != "ALLOW" {
 		return fmt.Errorf("%w: destination decision must be ALLOW", ErrTPMRootMigrationDestinationAttestation)
 	}
-	if att.VerifiedAt.IsZero() || att.ExpiresAt.IsZero() || !att.ExpiresAt.After(att.VerifiedAt) {
-		return fmt.Errorf("%w: validity window is invalid", ErrTPMRootMigrationDestinationAttestation)
+	if att.RemoteDecisionVerifiedAt.IsZero() ||
+		att.VerifiedAt.IsZero() ||
+		att.ExpiresAt.IsZero() ||
+		!att.ExpiresAt.After(att.VerifiedAt) {
+		return fmt.Errorf("%w: validity timestamps are invalid", ErrTPMRootMigrationDestinationAttestation)
 	}
 	return nil
 }
@@ -107,11 +127,32 @@ func VerifySignedTPMRootMigrationDestinationAttestation(
 	if !ed25519.Verify(publicKey, payload, signature) {
 		return fmt.Errorf("%w: signature verification failed", ErrTPMRootMigrationDestinationAttestation)
 	}
+
 	now = now.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if now.Before(signed.Attestation.VerifiedAt.UTC()) || !now.Before(signed.Attestation.ExpiresAt.UTC()) {
+	att := signed.Attestation
+	remoteVerifiedAt := att.RemoteDecisionVerifiedAt.UTC()
+	verifiedAt := att.VerifiedAt.UTC()
+	expiresAt := att.ExpiresAt.UTC()
+	skew := DefaultTPMRootMigrationAttestationClockSkew
+	maxAge := DefaultTPMRootMigrationRemoteDecisionMaxAge
+
+	if remoteVerifiedAt.After(now.Add(skew)) {
+		return fmt.Errorf("%w: remote decision timestamp is in the future", ErrTPMRootMigrationDestinationAttestationStale)
+	}
+	if verifiedAt.Before(remoteVerifiedAt.Add(-skew)) {
+		return fmt.Errorf("%w: bridge predates remote decision", ErrTPMRootMigrationDestinationAttestation)
+	}
+	deadline := remoteVerifiedAt.Add(maxAge)
+	if !now.Before(deadline) {
+		return fmt.Errorf("%w: remote decision age exceeded %s", ErrTPMRootMigrationDestinationAttestationStale, maxAge)
+	}
+	if expiresAt.After(deadline) {
+		return fmt.Errorf("%w: bridge extends remote decision freshness", ErrTPMRootMigrationDestinationAttestationStale)
+	}
+	if now.Before(verifiedAt) || !now.Before(expiresAt) {
 		return fmt.Errorf("%w: attestation is outside its validity window", ErrTPMRootMigrationDestinationAttestation)
 	}
 	return nil
@@ -134,7 +175,7 @@ func TPMRootMigrationDestinationAttestationDigest(
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(append([]byte("aegis-ege/tpm-root-migration-destination-attestation-commitment/v1\x00"), body...))
+	sum := sha256.Sum256(append([]byte("aegis-ege/tpm-root-migration-destination-attestation-commitment/v2\x00"), body...))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -145,15 +186,18 @@ func canonicalTPMRootMigrationDestinationAttestationPayload(
 	att.MigrationID = strings.TrimSpace(att.MigrationID)
 	att.EnrolledDeviceID = strings.TrimSpace(att.EnrolledDeviceID)
 	att.DestinationDeviceIdentity = strings.TrimSpace(att.DestinationDeviceIdentity)
+	att.RemoteDecisionID = strings.TrimSpace(att.RemoteDecisionID)
+	att.RemoteChallengeID = strings.TrimSpace(att.RemoteChallengeID)
 	att.DestinationMeasuredBootIdentity = strings.TrimSpace(att.DestinationMeasuredBootIdentity)
 	att.RemoteDecisionDigest = strings.TrimSpace(att.RemoteDecisionDigest)
 	att.Decision = strings.TrimSpace(att.Decision)
 	att.VerifierID = strings.TrimSpace(att.VerifierID)
+	att.RemoteDecisionVerifiedAt = att.RemoteDecisionVerifiedAt.UTC()
 	att.VerifiedAt = att.VerifiedAt.UTC()
 	att.ExpiresAt = att.ExpiresAt.UTC()
 	body, err := json.Marshal(att)
 	if err != nil {
 		return nil, err
 	}
-	return append([]byte("aegis-ege/tpm-root-migration-destination-attestation/v1\x00"), body...), nil
+	return append([]byte("aegis-ege/tpm-root-migration-destination-attestation/v2\x00"), body...), nil
 }

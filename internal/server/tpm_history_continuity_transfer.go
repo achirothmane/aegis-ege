@@ -244,7 +244,8 @@ func TransferTPMNVHistoryContinuity(
 	if auth.DestinationAttestationDigest != attestationDigest ||
 		att.MigrationID != auth.TransferID ||
 		att.DestinationDeviceIdentity != auth.DestinationDeviceIdentity ||
-		att.DestinationMeasuredBootIdentity != auth.DestinationMeasuredBootIdentity {
+		att.DestinationMeasuredBootIdentity != auth.DestinationMeasuredBootIdentity ||
+		att.DestinationGeneration != auth.DestinationGeneration {
 		return fmt.Errorf(
 			"%w: destination attestation does not match transfer authorization",
 			ErrTPMHistoryContinuityAuthorization,
