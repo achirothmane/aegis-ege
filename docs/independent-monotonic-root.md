@@ -448,6 +448,7 @@ source_generation
 destination_device_identity
 destination_generation
 destination_nv_index
+destination_attestation_digest
 not_before
 expires_at
 ```
@@ -465,6 +466,15 @@ destination TPM identity   == authorized destination identity
 destination generation     == authorized destination generation
 destination NV handle      == authorized destination NV handle
 destination authority set  == empty
+
+signed destination attestation:
+  migration_id == authorized migration
+  TPM device identity == live destination
+  measured boot identity == live destination
+  decision == ALLOW
+  remote decision digest present
+  verifier signature valid
+  verifier key != migration authority key
 ```
 
 Only then does it create a new destination generation using the same crash-consistent protocol:
@@ -485,6 +495,7 @@ The new committed state records:
 predecessor_device_identity
 migration_source_state_digest
 migration_authorization_digest
+migration_destination_attestation_digest
 ```
 
 so the replacement does not erase its provenance.
@@ -501,6 +512,10 @@ Replaying the same signed migration is rejected as `ErrTPMRootMigrationReplay`.
 
 A separate falsification test verifies that expired and forged authorizations are rejected before the destination counter changes.
 
+A third falsification test closes the destination-evidence boundary. It proves that the migration signer cannot self-attest the replacement TPM: using the same Ed25519 key for migration authorization and destination attestation is rejected. It also proves that a correctly signed destination attestation whose measured-boot identity does not match the live TPM-B state is rejected before TPM-B's counter changes.
+
+The destination attestation is a signed bridge artifact emitted by an independent attestation authority after successful enrollment/remote verification. It binds the exact migration ID, enrolled device ID, live TPM root identity, live measured-boot identity, and the digest of the remote ALLOW decision. The migration authorization then commits to the exact signed attestation digest.
+
 ### Claim boundary
 
-This v1 protocol proves explicit software-visible authorization for a root transition between two TPM identities. It does not prove that the migration signer is organizationally independent, nor does it remotely attest the destination TPM inside the migration function itself. A production profile should issue the signed migration authorization only after independently verifying both enrolled device identities and the intended replacement event.
+This v1 protocol now enforces cryptographic separation between the migration authority and the destination-attestation authority and verifies that the signed attestation matches the live TPM-B device and measured-boot identities. The bridge carries a digest of the remote ALLOW decision rather than re-running the full EK/AK/PCR/IMA verification inside the migration function. Therefore the remaining trust boundary is the attestation authority that issues that bridge after remote verification, plus its key custody and verifier state.
