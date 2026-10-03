@@ -64,7 +64,11 @@ func main() {
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)
 	must(policy.Validate())
 
-	witnessPublic := mustDecodeEd25519Public([]byte(signedTrust.Manifest.WitnessPublicKey))
+	witnessVerifier, err := kernelfabric.NewRecoveryWitnessVerifier(
+		signedTrust.Manifest.WitnessSignatureAlgorithm,
+		signedTrust.Manifest.WitnessPublicKey,
+	)
+	must(err)
 	signerEndpoint := strings.TrimSpace(string(requireFile("WITNESS_SIGNER_ENDPOINT_PATH")))
 	signerCAPEM := requireFile("WITNESS_SIGNER_CA_PATH")
 	signerServerName := strings.TrimSpace(
@@ -84,10 +88,10 @@ func main() {
 		},
 		Timeout: 5 * time.Second,
 	}
-	witnessSigner, err := kernelfabric.NewRemoteRecoveryWitnessSigner(
+	witnessSigner, err := kernelfabric.NewRemoteRecoveryWitnessSignerWithVerifier(
 		signerEndpoint,
 		signedTrust.Manifest.WitnessKeyID,
-		witnessPublic,
+		witnessVerifier,
 		signerHTTPClient,
 	)
 	must(err)
