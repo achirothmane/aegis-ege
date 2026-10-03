@@ -211,7 +211,7 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	cfg := TPMNVHistoryAnchorConfig{
 		NVIndex:   tpm2.TPMHandle(0x0180A152),
 		StatePath: filepath.Join(dir, "history-anchor.json"),
-		IndexAuth: []byte("aegis-history-anchor-interruption-test"),
+		IndexAuth: []byte("aegis-history-anchor-crash"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
