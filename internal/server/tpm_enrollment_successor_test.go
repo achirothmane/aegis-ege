@@ -308,6 +308,13 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	attestationTrust := migrationAttestationTrustForTest(
+		t,
+		attestationPub,
+		31,
+		17,
+		"sha256:"+strings.Repeat("e", 64),
+	)
 	governancePub, governancePriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -358,10 +365,14 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		DestinationMeasuredBootIdentity:    destinationBootIdentity,
 		DestinationStateDigest:             destinationState.Digest,
 		DestinationGeneration:              destinationState.Generation,
-		DestinationNVIndex:                 uint32(cfgB.NVIndex),
-		DestinationHeadNVIndex:             uint32(cfgB.HeadNVIndex),
-		DestinationAttestationDigest:       destinationAttestationDigest,
-		NotBefore:                          now.Add(-time.Minute),
+		DestinationNVIndex:                      uint32(cfgB.NVIndex),
+		DestinationHeadNVIndex:                  uint32(cfgB.HeadNVIndex),
+		DestinationAttestationDigest:            destinationAttestationDigest,
+		DestinationAttestationGenesisEpoch:      attestationTrust.genesisEpoch,
+		DestinationAttestationTrustRootRef:      attestationTrust.trustRootRef,
+		DestinationAttestationTrustRootEpoch:    attestationTrust.trustRootEpoch,
+		DestinationAttestationPolicyHash:        attestationTrust.attestationPolicyHash,
+		NotBefore:                               now.Add(-time.Minute),
 		ExpiresAt:                          now.Add(5 * time.Minute),
 	}
 	signedTransfer, err := SignTPMHistoryContinuityTransferAuthorization(transferAuth, transferPriv)
@@ -426,7 +437,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 	); !errors.Is(err, ErrTPMEnrollmentSuccessorGovernance) {
 		t.Fatalf("fresh TPM-B without continuity transfer was not rejected: %v", err)
 	}
@@ -447,7 +458,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	); err != nil {
 		t.Fatalf("authorized enrollment-head continuity transfer failed: %v", err)
@@ -485,7 +496,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 	); !errors.Is(err, ErrTPMEnrollmentSuccessorGovernance) {
 		t.Fatalf("different successor EK was not rejected: %v", err)
 	}
@@ -510,7 +521,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -544,7 +555,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 	)
 	if err != nil {
 		t.Fatalf("governed successor retry failed: %v", err)
