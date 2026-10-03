@@ -26,7 +26,7 @@ const (
 	recoveryWitnessSecretNameIntegration     = "taint-recovery-witness-key"
 	recoveryWitnessConfigNameIntegration     = "taint-recovery-witness-config"
 	recoveryWitnessDeploymentNameIntegration = "taint-recovery-witness"
-	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v3"
+	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v4"
 )
 
 type recoveryControllerBundleIntegration struct {
