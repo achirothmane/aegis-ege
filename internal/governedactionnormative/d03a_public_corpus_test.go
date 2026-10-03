@@ -227,8 +227,8 @@ func TestD03APublicCorpusPinsFrozenOracleAndCannotClaimD03Pass(t *testing.T) {
 
 func TestD03APublicCorpusSourcesAreExternalClosedAndGrounded(t *testing.T) {
 	corpus := loadD03ACorpus(t)
-	if len(corpus.Incidents) < 11 {
-		t.Fatalf("D03-A v1 expected at least 11 grounded reference mappings, got %d", len(corpus.Incidents))
+	if len(corpus.Incidents) < 12 {
+		t.Fatalf("D03-A v1 expected at least 12 grounded reference mappings, got %d", len(corpus.Incidents))
 	}
 
 	seen := map[string]bool{}
@@ -348,6 +348,37 @@ func TestD03ATerraformOrphanedEffectCaseRequiresPriorEffectReconciliation(t *tes
 	}
 	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
 		t.Fatalf("Terraform fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
+	}
+}
+
+
+func TestD03ACertManagerDuplicateRequestCaseRejectsUnprovenSecondEffect(t *testing.T) {
+	corpus := loadD03ACorpus(t)
+	var found *d03AIncident
+	for i := range corpus.Incidents {
+		if corpus.Incidents[i].ID == "D03A-CERTMGR-4956" {
+			found = &corpus.Incidents[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("missing D03A-CERTMGR-4956 certificate-issuance incident")
+	}
+	if found.Repository != "cert-manager/cert-manager" || found.Domain != "certificate-issuance-control" {
+		t.Fatalf("unexpected cert-manager incident identity: %+v", found)
+	}
+	if found.GroundTruth.Fix.MergeCommit != "cefd8ec93f2bf9dd7216ecc6a42551bed298e5da" {
+		t.Fatalf("cert-manager fix provenance drifted: %s", found.GroundTruth.Fix.MergeCommit)
+	}
+	h := found.KernelMapping.HistoricalOverrides
+	if !h["possible_effect_exists"] || !h["substitution_requested"] || h["safe_substitution_proven"] {
+		t.Fatalf("historical cert-manager mapping must represent uncertain prior create plus unsafe replacement identity: %+v", h)
+	}
+	if found.KernelMapping.HistoricalExpected != "REJECT_SECOND_EFFECT" {
+		t.Fatalf("unexpected cert-manager historical disposition %q", found.KernelMapping.HistoricalExpected)
+	}
+	if found.KernelMapping.FixedExpected != "ALLOW_BOUND_EFFECT" || !found.KernelMapping.FixedOverrides["emit_effect"] {
+		t.Fatalf("cert-manager fixed counterpart must remain a useful permitted path: %+v", found.KernelMapping)
 	}
 }
 
