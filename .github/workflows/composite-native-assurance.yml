@@ -138,27 +138,32 @@ jobs:
           test "$result" -ne 0
           grep -q 'old admission crossed a new authority generation: disposition=CLOSED effects=1' "$COMPOSITE_ARTIFACT_DIR/baseline.log"
 
-      - name: Preserve quorum enrollment composition counterexample
+      - name: Preserve enrollment and authority-reset counterexamples
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           git show "$BASE_SHA:internal/journal/quorum_head_store.go" > "$RUNNER_TEMP/base-quorum.go"
-          if grep -q 'FileJournal names the selected identity' "$RUNNER_TEMP/base-quorum.go"; then
-            echo 'Baseline already enforces exact absent enrollment.' > "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.txt"
+          git show "$BASE_SHA:internal/journal/successor_governance_rotation.go" > "$RUNNER_TEMP/base-successor.go"
+          if grep -q 'FileJournal names the selected identity' "$RUNNER_TEMP/base-quorum.go" && grep -q 'Validate every readable retained head' "$RUNNER_TEMP/base-successor.go"; then
+            echo 'Baseline already enforces exact enrollment and retained authority.' > "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.txt"
             exit 0
           fi
           cp internal/journal/quorum_head_store.go "$RUNNER_TEMP/current-quorum.go"
-          trap 'cp "$RUNNER_TEMP/current-quorum.go" internal/journal/quorum_head_store.go' EXIT
+          cp internal/journal/successor_governance_rotation.go "$RUNNER_TEMP/current-successor.go"
+          trap 'cp "$RUNNER_TEMP/current-quorum.go" internal/journal/quorum_head_store.go; cp "$RUNNER_TEMP/current-successor.go" internal/journal/successor_governance_rotation.go' EXIT
           cp "$RUNNER_TEMP/base-quorum.go" internal/journal/quorum_head_store.go
+          cp "$RUNNER_TEMP/base-successor.go" internal/journal/successor_governance_rotation.go
           set +e
-          go test -race -mod=readonly -count=1 -run '^TestQuorum(FileJournalEnrollmentPreservesRetainedIdentity|RejectsMalformedNonexistentPredecessor)$' ./internal/journal > "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.log" 2>&1
+          go test -race -mod=readonly -count=1 -run '^Test(Quorum(FileJournalEnrollmentPreservesRetainedIdentity|RejectsMalformedNonexistentPredecessor)|SuccessorInitialization)' ./internal/journal > "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.log" 2>&1
           result=$?
           set -e
           test "$result" -ne 0
           grep -q 'anchored journal cannot enroll through existing quorum relation' "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.log"
           grep -q 'nonzero nonexistent predecessor accepted' "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.log"
+          grep -q 'current majority omitted readable Genesis seed' "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.log"
+          grep -q 'initialization reset retained JOINT_FROZEN:.*old_authority_current=true' "$COMPOSITE_ARTIFACT_DIR/quorum-baseline.log"
 
       - name: Preserve evidence and fixture-only policy channel
         if: always()

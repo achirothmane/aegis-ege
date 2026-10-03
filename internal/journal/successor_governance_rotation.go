@@ -293,17 +293,10 @@ func InitializeSuccessorGovernanceAuthority(
 	if err != nil {
 		return ExternalHead{}, err
 	}
-	current, err := store.Load(ctx, journalID)
-	switch {
-	case err == nil:
-		if sameSemanticHead(current, expected) {
-			return current, nil
-		}
-		return ExternalHead{}, fmt.Errorf("%w: authority head already initialized differently", ErrSuccessorGovernanceAuthority)
-	case !errors.Is(err, ErrExternalHeadNotFound):
-		return ExternalHead{}, err
-	}
-	return store.CompareAndAdvance(ctx, ExternalHead{}, expected)
+	// Validate every readable retained head before provisioning. A majority
+	// of missing heads must not hide a retained frozen/advanced minority.
+	// Explicit absence may seed only this exact Genesis sequence-zero state.
+	return store.ConvergeAuthorizedTransition(ctx, []ExternalHead{{JournalID: expected.JournalID}, expected}, expected)
 }
 
 func RequireActiveSuccessorGovernanceAuthority(

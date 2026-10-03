@@ -59,3 +59,11 @@ func TestQuorumRejectsMalformedNonexistentPredecessor(t *testing.T) {
 		}
 	}
 }
+
+func TestQuorumAbsenceCannotRepairMissingHistoryPrefix(t *testing.T) {
+	store := quorumStoreForTest(t, newQuorumTestStore(nil), newQuorumTestStore(nil), newQuorumTestStore(nil))
+	target := ExternalHead{JournalID: "lost-history", Sequence: 1, HeadHash: "retained-hash", KeyID: "retained-key"}
+	if _, err := store.ConvergeAuthorizedTransition(context.Background(), []ExternalHead{{JournalID: target.JournalID}, target}, target); !errors.Is(err, ErrExternalHeadConflict) {
+		t.Fatalf("absence was silently promoted to missing-prefix repair: %v", err)
+	}
+}

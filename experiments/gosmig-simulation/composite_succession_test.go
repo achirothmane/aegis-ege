@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +68,8 @@ type compositeSuccession struct {
 	oldPin, newPin         genesisbootstrap.VerifiedGenesisPin
 	oldBinding, newBinding journal.GenesisEnrollmentSuccessorGovernanceBinding
 	oldAdmin, newAdmin     *journal.QuorumHeadStore
+	oldWriter              *journal.QuorumHeadStore
+	enrollmentHead         journal.ExternalHead
 	oldHistory, newHistory journal.ExternalHeadStore
 	members                map[string]*successionPostgresWitness
 	signed                 journal.SignedSuccessorGovernanceRotation
@@ -222,6 +225,11 @@ func prepareCompositeSuccession(t *testing.T, a *postgresNativeFenceAdapter, p *
 					t.Fatal(err)
 				}
 				t.Cleanup(func() { db.Close() })
+				if id == "B" && dbRole == "composite_history_new" {
+					if _, err := db.Exec("UPDATE " + nativeFenceTable("target_state") + " SET digest=digest"); err == nil || !strings.Contains(err.Error(), "permission denied") {
+						t.Fatalf("new history custodian received destination mutation authority: %v", err)
+					}
+				}
 				member = &successionPostgresWitness{db: db, id: id, trust: member.trust}
 			}
 			members = append(members, journal.QuorumHeadMember{ID: id, Store: member})
@@ -240,6 +248,7 @@ func prepareCompositeSuccession(t *testing.T, a *postgresNativeFenceAdapter, p *
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.oldWriter = oldWriter
 	newWriter, err := journal.NewGovernedQuorumHeadStore(memberList([]string{"B", "C", "D"}, "composite_history_new"), newQB, newQ.GenesisEpoch())
 	if err != nil {
 		t.Fatal(err)
@@ -367,8 +376,8 @@ func (s *compositeSuccession) rotate(t *testing.T, a *postgresNativeFenceAdapter
 	impersonated.HeadHash = v.ContentDigest([]byte("unauthorized old custodian"))
 	impersonated.KeyID = p.RoleKeys["history"]
 	oldActor := &successionPostgresWitness{db: oldDB, id: "B", trust: s.members["B"].trust}
-	if _, err := oldActor.CompareAndAdvanceForQuorum(ctx, newPolicy, head, impersonated); err == nil {
-		t.Fatal("old SQL actor self-promoted to the new custodian")
+	if _, err := oldActor.CompareAndAdvanceForQuorum(ctx, newPolicy, head, impersonated); err == nil || !strings.Contains(err.Error(), "native custodian fence rejected") {
+		t.Fatalf("old SQL actor was not denied at the native custodian fence: %v", err)
 	}
 	if unchanged, err := s.members["B"].ObserveQuorumRotationHead(ctx, p.HistoryID); err != nil || portableHead(unchanged) != portableHead(head) {
 		t.Fatal("denied custodian changed history")

@@ -323,6 +323,18 @@ func runPostgresCompositeCase(t *testing.T, caseID string, withheld, succession 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if succession {
+		// Provision the initial exact seed on every readable witness before
+		// later succession depends on the stable shared subset.
+		seed, err := witness.Load(ctx, p.HistoryID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		handoff.enrollmentHead = seed
+		if _, err := handoff.oldWriter.ConvergeAuthorizedTransition(ctx, []journal.ExternalHead{{JournalID: p.HistoryID}, seed}, seed); err != nil {
+			t.Fatal(err)
+		}
+	}
 	prep, err := gaRuntime.ReserveFenced(ctx, req, a)
 	if err != nil {
 		t.Fatal(err)
@@ -333,6 +345,11 @@ func runPostgresCompositeCase(t *testing.T, caseID string, withheld, succession 
 	initialHead, err := witness.Load(ctx, p.HistoryID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if succession {
+		if _, err := handoff.oldWriter.ConvergeAuthorizedTransition(ctx, []journal.ExternalHead{handoff.enrollmentHead, initialHead}, initialHead); err != nil {
+			t.Fatal(err)
+		}
 	}
 	writeCompositeJSON(t, filepath.Join(dir, "before-interruption-head.json"), initialHead)
 	cmd, cancel := compositeProcess(t, req, "execute", "", false)

@@ -132,6 +132,17 @@ failure on main, then verifies proper absent enrollment, refusal to replace a
 retained empty anchor, and refusal to discard nonzero predecessor hints. The
 fix changes this existing relation; it adds no Core primitive.
 
+A subsequent run exposed authority provisioning's omitted minority. Initializing
+a current majority did not seed a readable missing witness, so the later shared
+handoff could not retain its frozen authority head. A stronger executable
+counterexample also found that two absent heads could hide the third witness's
+actual co-signed `JOINT_FROZEN` head: initialization recreated sequence zero and
+made OLD current again. Initialization now validates every readable retained
+state before writing and converges only absence or the exact Genesis seed.
+Absence is explicitly authorized for sequence-zero provisioning; it cannot
+authorize missing-prefix recovery. Positive/minority/reset regressions and the
+actual pre-fix source run remain in CI evidence.
+
 The portable proof includes both exact canonical signed Genesis payloads and
 envelopes, both authority approvals, their exact predecessor, the old signed
 anchor, and an ordered native quorum transcript. The independent policy must
