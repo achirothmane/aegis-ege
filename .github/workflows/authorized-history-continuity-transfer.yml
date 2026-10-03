@@ -1,0 +1,38 @@
+name: Authorized history continuity transfer proof
+
+on:
+  pull_request:
+    paths:
+      - "internal/server/taint_recovery_history_ownership.go"
+      - "internal/server/tpm_history_anchor.go"
+      - "internal/server/tpm_history_continuity_transfer.go"
+      - "internal/server/tpm_history_continuity_transfer_test.go"
+      - "docs/taint-history-authorized-continuity-transfer.md"
+      - ".github/workflows/authorized-history-continuity-transfer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  continuity-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Prove authorized TPM replacement preserves exact history and retires source
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run '^(TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource|TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption)$' -count=1 | tee "$RUNNER_TEMP/history-continuity-transfer.log"
+          grep -q -- "--- PASS: TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource" "$RUNNER_TEMP/history-continuity-transfer.log"
+          grep -q -- "--- PASS: TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption" "$RUNNER_TEMP/history-continuity-transfer.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/history-continuity-transfer.log"; then
+            exit 1
+          fi
