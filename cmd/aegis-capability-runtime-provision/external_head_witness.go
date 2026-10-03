@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/journal"
@@ -54,14 +55,45 @@ func activateExternalHeadWitness(
 	ctx context.Context,
 	witnessAdmin kubernetes.Interface,
 	clientBundlePath string,
+	signerPublicKeyPath string,
+	signerEndpointPath string,
+	signerTLSCertPath string,
+	signerTLSServerNamePath string,
 ) error {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	publicPayload, err := os.ReadFile(signerPublicKeyPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("read external head signer public key: %w", err)
 	}
+	publicRaw, err := base64.StdEncoding.DecodeString(
+		strings.TrimSpace(string(publicPayload)),
+	)
+	if err != nil || len(publicRaw) != ed25519.PublicKeySize {
+		return fmt.Errorf("decode external head signer public key")
+	}
+	publicKey := ed25519.PublicKey(publicRaw)
 	keyID, err := kernelfabric.BootstrapKeyID(publicKey)
 	if err != nil {
 		return err
+	}
+	signerEndpointPayload, err := os.ReadFile(signerEndpointPath)
+	if err != nil {
+		return fmt.Errorf("read external head signer endpoint: %w", err)
+	}
+	signerEndpoint := strings.TrimSpace(string(signerEndpointPayload))
+	if signerEndpoint == "" {
+		return fmt.Errorf("external head signer endpoint is empty")
+	}
+	signerCAPEM, err := os.ReadFile(signerTLSCertPath)
+	if err != nil {
+		return fmt.Errorf("read external head signer TLS CA: %w", err)
+	}
+	signerServerNamePayload, err := os.ReadFile(signerTLSServerNamePath)
+	if err != nil {
+		return fmt.Errorf("read external head signer TLS server name: %w", err)
+	}
+	signerServerName := strings.TrimSpace(string(signerServerNamePayload))
+	if signerServerName == "" {
+		return fmt.Errorf("external head signer TLS server name is empty")
 	}
 	tlsCertPEM, tlsKeyPEM, err := newWitnessTLSCertificate(
 		externalHeadWitnessServerName,
@@ -129,9 +161,8 @@ func activateExternalHeadWitness(
 		},
 		Immutable: &immutable,
 		StringData: map[string]string{
-			"head-witness-signing-key": base64.StdEncoding.EncodeToString(privateKey),
-			"tls.crt":             string(tlsCertPEM),
-			"tls.key":             string(tlsKeyPEM),
+			"tls.crt": string(tlsCertPEM),
+			"tls.key": string(tlsKeyPEM),
 		},
 	}
 	if _, err := witnessAdmin.CoreV1().Secrets(witnessNamespace).Create(
@@ -153,7 +184,11 @@ func activateExternalHeadWitness(
 		},
 		Immutable: &immutable,
 		Data: map[string]string{
-			"policy.json": string(policyPayload),
+			"policy.json":              string(policyPayload),
+			"signer-public-key":        strings.TrimSpace(string(publicPayload)),
+			"signer-ca.pem":            string(signerCAPEM),
+			"signer-endpoint":          signerEndpoint,
+			"signer-tls-server-name":   signerServerName,
 		},
 	}
 	if _, err := witnessAdmin.CoreV1().ConfigMaps(witnessNamespace).Create(
@@ -186,7 +221,10 @@ func activateExternalHeadWitness(
 							{Name: "WITNESS_STATE_NAMESPACE", Value: witnessNamespace},
 							{Name: "WITNESS_STATE_NAME", Value: externalHeadWitnessStateName},
 							{Name: "WITNESS_KEY_ID", Value: keyID},
-							{Name: "HEAD_WITNESS_SIGNING_KEY_PATH", Value: "/run/aegis-head-witness/secret/head-witness-signing-key"},
+							{Name: "HEAD_WITNESS_SIGNER_PUBLIC_KEY_PATH", Value: "/run/aegis-head-witness/config/signer-public-key"},
+							{Name: "HEAD_WITNESS_SIGNER_TLS_CA_PATH", Value: "/run/aegis-head-witness/config/signer-ca.pem"},
+							{Name: "HEAD_WITNESS_SIGNER_ENDPOINT", Value: signerEndpoint},
+							{Name: "HEAD_WITNESS_SIGNER_TLS_SERVER_NAME", Value: signerServerName},
 							{Name: "WITNESS_POLICY_PATH", Value: "/run/aegis-head-witness/config/policy.json"},
 							{Name: "TLS_CERT_PATH", Value: "/run/aegis-head-witness/secret/tls.crt"},
 							{Name: "TLS_KEY_PATH", Value: "/run/aegis-head-witness/secret/tls.key"},
