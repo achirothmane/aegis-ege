@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/achirothmane/aegis-ege/internal/journal"
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 )
 
@@ -247,23 +248,71 @@ func TransferTPMNVHistoryContinuity(
 	if err := validateTaintRecoveryHistoryOwnershipState(expectedOwnership); err != nil {
 		return err
 	}
-	currentOwnership, err := ownership.Current(ctx)
-	if err != nil {
-		return err
-	}
 	finalOwnership := TaintRecoveryHistoryOwnershipState{
 		Epoch:                expectedOwnership.Epoch + 2,
 		ActiveDeviceIdentity: auth.DestinationDeviceIdentity,
 		AuthorizationDigest:  commitment,
 	}
-	if currentOwnership == finalOwnership {
-		return ErrTPMHistoryContinuityReplay
+	quiesced := TaintRecoveryHistoryOwnershipState{
+		Epoch:                expectedOwnership.Epoch + 1,
+		ActiveDeviceIdentity: quiescedRecoveryHistoryOwnershipIdentity(commitment),
+		AuthorizationDigest:  commitment,
 	}
-
 	expectedHistory := kernelfabric.TaintRecoveryHistoryAnchorState{
 		Sequence:   auth.SourceSequence,
 		HeadDigest: auth.SourceHeadDigest,
 	}
+
+	currentOwnership, err := ownership.Current(ctx)
+	if err != nil {
+		if !errors.Is(err, journal.ErrExternalHeadQuorum) {
+			return err
+		}
+		// A prior finalization may have partially advanced the quorum and left
+		// source/quiesced/final states split across members. Recovery is only
+		// admissible when the exact history head still matches and the
+		// destination TPM is already prepared with this same authorization.
+		if err := requireExactHistoryWitness(ctx, historyWitness, expectedHistory); err != nil {
+			return err
+		}
+		destinationState, err := preflightTPMHistoryContinuityDestination(
+			ctx,
+			destination,
+			auth,
+			commitment,
+		)
+		if err != nil {
+			return err
+		}
+		if !isPreparedTPMHistoryContinuityDestination(destinationState, auth, commitment) {
+			return fmt.Errorf(
+				"%w: ownership quorum is split before destination preparation",
+				ErrTPMHistoryContinuityWitness,
+			)
+		}
+		recovered, err := ownership.RecoverAuthorizedTransfer(
+			ctx,
+			expectedOwnership,
+			quiesced,
+			finalOwnership,
+		)
+		if err != nil {
+			return err
+		}
+		if recovered != finalOwnership {
+			return fmt.Errorf(
+				"%w: recovered ownership=%+v expected=%+v",
+				ErrTPMHistoryContinuityWitness,
+				recovered,
+				finalOwnership,
+			)
+		}
+		return nil
+	}
+	if currentOwnership == finalOwnership {
+		return ErrTPMHistoryContinuityReplay
+	}
+
 	if err := requireExactHistoryWitness(ctx, historyWitness, expectedHistory); err != nil {
 		return err
 	}
@@ -279,11 +328,6 @@ func TransferTPMNVHistoryContinuity(
 		return err
 	}
 
-	quiesced := TaintRecoveryHistoryOwnershipState{
-		Epoch:                expectedOwnership.Epoch + 1,
-		ActiveDeviceIdentity: quiescedRecoveryHistoryOwnershipIdentity(commitment),
-		AuthorizationDigest:  commitment,
-	}
 	switch currentOwnership {
 	case expectedOwnership:
 		quiesced, err = ownership.BeginTransfer(ctx, expectedOwnership, commitment)
