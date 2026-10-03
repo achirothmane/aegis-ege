@@ -74,9 +74,11 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 
 	dir := t.TempDir()
 	cfgA := TPMNVHistoryAnchorConfig{
-		NVIndex:   tpm2.TPMHandle(0x0180A160),
-		StatePath: filepath.Join(dir, "tpm-a-history-anchor.json"),
-		IndexAuth: []byte("history-quorum-a"),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
+		StatePath:     filepath.Join(dir, "tpm-a-history-anchor.json"),
+		IndexAuth:     []byte("history-quorum-a"),
+		HeadIndexAuth: []byte("history-quorum-head-a"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(ctx, deviceA, cfgA); err != nil {
 		t.Fatal(err)
@@ -170,9 +172,11 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	}
 	deviceB := transport.FromReadWriter(simB)
 	cfgB := TPMNVHistoryAnchorConfig{
-		NVIndex:   tpm2.TPMHandle(0x0180A161),
-		StatePath: filepath.Join(dir, "tpm-b-history-anchor.json"),
-		IndexAuth: []byte("history-quorum-b"),
+		NVIndex:       tpm2.TPMHandle(0x0180A151),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
+		StatePath:     filepath.Join(dir, "tpm-b-history-anchor.json"),
+		IndexAuth:     []byte("history-quorum-b"),
+		HeadIndexAuth: []byte("history-quorum-head-b"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(ctx, deviceB, cfgB); err != nil {
 		t.Fatal(err)
