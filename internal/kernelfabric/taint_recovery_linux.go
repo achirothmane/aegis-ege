@@ -14,12 +14,12 @@ import (
 )
 
 type TaintRecoveryRequest struct {
-	BPFFSRoot             string
-	Plan                  TaintActivationPlan
-	SignedAuthorization   JointSignedTaintRecoveryAuthorization
-	RecoveryAuthorityKey  ed25519.PublicKey
-	RecoveryWitnessKey    ed25519.PublicKey
-	Now                   time.Time
+	BPFFSRoot            string
+	Plan                 TaintActivationPlan
+	SignedAuthorization  JointSignedTaintRecoveryAuthorization
+	RecoveryAuthorityKey ed25519.PublicKey
+	RecoveryWitnessKey   ed25519.PublicKey
+	Now                  time.Time
 
 	// Crash-boundary hooks are internal to native falsification. External callers
 	// cannot set them. Tests use os.Exit so deferred rollback does not run,
