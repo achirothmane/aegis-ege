@@ -203,8 +203,10 @@ jobs:
           PROFILE_AUTHORITY_PRIVATE_KEY_PATH: ${{ runner.temp }}/profile-authority/private-key
         run: |
           test ! -e "$PROFILE_AUTHORITY_PRIVATE_KEY_PATH"
-          if grep -R "SignExternalRecoveryWitnessProfile" cmd/aegis-capability-runtime-provision; then
-            echo "activation command contains profile self-signing path" >&2
+          if find cmd/aegis-capability-runtime-provision \
+            -name '*.go' ! -name '*_test.go' -print0 \
+            | xargs -0 grep -n "SignExternalRecoveryWitnessProfile"; then
+            echo "activation production source contains profile self-signing path" >&2
             exit 1
           fi
           go run ./cmd/aegis-capability-runtime-provision
