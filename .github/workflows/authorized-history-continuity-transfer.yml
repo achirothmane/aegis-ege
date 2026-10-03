@@ -3,6 +3,8 @@ name: Authorized history continuity transfer proof
 on:
   pull_request:
     paths:
+      - "internal/journal/quorum_head_store.go"
+      - "internal/journal/quorum_head_store_test.go"
       - "internal/server/taint_recovery_history_ownership.go"
       - "internal/server/tpm_history_anchor.go"
       - "internal/server/tpm_history_continuity_transfer.go"
