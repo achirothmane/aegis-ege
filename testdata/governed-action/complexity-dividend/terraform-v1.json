@@ -30,12 +30,43 @@
     "Terraform policy/evidence bindings"
   ],
   "success_criteria": {
-    "core_files_changed": 0,
     "effect_log_lines": 1,
     "recovery_boundary_entered": false,
     "replay_boundary_entered": false,
     "recovery_disposition": "CLOSED",
     "replay_disposition": "REJECTED",
-    "held_out_terraform_mapping": "PASS"
+    "held_out_terraform_mapping": "PASS",
+    "frozen_core_files_changed": 0
+  },
+  "reference_runtime_extension": {
+    "schema_version": "aegis.reference-runtime-extension/v1",
+    "source_head": "19349903a7e2f8784557850a8e60a25aa2e61348",
+    "native_proof_claimed": false,
+    "files": [
+      {
+        "path": "runtime/README.md",
+        "mode": "100644",
+        "frozen_blob": "2d579f331e606472cb985618f5059ac736bfcc97",
+        "current_blob": "a24518624019556f9d7b7e3474b81ee1fdae4b6f"
+      },
+      {
+        "path": "runtime/fenced.go",
+        "mode": "100644",
+        "frozen_blob": null,
+        "current_blob": "bff1a1b1fc7524fd6cdebe5cad905bf9efb7be77"
+      },
+      {
+        "path": "runtime/fenced_test.go",
+        "mode": "100644",
+        "frozen_blob": null,
+        "current_blob": "ea138ead0cc03da71d750ba8a00360c9ffb12aa4"
+      },
+      {
+        "path": "runtime/fenced_revalidation_test.go",
+        "mode": "100644",
+        "frozen_blob": null,
+        "current_blob": "a739dfffc417cc5d94fdfd1543e13fc9e87dcc8b"
+      }
+    ]
   }
 }

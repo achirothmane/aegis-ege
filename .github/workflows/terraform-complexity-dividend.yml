@@ -7,6 +7,8 @@ on:
       - 'experiments/terraform-runtime-proof/**'
       - 'testdata/governed-action/complexity-dividend/**'
       - 'governedaction/runtime/**'
+      - 'scripts/verify_cross_domain_kernel_tree.py'
+      - 'scripts/test_verify_cross_domain_kernel_tree.py'
       - 'testdata/governed-action/d03a/**'
       - '.github/workflows/terraform-complexity-dividend.yml'
 
@@ -48,8 +50,10 @@ jobs:
         run: |
           set -euo pipefail
           registration=testdata/governed-action/complexity-dividend/terraform-v1.json
-          test "$(git rev-parse HEAD:governedaction)" = "$(jq -r '.pins.governedaction_tree' "$registration")"
-          test "$(git rev-parse HEAD:governedaction/runtime)" = "$(jq -r '.pins.runtime_tree' "$registration")"
+          python3 -m unittest discover -s scripts -p 'test_verify_cross_domain_kernel_tree.py' -v
+          python3 scripts/verify_cross_domain_kernel_tree.py --registration "$registration"
+          frozen_tree="$(jq -r '.pins.governedaction_tree' "$registration")"
+          test "$(git rev-parse "$frozen_tree:runtime")" = "$(jq -r '.pins.runtime_tree' "$registration")"
           test "$(git hash-object governedaction/runtime/runtime.go)" = "$(jq -r '.pins.runtime_blob' "$registration")"
           test "$(git hash-object governedaction/runtime/recovery.go)" = "$(jq -r '.pins.recovery_blob' "$registration")"
           test "$(git hash-object testdata/governed-action/d03a/corpus-v1.json)" = "$(jq -r '.pins.d03a_corpus_blob' "$registration")"
@@ -132,8 +136,13 @@ jobs:
           ).splitlines()
 
           core_changed = [p for p in changed if p.startswith("governedaction/")]
-          if core_changed:
-              raise SystemExit(f"core semantic delta is not zero: {core_changed}")
+          extension_files = {"governedaction/" + item["path"] for item in
+                             registration.get("reference_runtime_extension", {}).get("files", [])}
+          frozen_core_changed = [p for p in core_changed if p not in extension_files]
+          if frozen_core_changed:
+              raise SystemExit(f"frozen core delta is not zero: {frozen_core_changed}")
+          subprocess.run(["python3", "scripts/verify_cross_domain_kernel_tree.py",
+                          "--registration", str(registration_path)], check=True)
 
           def loc(paths):
               total = 0
@@ -171,6 +180,10 @@ jobs:
               "source_head": os.environ.get("GITHUB_SHA", ""),
               "baseline_head": base,
               "core_files_changed": len(core_changed),
+              "frozen_core_files_changed": len(frozen_core_changed),
+              "registered_extension_files_changed": sorted(p for p in core_changed if p in extension_files),
+              "core_semantic_delta_scope": "frozen contract source",
+              "reference_runtime_extension_native_proof": False,
               "core_semantic_delta": 0,
               "domain_adapter_files": adapter_paths,
               "domain_adapter_loc_delta": loc(adapter_paths),
