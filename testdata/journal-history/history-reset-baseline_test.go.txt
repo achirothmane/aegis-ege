@@ -1,0 +1,48 @@
+package journal
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestAnchoredJournalCannotRebootstrapAfterLocalHistoryLoss(t *testing.T) {
+	ctx := context.Background()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := NewEd25519Signer("history-signer", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyring := NewEd25519Keyring()
+	if err := keyring.Add(signer.KeyID(), signer.PublicKey()); err != nil {
+		t.Fatal(err)
+	}
+	external := NewMemoryHeadStore()
+	dir := t.TempDir()
+	path, anchorPath := filepath.Join(dir, "history.jsonl"), filepath.Join(dir, "history.anchor.json")
+	first, err := NewFileJournalWithSecurity(path, anchorPath, signer, keyring, external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := first.Append(ctx, testEvent("closed-operation", "CLOSED"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(anchorPath); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := NewFileJournalWithSecurity(path, anchorPath, signer, keyring, external)
+	if err == nil {
+		t.Fatalf("local history loss silently created a replacement lineage: original=%s replacement=%+v", entry.JournalID, reopened.Verify(ctx))
+	}
+}
