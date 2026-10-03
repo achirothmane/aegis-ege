@@ -232,8 +232,15 @@ func (s *QuorumHeadStore) CompareAndAdvance(
 	if previous.JournalID != "" && previous.JournalID != next.JournalID {
 		return ExternalHead{}, ErrExternalHeadConflict
 	}
+	// FileJournal names the selected identity even when it has never existed.
+	// Treat only that identity-only expectation as enrollment. Member loads
+	// and native CAS must still establish absence; a retained sequence-zero
+	// anchor has a key and cannot be reset through this normalization.
+	if previous.JournalID != "" && previous.Sequence == 0 && previous.HeadHash == "" && previous.KeyID == "" && previous.StoreVersion == "" {
+		previous = ExternalHead{}
+	}
 	if previous.JournalID == "" {
-		if next.Sequence != 0 {
+		if previous != (ExternalHead{}) || next.Sequence != 0 {
 			return ExternalHead{}, ErrExternalHeadConflict
 		}
 	} else {

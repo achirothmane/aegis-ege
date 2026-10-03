@@ -2,12 +2,14 @@ package simulation
 
 import (
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	v "github.com/achirothmane/aegis-ege/evidenceverify"
+	"github.com/achirothmane/aegis-ege/internal/journal"
 )
 
 // Signed but semantically false traces stay in the native verifier corpus.
@@ -77,6 +79,50 @@ func falsifySuccessionBundle(t *testing.T, dir string, b v.Bundle, p v.Policy, k
 			b.Execution = env
 		}, true},
 		{"recomputed-history-reset", func(b *v.Bundle, p *v.Policy) { b.History.Entries = b.History.Entries[1:] }, true},
+		{"new-key-rewrites-predecessor", func(b *v.Bundle, p *v.Policy) {
+			// A new, correctly authorized signer rehashes a replacement prefix
+			// and signs its final anchor. Even a fresh trusted final checkpoint
+			// cannot erase the independently retained predecessor commitment.
+			prev := ""
+			for i, raw := range b.History.Entries {
+				var entry journal.Entry
+				if err := json.Unmarshal(raw, &entry); err != nil {
+					t.Fatal(err)
+				}
+				if i == 0 {
+					entry.Event.PayloadDigest = v.ContentDigest([]byte("rewritten admission"))
+				}
+				entry.PrevHash = prev
+				entry.EntryHash = ""
+				payload, _ := json.Marshal(entry)
+				entry.EntryHash = v.ContentDigest(payload)
+				prev = entry.EntryHash
+				b.History.Entries[i], _ = json.Marshal(entry)
+			}
+			var anchor journal.Anchor
+			if err := json.Unmarshal(b.History.Anchor, &anchor); err != nil {
+				t.Fatal(err)
+			}
+			anchor.HeadHash = prev
+			anchor.Signature = ""
+			payload, _ := json.Marshal(anchor)
+			anchor.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(keys["history"], payload))
+			b.History.Anchor, _ = json.Marshal(anchor)
+			p.Checkpoint.HeadHash = prev
+			witness, err := v.Seal("witness", p.RoleKeys["witness"], keys["witness"], v.Witness{BuildSHA: p.BuildSHA, CaseID: p.CaseID, Head: *p.Checkpoint})
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.History.Witness = witness
+			resignWitness(b, p, func(o *v.SuccessionObservation) {
+				for id, s := range o.Current {
+					if s.Policy.GenesisEpoch == 8 {
+						s.HistoryHead = *p.Checkpoint
+						o.Current[id] = s
+					}
+				}
+			})
+		}, true},
 	}
 	if p.CaseID == "UNKNOWN" {
 		vectors = append(vectors, vector{"trusted-history-promoted-to-closed", func(b *v.Bundle, p *v.Policy) {
