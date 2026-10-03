@@ -20,7 +20,7 @@ import (
 	"github.com/achirothmane/easl/genesis"
 	"github.com/achirothmane/aegis-ege/internal/genesisbootstrap"
 	"github.com/achirothmane/aegis-ege/internal/journal"
-	"github.com/achirothmane/aegis-ege/internal/testsupport"
+	"github.com/achirothmane/aegis-ege/internal/integrationfixture"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -83,7 +83,7 @@ func loadIndependentQuorumFixture(t *testing.T) independentQuorumFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	genesisFixture, err := testsupport.NewProductionGenesisFixture(
+	genesisFixture, err := integrationfixture.NewProductionGenesisFixture(
 		t.TempDir(),
 		envelope,
 		bundle.GenesisEpoch,
