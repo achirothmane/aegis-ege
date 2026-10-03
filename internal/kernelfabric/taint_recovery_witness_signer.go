@@ -79,10 +79,10 @@ func (s *Ed25519RecoveryWitnessSigner) Sign(
 }
 
 type RemoteRecoveryWitnessSigner struct {
-	endpoint  string
-	keyID     string
-	publicKey ed25519.PublicKey
-	client    *http.Client
+	endpoint string
+	keyID    string
+	verifier RecoveryWitnessVerifier
+	client   *http.Client
 }
 
 type recoveryWitnessSignerRequest struct {
@@ -103,6 +103,27 @@ func NewRemoteRecoveryWitnessSigner(
 	publicKey ed25519.PublicKey,
 	client *http.Client,
 ) (*RemoteRecoveryWitnessSigner, error) {
+	verifier, err := NewRecoveryWitnessVerifier(
+		RecoveryWitnessSignatureEd25519,
+		base64.StdEncoding.EncodeToString(publicKey),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return NewRemoteRecoveryWitnessSignerWithVerifier(
+		endpoint,
+		keyID,
+		verifier,
+		client,
+	)
+}
+
+func NewRemoteRecoveryWitnessSignerWithVerifier(
+	endpoint string,
+	keyID string,
+	verifier RecoveryWitnessVerifier,
+	client *http.Client,
+) (*RemoteRecoveryWitnessSigner, error) {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
@@ -111,22 +132,15 @@ func NewRemoteRecoveryWitnessSigner(
 	if client == nil {
 		return nil, errors.New("recovery witness signer HTTP client is required")
 	}
-	if len(publicKey) != ed25519.PublicKeySize {
-		return nil, errors.New("recovery witness signer public key is invalid")
-	}
-	expectedKeyID, err := BootstrapKeyID(publicKey)
-	if err != nil {
-		return nil, err
-	}
 	keyID = strings.TrimSpace(keyID)
-	if keyID == "" || keyID != expectedKeyID {
-		return nil, errors.New("recovery witness signer key id does not match public key")
+	if keyID == "" || keyID != verifier.KeyID() {
+		return nil, errors.New("recovery witness signer key id does not match verifier")
 	}
 	return &RemoteRecoveryWitnessSigner{
-		endpoint:  endpoint,
-		keyID:     keyID,
-		publicKey: append(ed25519.PublicKey(nil), publicKey...),
-		client:    client,
+		endpoint: endpoint,
+		keyID:    keyID,
+		verifier: verifier,
+		client:   client,
 	}, nil
 }
 
@@ -191,7 +205,7 @@ func (s *RemoteRecoveryWitnessSigner) Sign(
 	if err != nil || len(signature) != ed25519.SignatureSize {
 		return nil, errors.New("recovery witness signer returned invalid signature encoding")
 	}
-	if !ed25519.Verify(s.publicKey, payload, signature) {
+	if !s.verifier.Verify(payload, signature) {
 		return nil, errors.New("recovery witness signer returned unverifiable signature")
 	}
 	return signature, nil
