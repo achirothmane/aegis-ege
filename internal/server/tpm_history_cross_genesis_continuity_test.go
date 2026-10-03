@@ -530,6 +530,13 @@ func TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement
 	if err != nil {
 		t.Fatal(err)
 	}
+	attestationTrust := migrationAttestationTrustForTest(
+		t,
+		attestationPub,
+		42,
+		1,
+		"sha256:"+strings.Repeat("f", 64),
+	)
 	transferID := "cross-genesis-tpm-a-to-b"
 	destinationAttestation := signHistoryTransferDestinationAttestationForTest(
 		t,
@@ -566,9 +573,13 @@ func TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement
 		DestinationStateDigest:          destinationState.Digest,
 		DestinationGeneration:           destinationState.Generation,
 		DestinationNVIndex:              uint32(cfgB.NVIndex),
-		DestinationHeadNVIndex:          uint32(cfgB.HeadNVIndex),
-		DestinationAttestationDigest:    destinationAttestationDigest,
-		NotBefore:                       now.Add(-time.Minute),
+		DestinationHeadNVIndex:               uint32(cfgB.HeadNVIndex),
+		DestinationAttestationDigest:         destinationAttestationDigest,
+		DestinationAttestationGenesisEpoch:   attestationTrust.genesisEpoch,
+		DestinationAttestationTrustRootRef:   attestationTrust.trustRootRef,
+		DestinationAttestationTrustRootEpoch: attestationTrust.trustRootEpoch,
+		DestinationAttestationPolicyHash:     attestationTrust.attestationPolicyHash,
+		NotBefore:                            now.Add(-time.Minute),
 		ExpiresAt:                       now.Add(5 * time.Minute),
 	}
 
@@ -600,7 +611,7 @@ func TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement
 		staleEpochSigned,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	)
 	if !errors.Is(err, ErrTPMHistoryContinuityAuthorization) {
@@ -645,7 +656,7 @@ func TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
-		attestationPub,
+		attestationTrust,
 		now,
 	); err != nil {
 		t.Fatalf("cross-Genesis authorized TPM transfer failed: %v", err)

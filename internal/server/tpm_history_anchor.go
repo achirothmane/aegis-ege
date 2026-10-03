@@ -60,6 +60,10 @@ type tpmNVHistoryAnchorState struct {
 	MigrationSourceStateDigest             string `json:"migration_source_state_digest,omitempty"`
 	MigrationAuthorizationDigest           string `json:"migration_authorization_digest,omitempty"`
 	MigrationDestinationAttestationDigest string `json:"migration_destination_attestation_digest,omitempty"`
+	MigrationAttestationGenesisEpoch      uint64 `json:"migration_attestation_genesis_epoch,omitempty"`
+	MigrationAttestationTrustRootRef      string `json:"migration_attestation_trust_root_ref,omitempty"`
+	MigrationAttestationTrustRootEpoch    uint64 `json:"migration_attestation_trust_root_epoch,omitempty"`
+	MigrationAttestationPolicyHash        string `json:"migration_attestation_policy_hash,omitempty"`
 	MigrationHistoryWitnessPolicyHash      string `json:"migration_history_witness_policy_hash,omitempty"`
 	MigrationOwnershipWitnessPolicyHash    string `json:"migration_ownership_witness_policy_hash,omitempty"`
 	Digest                                 string `json:"digest"`

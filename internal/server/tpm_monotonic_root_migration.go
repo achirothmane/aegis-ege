@@ -32,8 +32,12 @@ type TPMRootMigrationAuthorization struct {
 	DestinationDeviceIdentity string    `json:"destination_device_identity"`
 	DestinationGeneration     uint64    `json:"destination_generation"`
 	DestinationNVIndex        uint32    `json:"destination_nv_index"`
-	DestinationAttestationDigest string  `json:"destination_attestation_digest"`
-	NotBefore                 time.Time `json:"not_before"`
+	DestinationAttestationDigest         string  `json:"destination_attestation_digest"`
+	DestinationAttestationGenesisEpoch   uint64  `json:"destination_attestation_genesis_epoch"`
+	DestinationAttestationTrustRootRef   string  `json:"destination_attestation_trust_root_ref"`
+	DestinationAttestationTrustRootEpoch uint64  `json:"destination_attestation_trust_root_epoch"`
+	DestinationAttestationPolicyHash     string  `json:"destination_attestation_policy_hash"`
+	NotBefore                            time.Time `json:"not_before"`
 	ExpiresAt                 time.Time `json:"expires_at"`
 }
 
@@ -70,6 +74,12 @@ func ValidateTPMRootMigrationAuthorization(auth TPMRootMigrationAuthorization) e
 	}
 	if !validSHA256Ref(auth.DestinationAttestationDigest) {
 		return fmt.Errorf("%w: destination_attestation_digest is invalid", ErrTPMRootMigrationAuthorization)
+	}
+	if auth.DestinationAttestationGenesisEpoch == 0 ||
+		auth.DestinationAttestationTrustRootEpoch == 0 ||
+		strings.TrimSpace(auth.DestinationAttestationTrustRootRef) == "" ||
+		!validSHA256Ref(auth.DestinationAttestationPolicyHash) {
+		return fmt.Errorf("%w: destination attestation trust binding is invalid", ErrTPMRootMigrationAuthorization)
 	}
 	if auth.SourceDeviceIdentity == auth.DestinationDeviceIdentity {
 		return fmt.Errorf("%w: source and destination device identities must differ", ErrTPMRootMigrationAuthorization)
@@ -165,7 +175,7 @@ func MigrateTPMNVMonotonicRoot(
 	signed SignedTPMRootMigrationAuthorization,
 	migrationPublicKey ed25519.PublicKey,
 	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
-	attestationPublicKey ed25519.PublicKey,
+	attestationTrust TPMRootMigrationAttestationTrust,
 	now time.Time,
 ) error {
 	if destination == nil {
@@ -174,15 +184,21 @@ func MigrateTPMNVMonotonicRoot(
 	if err := VerifySignedTPMRootMigrationAuthorization(signed, migrationPublicKey, now); err != nil {
 		return err
 	}
-	if err := VerifySignedTPMRootMigrationDestinationAttestation(destinationAttestation, attestationPublicKey, now); err != nil {
+	if err := attestationTrust.verifySignedAttestation(destinationAttestation, now); err != nil {
 		return err
 	}
-	if len(migrationPublicKey) != ed25519.PublicKeySize ||
-		len(attestationPublicKey) != ed25519.PublicKeySize ||
-		string(migrationPublicKey) == string(attestationPublicKey) {
+	if len(migrationPublicKey) != ed25519.PublicKeySize || attestationTrust.publicKeyEquals(migrationPublicKey) {
 		return fmt.Errorf("%w: migration and attestation authorities must be independent", ErrTPMRootMigrationAuthorization)
 	}
 	auth := signed.Authorization
+	if !attestationTrust.matchesAuthorization(
+		auth.DestinationAttestationGenesisEpoch,
+		auth.DestinationAttestationTrustRootRef,
+		auth.DestinationAttestationTrustRootEpoch,
+		auth.DestinationAttestationPolicyHash,
+	) {
+		return fmt.Errorf("%w: destination attestation trust state does not match Genesis binding", ErrTPMRootMigrationAuthorization)
+	}
 	att := destinationAttestation.Attestation
 	attestationDigest, err := TPMRootMigrationDestinationAttestationDigest(destinationAttestation)
 	if err != nil {
@@ -252,6 +268,10 @@ func MigrateTPMNVMonotonicRoot(
 	next.MigrationSourceStateDigest = source.Digest
 	next.MigrationAuthorizationDigest = commitment
 	next.MigrationDestinationAttestationDigest = attestationDigest
+	next.MigrationAttestationGenesisEpoch = auth.DestinationAttestationGenesisEpoch
+	next.MigrationAttestationTrustRootRef = auth.DestinationAttestationTrustRootRef
+	next.MigrationAttestationTrustRootEpoch = auth.DestinationAttestationTrustRootEpoch
+	next.MigrationAttestationPolicyHash = auth.DestinationAttestationPolicyHash
 	next.Scopes = make(map[string]egeproto.CapabilityAuthoritySnapshot, len(source.Scopes))
 	for key, snapshot := range source.Scopes {
 		next.Scopes[key] = snapshot
@@ -279,6 +299,8 @@ func canonicalTPMRootMigrationAuthorizationPayload(auth TPMRootMigrationAuthoriz
 	auth.SourceDeviceIdentity = strings.TrimSpace(auth.SourceDeviceIdentity)
 	auth.SourceStateDigest = strings.TrimSpace(auth.SourceStateDigest)
 	auth.DestinationDeviceIdentity = strings.TrimSpace(auth.DestinationDeviceIdentity)
+	auth.DestinationAttestationTrustRootRef = strings.TrimSpace(auth.DestinationAttestationTrustRootRef)
+	auth.DestinationAttestationPolicyHash = strings.TrimSpace(auth.DestinationAttestationPolicyHash)
 	auth.NotBefore = auth.NotBefore.UTC()
 	auth.ExpiresAt = auth.ExpiresAt.UTC()
 	body, err := json.Marshal(auth)
