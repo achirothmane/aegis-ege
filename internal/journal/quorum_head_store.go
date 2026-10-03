@@ -15,13 +15,15 @@ const quorumHeadStoreVersion = "aegis-ege/quorum-head-store/v1"
 var ErrExternalHeadQuorum = errors.New("external journal head quorum unavailable")
 
 type QuorumHeadMember struct {
-	ID    string
-	Store ExternalHeadStore
+	ID                string
+	TrustManifestHash string
+	Store             ExternalHeadStore
 }
 
 type QuorumHeadStore struct {
-	members   []QuorumHeadMember
-	threshold int
+	members    []QuorumHeadMember
+	threshold  int
+	policyHash string
 }
 
 type quorumSemanticHead struct {
@@ -45,9 +47,10 @@ type quorumAdvanceResult struct {
 }
 
 type quorumStoreVersion struct {
-	Protocol  string                     `json:"protocol"`
-	Threshold int                        `json:"threshold"`
-	Members   []quorumMemberStoreVersion `json:"members"`
+	Protocol   string                     `json:"protocol"`
+	PolicyHash string                     `json:"policy_hash"`
+	Threshold  int                        `json:"threshold"`
+	Members    []quorumMemberStoreVersion `json:"members"`
 }
 
 type quorumMemberStoreVersion struct {
@@ -55,21 +58,29 @@ type quorumMemberStoreVersion struct {
 	StoreVersion string `json:"store_version"`
 }
 
-func NewQuorumHeadStore(members []QuorumHeadMember, threshold int) (*QuorumHeadStore, error) {
-	if len(members) == 0 {
-		return nil, errors.New("quorum head store requires members")
+func NewQuorumHeadStore(
+	members []QuorumHeadMember,
+	binding GenesisQuorumBinding,
+) (*QuorumHeadStore, error) {
+	if len(binding.members) == 0 ||
+		binding.threshold <= len(binding.members)/2 ||
+		binding.threshold > len(binding.members) ||
+		!validSHA256Digest(binding.policyHash) ||
+		!validSHA256Digest(binding.capabilityEnvelopeHash) {
+		return nil, errors.New("valid Genesis quorum binding is required")
 	}
-	if threshold <= len(members)/2 || threshold > len(members) {
+	if len(members) != len(binding.members) {
 		return nil, fmt.Errorf(
-			"quorum threshold must be a strict majority: members=%d threshold=%d",
+			"quorum membership does not match Genesis binding: configured=%d governed=%d",
 			len(members),
-			threshold,
+			len(binding.members),
 		)
 	}
 	seen := make(map[string]struct{}, len(members))
 	copied := make([]QuorumHeadMember, 0, len(members))
 	for _, member := range members {
 		member.ID = strings.TrimSpace(member.ID)
+		member.TrustManifestHash = strings.TrimSpace(member.TrustManifestHash)
 		if member.ID == "" {
 			return nil, errors.New("quorum witness member id is required")
 		}
@@ -80,10 +91,29 @@ func NewQuorumHeadStore(members []QuorumHeadMember, threshold int) (*QuorumHeadS
 			return nil, fmt.Errorf("duplicate quorum witness member id %q", member.ID)
 		}
 		seen[member.ID] = struct{}{}
+		wantTrustManifestHash, ok := binding.members[member.ID]
+		if !ok {
+			return nil, fmt.Errorf(
+				"quorum witness %q is not authorized by Genesis binding",
+				member.ID,
+			)
+		}
+		if member.TrustManifestHash != wantTrustManifestHash {
+			return nil, fmt.Errorf(
+				"quorum witness %q trust manifest hash %s does not match Genesis binding %s",
+				member.ID,
+				member.TrustManifestHash,
+				wantTrustManifestHash,
+			)
+		}
 		copied = append(copied, member)
 	}
 	sort.Slice(copied, func(i, j int) bool { return copied[i].ID < copied[j].ID })
-	return &QuorumHeadStore{members: copied, threshold: threshold}, nil
+	return &QuorumHeadStore{
+		members:    copied,
+		threshold:  binding.threshold,
+		policyHash: binding.policyHash,
+	}, nil
 }
 
 func (s *QuorumHeadStore) Load(
@@ -125,7 +155,7 @@ func (s *QuorumHeadStore) Load(
 				}
 				groups[semantic] = append(groups[semantic], observation)
 				if len(groups[semantic]) >= s.threshold {
-					return aggregateQuorumHead(semantic, groups[semantic], s.threshold)
+					return aggregateQuorumHead(semantic, groups[semantic], s.threshold, s.policyHash)
 				}
 			}
 		}
@@ -203,6 +233,7 @@ func (s *QuorumHeadStore) CompareAndAdvance(
 				semanticExternalHead(next),
 				successes,
 				s.threshold,
+				s.policyHash,
 			)
 		}
 		if loadReturned == len(s.members) && advancePending == 0 {
@@ -300,11 +331,12 @@ func aggregateQuorumHead(
 	semantic quorumSemanticHead,
 	observations []quorumMemberObservation,
 	threshold int,
+	policyHash string,
 ) (ExternalHead, error) {
 	if len(observations) < threshold {
 		return ExternalHead{}, ErrExternalHeadQuorum
 	}
-	version, err := encodeQuorumStoreVersion(observations, threshold)
+	version, err := encodeQuorumStoreVersion(observations, threshold, policyHash)
 	if err != nil {
 		return ExternalHead{}, err
 	}
@@ -320,6 +352,7 @@ func aggregateQuorumHead(
 func encodeQuorumStoreVersion(
 	observations []quorumMemberObservation,
 	threshold int,
+	policyHash string,
 ) (string, error) {
 	members := make([]quorumMemberStoreVersion, 0, len(observations))
 	seen := make(map[string]struct{}, len(observations))
@@ -337,9 +370,10 @@ func encodeQuorumStoreVersion(
 		return members[i].MemberID < members[j].MemberID
 	})
 	payload, err := json.Marshal(quorumStoreVersion{
-		Protocol:  quorumHeadStoreVersion,
-		Threshold: threshold,
-		Members:   members,
+		Protocol:   quorumHeadStoreVersion,
+		PolicyHash: policyHash,
+		Threshold:  threshold,
+		Members:    members,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode quorum store version: %w", err)
