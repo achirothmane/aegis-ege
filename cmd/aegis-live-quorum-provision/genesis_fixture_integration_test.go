@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/achirothmane/aegis-ege/internal/testsupport"
+	"github.com/achirothmane/aegis-ege/internal/integrationfixture"
 )
 
 func TestWriteIndependentLiveQuorumGenesisFixtureForTargetExecutable(t *testing.T) {
@@ -23,7 +23,7 @@ func TestWriteIndependentLiveQuorumGenesisFixtureForTargetExecutable(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, err := testsupport.NewProductionGenesisFixtureForExecutable(
+	fixture, err := integrationfixture.NewProductionGenesisFixtureForExecutable(
 		fixtureDir,
 		prepared.envelope,
 		prepared.genesisEpoch,
