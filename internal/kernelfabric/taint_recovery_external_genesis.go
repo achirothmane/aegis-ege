@@ -4,13 +4,18 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
+	"time"
 )
 
 const ExternalRecoveryWitnessGenesisPolicyVersion = "aegis.ege/external-recovery-witness-genesis/v1"
@@ -20,6 +25,7 @@ type ExternalRecoveryWitnessGenesisPolicy struct {
 	ProfileAuthorityKeyID     string `json:"profile_authority_key_id"`
 	ProfileAuthorityPublicKey string `json:"profile_authority_public_key"`
 	RequiredWitnessID         string `json:"required_witness_id"`
+	TLSServerName             string `json:"tls_server_name"`
 	MinimumProfileEpoch       uint64 `json:"minimum_profile_epoch"`
 	MinimumPolicyEpoch        uint64 `json:"minimum_policy_epoch"`
 }
@@ -141,6 +147,97 @@ func (b GenesisExternalRecoveryWitnessBinding) CapabilityEnvelopeHash() string {
 	return b.capabilityEnvelopeHash
 }
 
+func (b GenesisExternalRecoveryWitnessBinding) NewRemoteWitness(
+	signed SignedExternalRecoveryWitnessProfile,
+	trustRoot *TaintRecoveryTrustRoot,
+	tlsTrustAnchorPEM []byte,
+	timeout time.Duration,
+) (*RemoteTaintRecoveryWitness, *VerifiedExternalRecoveryWitnessProfile, error) {
+	profile, err := b.VerifyProfile(signed, trustRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	if timeout <= 0 {
+		return nil, nil, fmt.Errorf(
+			"%w: external witness HTTP timeout must be positive",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	roots := x509.NewCertPool()
+	if ok := roots.AppendCertsFromPEM(tlsTrustAnchorPEM); !ok {
+		return nil, nil, fmt.Errorf(
+			"%w: external witness TLS trust anchor is invalid",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    roots,
+				ServerName: b.policy.TLSServerName,
+			},
+		},
+		Timeout: timeout,
+	}
+	remote, err := NewProfiledRemoteTaintRecoveryWitness(
+		profile.Profile().Endpoint,
+		trustRoot,
+		profile,
+		tlsTrustAnchorPEM,
+		client,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return remote, profile, nil
+}
+
+func (b GenesisExternalRecoveryWitnessBinding) VerifyMountedTLSCertificate(
+	certificatePEM []byte,
+	profile *VerifiedExternalRecoveryWitnessProfile,
+) error {
+	if profile == nil {
+		return fmt.Errorf(
+			"%w: external witness profile is unavailable",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	digest, err := TLSCertificatePEMSHA256(certificatePEM)
+	if err != nil {
+		return err
+	}
+	if digest != profile.Profile().TLSTrustAnchorSHA256 {
+		return fmt.Errorf(
+			"%w: mounted TLS certificate differs from external witness profile",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	block, _ := pem.Decode(certificatePEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return fmt.Errorf(
+			"%w: mounted TLS certificate PEM is invalid",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf(
+			"%w: parse mounted TLS certificate: %v",
+			ErrTaintRecoveryAuthorization,
+			err,
+		)
+	}
+	if err := certificate.VerifyHostname(b.policy.TLSServerName); err != nil {
+		return fmt.Errorf(
+			"%w: mounted TLS certificate does not satisfy Genesis server name: %v",
+			ErrTaintRecoveryAuthorization,
+			err,
+		)
+	}
+	return nil
+}
+
 func normalizeExternalRecoveryWitnessGenesisPolicy(
 	policy ExternalRecoveryWitnessGenesisPolicy,
 ) (ExternalRecoveryWitnessGenesisPolicy, ed25519.PublicKey, error) {
@@ -154,9 +251,11 @@ func normalizeExternalRecoveryWitnessGenesisPolicy(
 	policy.ProfileAuthorityKeyID = strings.TrimSpace(policy.ProfileAuthorityKeyID)
 	policy.ProfileAuthorityPublicKey = strings.TrimSpace(policy.ProfileAuthorityPublicKey)
 	policy.RequiredWitnessID = strings.TrimSpace(policy.RequiredWitnessID)
+	policy.TLSServerName = strings.TrimSpace(policy.TLSServerName)
 	if policy.ProfileAuthorityKeyID == "" ||
 		policy.ProfileAuthorityPublicKey == "" ||
-		policy.RequiredWitnessID == "" {
+		policy.RequiredWitnessID == "" ||
+		policy.TLSServerName == "" {
 		return ExternalRecoveryWitnessGenesisPolicy{}, nil, fmt.Errorf(
 			"%w: incomplete external recovery witness Genesis policy",
 			ErrTaintRecoveryAuthorization,
