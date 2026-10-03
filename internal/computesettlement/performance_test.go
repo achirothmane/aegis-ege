@@ -1,6 +1,7 @@
 package computesettlement
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -303,7 +304,7 @@ func vcs05Reconcile(
 ) PerformanceExecutionReconciliation {
 	t.Helper()
 	return ReconcilePerformanceExecution(
-		t.Context(),
+		context.Background(),
 		f.authority,
 		f.lease,
 		f.receipt,
