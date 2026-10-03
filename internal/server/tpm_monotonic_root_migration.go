@@ -190,7 +190,8 @@ func MigrateTPMNVMonotonicRoot(
 	}
 	if auth.DestinationAttestationDigest != attestationDigest ||
 		att.MigrationID != auth.MigrationID ||
-		att.DestinationDeviceIdentity != auth.DestinationDeviceIdentity {
+		att.DestinationDeviceIdentity != auth.DestinationDeviceIdentity ||
+		att.DestinationGeneration != auth.DestinationGeneration {
 		return fmt.Errorf("%w: destination attestation does not match migration authorization", ErrTPMRootMigrationAuthorization)
 	}
 
@@ -233,7 +234,8 @@ func MigrateTPMNVMonotonicRoot(
 		return fmt.Errorf("%w: destination root does not match authorization", ErrTPMRootMigrationAuthorization)
 	}
 	if state.DeviceIdentity != att.DestinationDeviceIdentity ||
-		state.MeasuredBootIdentity != att.DestinationMeasuredBootIdentity {
+		state.MeasuredBootIdentity != att.DestinationMeasuredBootIdentity ||
+		state.Generation != att.DestinationGeneration {
 		return fmt.Errorf("%w: live destination does not match independently attested identity", ErrTPMRootMigrationDestinationAttestation)
 	}
 	if len(state.Scopes) != 0 {
