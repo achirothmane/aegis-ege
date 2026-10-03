@@ -5,7 +5,7 @@ on:
     paths:
       - "cmd/aegis-live-quorum-provision/**"
       - "internal/server/live_external_head_quorum_failure_domains_integration_test.go"
-      - "internal/testsupport/production_genesis_fixture.go"
+      - "internal/integrationfixture/production_genesis_fixture.go"
       - ".github/workflows/live-quorum-failure-domains.yml"
   push:
     branches:
@@ -13,7 +13,7 @@ on:
     paths:
       - "cmd/aegis-live-quorum-provision/**"
       - "internal/server/live_external_head_quorum_failure_domains_integration_test.go"
-      - "internal/testsupport/production_genesis_fixture.go"
+      - "internal/integrationfixture/production_genesis_fixture.go"
       - ".github/workflows/live-quorum-failure-domains.yml"
   workflow_dispatch:
 
