@@ -41,7 +41,7 @@ type r02ProviderBState struct {
 type r02Evidence struct {
 	SchemaVersion  string `json:"schema_version"`
 	ActionRef      string `json:"action_ref"`
-	FailureDomains struct {
+\tAmount         int64  `json:"amount"`\n	FailureDomains struct {
 		E1       string `json:"e1"`
 		E2       string `json:"e2"`
 		E3       string `json:"e3"`
