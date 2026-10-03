@@ -25,8 +25,8 @@ type TPMHardwareIdentityEvidence struct {
 	DeviceMode          string `json:"device_mode"`
 	TPMManufacturer     string `json:"tpm_manufacturer"`
 	TPMVendorInfo       string `json:"tpm_vendor_info"`
-	TPMFirmwareMajor    uint16 `json:"tpm_firmware_major"`
-	TPMFirmwareMinor    uint16 `json:"tpm_firmware_minor"`
+	TPMFirmwareMajor    int    `json:"tpm_firmware_major"`
+	TPMFirmwareMinor    int    `json:"tpm_firmware_minor"`
 	EKSPKISHA256        string `json:"ek_spki_sha256"`
 	EKCertificateSHA256 string `json:"ek_certificate_sha256,omitempty"`
 }
