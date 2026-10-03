@@ -7,7 +7,7 @@ import (
 )
 
 type r02EvidenceK07 struct {
-	SchemaVersion string `json:"schema_version"`
+	SchemaVersion  string `json:"schema_version"`
 	FailureDomains struct {
 		Distinct bool `json:"distinct"`
 	} `json:"failure_domains"`
