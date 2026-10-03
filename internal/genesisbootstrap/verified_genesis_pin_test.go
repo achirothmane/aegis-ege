@@ -140,8 +140,7 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 	store.policy.PolicyHash = quorum.QuorumPolicyHash()
 
 	tampered := append([]byte(nil), envelope...)
-	tampered = append(tampered, '
-')
+	tampered = append(tampered, byte(10))
 	if _, err := pin.ParseQuorumBinding(tampered); err == nil ||
 		!strings.Contains(err.Error(), "capability envelope hash mismatch") {
 		t.Fatalf("tampered envelope = %v, want exact Genesis hash rejection", err)
