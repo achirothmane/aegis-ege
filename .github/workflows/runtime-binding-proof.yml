@@ -30,7 +30,7 @@ jobs:
           cp runtime/runtime.go "$RUNNER_TEMP/runtime-fixed.go"
           trap 'cp "$RUNNER_TEMP/runtime-fixed.go" runtime/runtime.go' EXIT
           git show 157d713e8ce9d760296b08ecccc0bd87f1413ea8:governedaction/runtime/runtime.go > runtime/runtime.go
-          if go test ./runtime -run '^Test(OpaqueFieldBoundariesRemainDistinct|ExactBindingAtAdmissionAndClosureBoundaries) -count=1 > "$RUNNER_TEMP/runtime-baseline.log" 2>&1; then
+          if go test ./runtime -run '^Test(OpaqueFieldBoundariesRemainDistinct|ExactBindingAtAdmissionAndClosureBoundaries)$' -count=1 > "$RUNNER_TEMP/runtime-baseline.log" 2>&1; then
             cat "$RUNNER_TEMP/runtime-baseline.log"
             exit 1
           fi
@@ -38,13 +38,5 @@ jobs:
           grep -q 'distinct subject fields share an effect binding' "$RUNNER_TEMP/runtime-baseline.log"
           grep -q 'foreign admission must be rejected' "$RUNNER_TEMP/runtime-baseline.log"
           grep -q 'foreign observation must leave UNKNOWN' "$RUNNER_TEMP/runtime-baseline.log"
-      - name: Verify corrected bindings and full library
-        run: go test -race -count=1 -v ./...
- -count=1 > "$RUNNER_TEMP/runtime-baseline.log" 2>&1; then
-            cat "$RUNNER_TEMP/runtime-baseline.log"
-            exit 1
-          fi
-          cat "$RUNNER_TEMP/runtime-baseline.log"
-          grep -q 'distinct subject fields share an effect binding' "$RUNNER_TEMP/runtime-baseline.log"
       - name: Verify corrected bindings and full library
         run: go test -race -count=1 -v ./...
