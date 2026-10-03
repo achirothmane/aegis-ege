@@ -15,7 +15,7 @@
   "pins": {
     "runtime_blob": "7e4b77757eb6490b18086d13fd22dbae02d277de",
     "fenced_runtime_blob": "bff1a1b1fc7524fd6cdebe5cad905bf9efb7be77",
-    "proof_test_blob": "88162a88702b0207ef1b49f8c6a928bf4fff7904"
+    "proof_test_blob": "c8652d6c85694c5a3466533bc5ce2ef56d4f0600"
   },
   "native_boundary_checks": [
     "exact effect_id and attempt_id",
@@ -23,7 +23,8 @@
     "exact monotonic generation",
     "CROSSING phase",
     "exact pre-effect target revision and digest",
-    "active exact admission binding"
+    "active exact admission binding",
+    "exact authority epoch and generation captured in custody"
   ],
   "falsification_cases": [
     {
