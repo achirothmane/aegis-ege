@@ -80,3 +80,5 @@ The anchor also uses a pending-state protocol. If the companion file for the nex
 This v1 proves rollback resistance when the writable history volume and its companion files are restored while the same TPM NV counter remains available and trustworthy.
 
 It does not yet prove continuity across TPM replacement, motherboard replacement, deliberate TPM clear with re-provisioning authority, or a remote disaster-recovery site. Those require an independently administered external witness or quorum in addition to the local TPM anchor.
+
+The proof intentionally keeps historical evidence non-authoritative.
