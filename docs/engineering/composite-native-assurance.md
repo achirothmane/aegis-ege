@@ -107,7 +107,7 @@ an automated rerun.
 
 ## Genesis and custodian handoff during lost acknowledgement
 
-The next corpus composes the existing protocols in one bounded native case:
+The succession corpus composes the existing protocols in one bounded native case:
 freeze successor-governance authority, rotate the quorum over the exact operation
 history head, activate the co-signed new authority, then append the recovery
 outcome under a distinct history custodian. Both epoch sets come from actual
@@ -117,8 +117,26 @@ remains library-capable, not production-orchestrated.
 
 PostgreSQL holds four logical witness policies and per-history heads. Each CAS
 locks policy and head in the same transaction. Policy transitions retain both
-the frozen history head and frozen authority head. The first shared witness
-freeze commits before its response is lost; resumption uses retained SQL state.
+the frozen history head and frozen authority head. A controller subprocess exits
+95 after the first shared witness freeze commits, before returning its response.
+A fresh subprocess exits 96 after the first NEW shared policy commits. A third
+fresh controller completes the same approved transition from retained SQL state.
+Each subprocess independently bootstraps both exact executable-bound Genesis
+pins, reconstructs the plans and opens new database connections. No pin, plan,
+handle, signing-key input or in-memory progress is transferred between them.
+The supervisor, SQL service and bootstrap fixture files survive; this is process
+loss at committed policy boundaries, not simultaneous loss of all infrastructure.
+
+Between crashes, a fresh process rejects a changed rotation identity with the
+original approvals before opening the database. Both crash checkpoints and that
+rejection retain the exact history and frozen authority heads; neither OLD nor
+NEW successor authority is current. Completion produces exactly four native
+policy transitions and still only one destination effect. Both CLOSED and
+UNKNOWN cases export `controller-restarts.json` with the input digest, distinct
+process IDs, exact exit codes, durable transition counts and completion result.
+This process transcript is corpus evidence; the portable verifier still judges
+the signed native quorum observations against its separately supplied policy.
+
 The old custodian cannot self-promote using the new public policy/key: a narrow
 SQL function checks `session_user`, epoch, selected history and key at the CAS
 boundary. Neither history account has destination mutation or policy mutation
