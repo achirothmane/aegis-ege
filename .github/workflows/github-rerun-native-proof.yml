@@ -1,7 +1,6 @@
 name: GitHub Native Rerun Kernel Proof
 
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -10,7 +9,6 @@ permissions:
 
 jobs:
   native-rerun-proof:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'proof/github-native-rerun-kernel')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
