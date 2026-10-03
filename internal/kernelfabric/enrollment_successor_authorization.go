@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const EnrollmentIdentitySuccessorAuthorizationVersion = "aegis.ege/enrollment-identity-successor-authorization/v1"
+const (
+	EnrollmentIdentitySuccessorAuthorizationVersion   = "aegis.ege/enrollment-identity-successor-authorization/v1"
+	EnrollmentIdentitySuccessorAuthorizationVersionV2 = "aegis.ege/enrollment-identity-successor-authorization/v2"
+)
 
 var (
 	ErrEnrollmentIdentitySuccessorAuthorization = errors.New("enrollment identity successor authorization is invalid")
@@ -37,6 +40,9 @@ type EnrollmentIdentitySuccessorAuthorization struct {
 	DestinationGeneration                uint64    `json:"destination_generation"`
 	HistoryWitnessPolicyHash             string    `json:"history_witness_policy_hash"`
 	OwnershipWitnessPolicyHash           string    `json:"ownership_witness_policy_hash"`
+	GovernanceGenesisEpoch                uint64    `json:"governance_genesis_epoch,omitempty"`
+	GovernanceCapabilityEnvelopeHash      string    `json:"governance_capability_envelope_hash,omitempty"`
+	GovernancePolicyHash                  string    `json:"governance_policy_hash,omitempty"`
 	NotBefore                            time.Time `json:"not_before"`
 	ExpiresAt                            time.Time `json:"expires_at"`
 }
@@ -50,7 +56,24 @@ type SignedEnrollmentIdentitySuccessorAuthorization struct {
 func ValidateEnrollmentIdentitySuccessorAuthorization(
 	auth EnrollmentIdentitySuccessorAuthorization,
 ) error {
-	if auth.Version != EnrollmentIdentitySuccessorAuthorizationVersion {
+	switch auth.Version {
+	case EnrollmentIdentitySuccessorAuthorizationVersion:
+		if auth.GovernanceGenesisEpoch != 0 ||
+			auth.GovernanceCapabilityEnvelopeHash != "" ||
+			auth.GovernancePolicyHash != "" {
+			return fmt.Errorf("%w: v1 authorization cannot carry Genesis governance binding", ErrEnrollmentIdentitySuccessorAuthorization)
+		}
+	case EnrollmentIdentitySuccessorAuthorizationVersionV2:
+		if auth.GovernanceGenesisEpoch == 0 {
+			return fmt.Errorf("%w: v2 authorization requires governance Genesis epoch", ErrEnrollmentIdentitySuccessorAuthorization)
+		}
+		if _, err := ParseSHA256Digest(auth.GovernanceCapabilityEnvelopeHash); err != nil {
+			return fmt.Errorf("%w: governance capability envelope hash: %v", ErrEnrollmentIdentitySuccessorAuthorization, err)
+		}
+		if _, err := ParseSHA256Digest(auth.GovernancePolicyHash); err != nil {
+			return fmt.Errorf("%w: governance policy hash: %v", ErrEnrollmentIdentitySuccessorAuthorization, err)
+		}
+	default:
 		return fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentitySuccessorAuthorization, auth.Version)
 	}
 	if strings.TrimSpace(auth.AuthorizationID) == "" ||
@@ -178,7 +201,11 @@ func EnrollmentIdentitySuccessorAuthorizationDigest(
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(append([]byte("aegis.ege/signed-enrollment-identity-successor-authorization/v1\x00"), body...))
+	domain, err := signedEnrollmentIdentitySuccessorAuthorizationDomain(signed.Authorization.Version)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(append([]byte(domain), body...))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -195,7 +222,33 @@ func canonicalEnrollmentIdentitySuccessorAuthorizationPayload(
 	if err != nil {
 		return nil, err
 	}
-	return append([]byte("aegis.ege/enrollment-identity-successor-authorization/v1\x00"), body...), nil
+	domain, err := enrollmentIdentitySuccessorAuthorizationDomain(auth.Version)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(domain), body...), nil
+}
+
+func enrollmentIdentitySuccessorAuthorizationDomain(version string) (string, error) {
+	switch version {
+	case EnrollmentIdentitySuccessorAuthorizationVersion:
+		return "aegis.ege/enrollment-identity-successor-authorization/v1\x00", nil
+	case EnrollmentIdentitySuccessorAuthorizationVersionV2:
+		return "aegis.ege/enrollment-identity-successor-authorization/v2\x00", nil
+	default:
+		return "", fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentitySuccessorAuthorization, version)
+	}
+}
+
+func signedEnrollmentIdentitySuccessorAuthorizationDomain(version string) (string, error) {
+	switch version {
+	case EnrollmentIdentitySuccessorAuthorizationVersion:
+		return "aegis.ege/signed-enrollment-identity-successor-authorization/v1\x00", nil
+	case EnrollmentIdentitySuccessorAuthorizationVersionV2:
+		return "aegis.ege/signed-enrollment-identity-successor-authorization/v2\x00", nil
+	default:
+		return "", fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentitySuccessorAuthorization, version)
+	}
 }
 
 func enrollmentSuccessorGovernanceKeyID(publicKey ed25519.PublicKey) (string, error) {
