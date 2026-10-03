@@ -23,6 +23,7 @@ import (
 const (
 	independentGenesisEpoch         = uint64(7)
 	independentMinimumDoctrineEpoch = uint64(3)
+	independentPreparedBundleVersion = "aegis-ege/live-independent-quorum-prepared/v1"
 )
 
 type independentControlPlaneSpec struct {
@@ -41,13 +42,55 @@ type independentControlPlaneTarget struct {
 }
 
 type independentPreparedQuorum struct {
-	genesisEpoch uint64
-	workloadKeyID string
+	genesisEpoch   uint64
+	workloadKeyID  string
 	workloadPublic ed25519.PublicKey
-	members       []memberMaterial
-	envelope      []byte
-	envelopeHash  string
-	specs         []independentControlPlaneSpec
+	members        []memberMaterial
+	envelope       []byte
+	envelopeHash   string
+	specs          []independentControlPlaneSpec
+}
+
+type independentPreparedQuorumFile struct {
+	Version                  string                   `json:"version"`
+	GenesisEpoch             uint64                   `json:"genesis_epoch"`
+	WorkloadSignerKeyID      string                   `json:"workload_signer_key_id"`
+	WorkloadSignerPublicKey  string                   `json:"workload_signer_public_key"`
+	CapabilityEnvelopeBase64 string                   `json:"capability_envelope_base64"`
+	CapabilityEnvelopeHash   string                   `json:"capability_envelope_hash"`
+	Members                  []preparedMemberMaterial `json:"members"`
+}
+
+type preparedMemberMaterial struct {
+	ID                    string                             `json:"id"`
+	Suffix                string                             `json:"suffix"`
+	NodePort              int32                              `json:"node_port"`
+	StateName             string                             `json:"state_name"`
+	DeploymentName        string                             `json:"deployment_name"`
+	ServiceName           string                             `json:"service_name"`
+	ServiceAccount        string                             `json:"service_account"`
+	WitnessTLSSecretName  string                             `json:"witness_tls_secret_name"`
+	WitnessConfigName     string                             `json:"witness_config_name"`
+	WitnessTLSServerName  string                             `json:"witness_tls_server_name"`
+	ExternalEndpoint      string                             `json:"external_endpoint"`
+	WitnessCertPEM        string                             `json:"witness_cert_pem"`
+	WitnessKeyPEM         string                             `json:"witness_key_pem"`
+	SignerSecretName      string                             `json:"signer_secret_name"`
+	SignerDeployment      string                             `json:"signer_deployment"`
+	SignerService         string                             `json:"signer_service"`
+	SignerTLSServerName   string                             `json:"signer_tls_server_name"`
+	SignerEndpoint        string                             `json:"signer_endpoint"`
+	SignerCertPEM         string                             `json:"signer_cert_pem"`
+	SignerKeyPEM          string                             `json:"signer_key_pem"`
+	SignerPublic          string                             `json:"signer_public"`
+	SignerPrivate         string                             `json:"signer_private"`
+	SignerKeyID           string                             `json:"signer_key_id"`
+	OwnerPublic           string                             `json:"owner_public"`
+	OwnerPrivate          string                             `json:"owner_private"`
+	OwnerKeyID            string                             `json:"owner_key_id"`
+	Manifest              journal.WitnessTrustManifest       `json:"manifest"`
+	SignedTrust           journal.SignedWitnessTrustManifest `json:"signed_trust"`
+	ManifestHash          string                             `json:"manifest_hash"`
 }
 
 func independentControlPlaneSpecs() []independentControlPlaneSpec {
@@ -74,15 +117,31 @@ func independentControlPlaneSpecs() []independentControlPlaneSpec {
 }
 
 func runIndependentControlPlanes(ctx context.Context) error {
-	prepared, err := prepareIndependentQuorum()
-	if err != nil {
-		return err
+	phase := strings.TrimSpace(os.Getenv("LIVE_QUORUM_PROVISION_PHASE"))
+	preparedPath := strings.TrimSpace(os.Getenv("LIVE_QUORUM_PREPARED_BUNDLE"))
+	if preparedPath == "" {
+		return fmt.Errorf("LIVE_QUORUM_PREPARED_BUNDLE is required")
 	}
-	pin, err := loadVerifiedIndependentGenesisPin(ctx)
-	if err != nil {
-		return err
+	switch phase {
+	case "prepare":
+		prepared, err := prepareIndependentQuorum()
+		if err != nil {
+			return err
+		}
+		return writeIndependentPreparedQuorum(preparedPath, prepared)
+	case "activate":
+		prepared, err := loadIndependentPreparedQuorum(preparedPath)
+		if err != nil {
+			return err
+		}
+		pin, err := loadVerifiedIndependentGenesisPin(ctx)
+		if err != nil {
+			return err
+		}
+		return activateIndependentControlPlanesWithPin(ctx, prepared, pin)
+	default:
+		return fmt.Errorf("LIVE_QUORUM_PROVISION_PHASE must be prepare or activate")
 	}
-	return activateIndependentControlPlanesWithPin(ctx, prepared, pin)
 }
 
 func prepareIndependentQuorum() (independentPreparedQuorum, error) {
@@ -134,6 +193,186 @@ func prepareIndependentQuorum() (independentPreparedQuorum, error) {
 		envelope:       envelope,
 		envelopeHash:   sha256Digest(envelope),
 		specs:          specs,
+	}, nil
+}
+
+
+func writeIndependentPreparedQuorum(
+	path string,
+	prepared independentPreparedQuorum,
+) error {
+	file := independentPreparedQuorumFile{
+		Version:                  independentPreparedBundleVersion,
+		GenesisEpoch:             prepared.genesisEpoch,
+		WorkloadSignerKeyID:      prepared.workloadKeyID,
+		WorkloadSignerPublicKey:  base64.StdEncoding.EncodeToString(prepared.workloadPublic),
+		CapabilityEnvelopeBase64: base64.StdEncoding.EncodeToString(prepared.envelope),
+		CapabilityEnvelopeHash:   prepared.envelopeHash,
+		Members:                  make([]preparedMemberMaterial, 0, len(prepared.members)),
+	}
+	for _, member := range prepared.members {
+		file.Members = append(file.Members, preparedMemberFromMaterial(member))
+	}
+	return writeJSONFile(path, file, 0o600)
+}
+
+func loadIndependentPreparedQuorum(
+	path string,
+) (independentPreparedQuorum, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return independentPreparedQuorum{}, fmt.Errorf("read prepared live quorum: %w", err)
+	}
+	var file independentPreparedQuorumFile
+	if err := json.Unmarshal(payload, &file); err != nil {
+		return independentPreparedQuorum{}, fmt.Errorf("decode prepared live quorum: %w", err)
+	}
+	if file.Version != independentPreparedBundleVersion ||
+		file.GenesisEpoch != independentGenesisEpoch ||
+		file.WorkloadSignerKeyID == "" ||
+		file.CapabilityEnvelopeHash == "" ||
+		len(file.Members) != 3 {
+		return independentPreparedQuorum{}, fmt.Errorf("prepared live quorum metadata is invalid")
+	}
+	workloadRaw, err := base64.StdEncoding.DecodeString(file.WorkloadSignerPublicKey)
+	if err != nil || len(workloadRaw) != ed25519.PublicKeySize {
+		return independentPreparedQuorum{}, fmt.Errorf("prepared workload signer public key is invalid")
+	}
+	workloadPublic := ed25519.PublicKey(workloadRaw)
+	workloadKeyID, err := kernelfabric.BootstrapKeyID(workloadPublic)
+	if err != nil || workloadKeyID != file.WorkloadSignerKeyID {
+		return independentPreparedQuorum{}, fmt.Errorf("prepared workload signer identity mismatch")
+	}
+	envelope, err := base64.StdEncoding.DecodeString(file.CapabilityEnvelopeBase64)
+	if err != nil || len(envelope) == 0 {
+		return independentPreparedQuorum{}, fmt.Errorf("prepared capability envelope is invalid")
+	}
+	if sha256Digest(envelope) != file.CapabilityEnvelopeHash {
+		return independentPreparedQuorum{}, fmt.Errorf("prepared capability envelope hash mismatch")
+	}
+
+	specs := independentControlPlaneSpecs()
+	members := make([]memberMaterial, 0, len(file.Members))
+	for i, encoded := range file.Members {
+		member, err := materialFromPreparedMember(encoded)
+		if err != nil {
+			return independentPreparedQuorum{}, fmt.Errorf("prepared member %d: %w", i, err)
+		}
+		if i >= len(specs) ||
+			member.spec.ID != specs[i].ID ||
+			member.spec.Suffix != specs[i].Suffix ||
+			member.spec.NodePort != specs[i].NodePort {
+			return independentPreparedQuorum{}, fmt.Errorf("prepared member ordering or identity mismatch")
+		}
+		members = append(members, member)
+	}
+
+	return independentPreparedQuorum{
+		genesisEpoch:   file.GenesisEpoch,
+		workloadKeyID:  file.WorkloadSignerKeyID,
+		workloadPublic: append(ed25519.PublicKey(nil), workloadPublic...),
+		members:        members,
+		envelope:       envelope,
+		envelopeHash:   file.CapabilityEnvelopeHash,
+		specs:          specs,
+	}, nil
+}
+
+func preparedMemberFromMaterial(member memberMaterial) preparedMemberMaterial {
+	return preparedMemberMaterial{
+		ID:                   member.spec.ID,
+		Suffix:               member.spec.Suffix,
+		NodePort:             member.spec.NodePort,
+		StateName:            member.stateName,
+		DeploymentName:       member.deploymentName,
+		ServiceName:          member.serviceName,
+		ServiceAccount:       member.serviceAccount,
+		WitnessTLSSecretName: member.witnessTLSSecretName,
+		WitnessConfigName:    member.witnessConfigName,
+		WitnessTLSServerName: member.witnessTLSServerName,
+		ExternalEndpoint:     member.externalEndpoint,
+		WitnessCertPEM:       string(member.witnessCertPEM),
+		WitnessKeyPEM:        string(member.witnessKeyPEM),
+		SignerSecretName:     member.signerSecretName,
+		SignerDeployment:     member.signerDeployment,
+		SignerService:        member.signerService,
+		SignerTLSServerName:  member.signerTLSServerName,
+		SignerEndpoint:       member.signerEndpoint,
+		SignerCertPEM:        string(member.signerCertPEM),
+		SignerKeyPEM:         string(member.signerKeyPEM),
+		SignerPublic:         base64.StdEncoding.EncodeToString(member.signerPublic),
+		SignerPrivate:        base64.StdEncoding.EncodeToString(member.signerPrivate),
+		SignerKeyID:          member.signerKeyID,
+		OwnerPublic:          base64.StdEncoding.EncodeToString(member.ownerPublic),
+		OwnerPrivate:         base64.StdEncoding.EncodeToString(member.ownerPrivate),
+		OwnerKeyID:           member.ownerKeyID,
+		Manifest:             member.manifest,
+		SignedTrust:          member.signedTrust,
+		ManifestHash:         member.manifestHash,
+	}
+}
+
+func materialFromPreparedMember(
+	prepared preparedMemberMaterial,
+) (memberMaterial, error) {
+	signerPublicRaw, err := base64.StdEncoding.DecodeString(prepared.SignerPublic)
+	if err != nil || len(signerPublicRaw) != ed25519.PublicKeySize {
+		return memberMaterial{}, fmt.Errorf("signer public key is invalid")
+	}
+	signerPrivateRaw, err := base64.StdEncoding.DecodeString(prepared.SignerPrivate)
+	if err != nil || len(signerPrivateRaw) != ed25519.PrivateKeySize {
+		return memberMaterial{}, fmt.Errorf("signer private key is invalid")
+	}
+	ownerPublicRaw, err := base64.StdEncoding.DecodeString(prepared.OwnerPublic)
+	if err != nil || len(ownerPublicRaw) != ed25519.PublicKeySize {
+		return memberMaterial{}, fmt.Errorf("owner public key is invalid")
+	}
+	ownerPrivateRaw, err := base64.StdEncoding.DecodeString(prepared.OwnerPrivate)
+	if err != nil || len(ownerPrivateRaw) != ed25519.PrivateKeySize {
+		return memberMaterial{}, fmt.Errorf("owner private key is invalid")
+	}
+	manifestHash, err := journal.WitnessTrustManifestDigest(prepared.Manifest)
+	if err != nil || manifestHash != prepared.ManifestHash {
+		return memberMaterial{}, fmt.Errorf("witness trust manifest hash mismatch")
+	}
+	signerPublic := ed25519.PublicKey(signerPublicRaw)
+	signerKeyID, err := kernelfabric.BootstrapKeyID(signerPublic)
+	if err != nil || signerKeyID != prepared.SignerKeyID {
+		return memberMaterial{}, fmt.Errorf("signer identity mismatch")
+	}
+	ownerPublic := ed25519.PublicKey(ownerPublicRaw)
+	ownerKeyID, err := kernelfabric.BootstrapKeyID(ownerPublic)
+	if err != nil || ownerKeyID != prepared.OwnerKeyID {
+		return memberMaterial{}, fmt.Errorf("owner identity mismatch")
+	}
+	return memberMaterial{
+		spec:                 memberSpec{ID: prepared.ID, Suffix: prepared.Suffix, NodePort: prepared.NodePort},
+		stateName:            prepared.StateName,
+		deploymentName:       prepared.DeploymentName,
+		serviceName:          prepared.ServiceName,
+		serviceAccount:       prepared.ServiceAccount,
+		witnessTLSSecretName: prepared.WitnessTLSSecretName,
+		witnessConfigName:    prepared.WitnessConfigName,
+		witnessTLSServerName: prepared.WitnessTLSServerName,
+		externalEndpoint:     prepared.ExternalEndpoint,
+		witnessCertPEM:       []byte(prepared.WitnessCertPEM),
+		witnessKeyPEM:        []byte(prepared.WitnessKeyPEM),
+		signerSecretName:     prepared.SignerSecretName,
+		signerDeployment:     prepared.SignerDeployment,
+		signerService:        prepared.SignerService,
+		signerTLSServerName:  prepared.SignerTLSServerName,
+		signerEndpoint:       prepared.SignerEndpoint,
+		signerCertPEM:        []byte(prepared.SignerCertPEM),
+		signerKeyPEM:         []byte(prepared.SignerKeyPEM),
+		signerPublic:         append(ed25519.PublicKey(nil), signerPublic...),
+		signerPrivate:        append(ed25519.PrivateKey(nil), signerPrivateRaw...),
+		signerKeyID:          prepared.SignerKeyID,
+		ownerPublic:          append(ed25519.PublicKey(nil), ownerPublic...),
+		ownerPrivate:         append(ed25519.PrivateKey(nil), ownerPrivateRaw...),
+		ownerKeyID:           prepared.OwnerKeyID,
+		manifest:             prepared.Manifest,
+		signedTrust:          prepared.SignedTrust,
+		manifestHash:         prepared.ManifestHash,
 	}, nil
 }
 
