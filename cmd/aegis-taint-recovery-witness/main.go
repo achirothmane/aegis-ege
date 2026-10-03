@@ -47,6 +47,15 @@ func main() {
 		time.Now,
 	)
 	must(err)
+	mux := http.NewServeMux()
+	mux.Handle("/v1/recovery/cosign", handler)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	addr := strings.TrimSpace(os.Getenv("LISTEN_ADDR"))
 	if addr == "" {
@@ -56,7 +65,7 @@ func main() {
 	keyPath := requireEnv("TLS_KEY_PATH")
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           handler,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
