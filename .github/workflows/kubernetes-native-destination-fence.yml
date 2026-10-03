@@ -1,0 +1,96 @@
+name: Kubernetes Native Destination Fence Proof
+
+on:
+  pull_request:
+    paths:
+      - 'internal/kubeadapter/native_destination_fence_integration_test.go'
+      - 'governedaction/runtime/fenced.go'
+      - 'governedaction/runtime/runtime.go'
+      - 'testdata/governed-action/native-destination-fence/kubernetes-v1.json'
+      - '.github/workflows/kubernetes-native-destination-fence.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  native-kubernetes-fence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+
+      - name: Install KinD
+        run: go install sigs.k8s.io/kind@v0.33.0
+
+      - name: Create isolated Kubernetes control plane
+        run: |
+          set -euo pipefail
+          kind create cluster --name aegis-native-fence --wait 60s
+          kind get kubeconfig --name aegis-native-fence > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Verify registered runtime and proof identities
+        run: |
+          set -euo pipefail
+          registration=testdata/governed-action/native-destination-fence/kubernetes-v1.json
+          test "$(git hash-object governedaction/runtime/runtime.go)" = "$(jq -r '.pins.runtime_blob' "$registration")"
+          test "$(git hash-object governedaction/runtime/fenced.go)" = "$(jq -r '.pins.fenced_runtime_blob' "$registration")"
+          test "$(git hash-object internal/kubeadapter/native_destination_fence_integration_test.go)" = "$(jq -r '.pins.proof_test_blob' "$registration")"
+
+      - name: Execute Kubernetes native fencing falsification corpus
+        run: |
+          set -euo pipefail
+          go mod download
+          go mod verify
+          gofmt -d internal/kubeadapter/native_destination_fence_integration_test.go
+          test -z "$(gofmt -l internal/kubeadapter/native_destination_fence_integration_test.go)"
+          go test -race -tags=integration -count=1 -v             -run '^(TestKindNativeDestinationFence.*|TestKindSeparateLeaseCannotNativelyFenceTargetMutation)$'             ./internal/kubeadapter             | tee "$RUNNER_TEMP/kubernetes-native-destination-fence.log"
+          ! grep -q -- '--- SKIP' "$RUNNER_TEMP/kubernetes-native-destination-fence.log"
+          test "$(grep -c -- '--- PASS: TestKindNativeDestinationFence' "$RUNNER_TEMP/kubernetes-native-destination-fence.log")" -eq 4
+          test "$(grep -c -- '--- PASS: TestKindSeparateLeaseCannotNativelyFenceTargetMutation' "$RUNNER_TEMP/kubernetes-native-destination-fence.log")" -eq 1
+
+      - name: Emit bounded proof result
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/kubernetes-native-destination-fence"
+          cp "$RUNNER_TEMP/kubernetes-native-destination-fence.log"              "$RUNNER_TEMP/kubernetes-native-destination-fence/test.log"
+          cp testdata/governed-action/native-destination-fence/kubernetes-v1.json              "$RUNNER_TEMP/kubernetes-native-destination-fence/registration.json"
+          jq -n             --arg head "${{ github.event.pull_request.head.sha }}"             '{
+              schema_version: "aegis.native-destination-fence-proof-result/v1",
+              source_head: $head,
+              substrate: "Kubernetes API",
+              split_object_lease_profile: "COUNTEREXAMPLE",
+              colocated_single_object_profile: "PASS",
+              stale_owner_after_takeover: "PASS",
+              post_read_state_race: "PASS",
+              post_read_authority_race: "PASS",
+              exact_token_replay: "PASS",
+              unauthorized_colocated_effects_observed: 0,
+              duplicate_colocated_effects_observed: 0,
+              frozen_kernel_contract_changed: false,
+              claim: "single Kubernetes object profile only"
+            }' > "$RUNNER_TEMP/kubernetes-native-destination-fence/result.json"
+
+      - name: Preserve Kubernetes native fence evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubernetes-native-destination-fence-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/kubernetes-native-destination-fence/
+
+      - name: Delete KinD cluster
+        if: always()
+        run: kind delete cluster --name aegis-native-fence
