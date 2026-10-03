@@ -105,8 +105,8 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           set -o pipefail
-          go test -v ./internal/server -run 'TestTPMNVHistoryAnchor(RejectsWholeVolumeRollbackToValidSignedHead|RecoversCommittedPendingAfterInterruption)' -count=1 | tee "$RUNNER_TEMP/tpm-history-anchor-proof.log"
-          test "$(grep -c '^--- PASS: TestTPMNVHistoryAnchor' "$RUNNER_TEMP/tpm-history-anchor-proof.log")" -eq 2
+          go test -v ./internal/server -run 'TestTPMNVHistoryAnchor(RejectsWholeVolumeRollbackToValidSignedHead|RecoversCommittedPendingAfterInterruption|RejectsSameGenerationCompanionRewrite|RecoversExactHeadBeforeCounterInterruption)' -count=1 | tee "$RUNNER_TEMP/tpm-history-anchor-proof.log"
+          test "$(grep -c '^--- PASS: TestTPMNVHistoryAnchor' "$RUNNER_TEMP/tpm-history-anchor-proof.log")" -eq 4
           if grep -q '^--- SKIP:' "$RUNNER_TEMP/tpm-history-anchor-proof.log"; then
             exit 1
           fi
