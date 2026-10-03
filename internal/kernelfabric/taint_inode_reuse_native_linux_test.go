@@ -26,15 +26,16 @@ import (
 )
 
 const (
-	taintInodeReuseHelperEnv    = "AEGIS_TAINT_INODE_REUSE_HELPER"
-	taintRestartObserverEnv     = "AEGIS_TAINT_RESTART_OBSERVER"
-	taintRecoveryCrashHelperEnv = "AEGIS_TAINT_RECOVERY_CRASH_HELPER"
-	taintRecoveryPlanEnv        = "AEGIS_TAINT_RECOVERY_PLAN"
-	taintRecoveryAuthEnv        = "AEGIS_TAINT_RECOVERY_AUTH"
-	taintRecoveryKeyEnv         = "AEGIS_TAINT_RECOVERY_KEY"
-	taintRecoveryWitnessKeyEnv  = "AEGIS_TAINT_RECOVERY_WITNESS_KEY"
-	taintRecoveryNowEnv         = "AEGIS_TAINT_RECOVERY_NOW"
-	taintRecoveryBoundaryEnv    = "AEGIS_TAINT_RECOVERY_BOUNDARY"
+	taintInodeReuseHelperEnv      = "AEGIS_TAINT_INODE_REUSE_HELPER"
+	taintRestartObserverEnv       = "AEGIS_TAINT_RESTART_OBSERVER"
+	taintRecoveryCrashHelperEnv   = "AEGIS_TAINT_RECOVERY_CRASH_HELPER"
+	taintRecoveryPlanEnv          = "AEGIS_TAINT_RECOVERY_PLAN"
+	taintRecoveryAuthEnv          = "AEGIS_TAINT_RECOVERY_AUTH"
+	taintRecoveryTrustManifestEnv = "AEGIS_TAINT_RECOVERY_TRUST_MANIFEST"
+	taintRecoveryTrustSignerEnv   = "AEGIS_TAINT_RECOVERY_TRUST_SIGNER"
+	taintRecoveryTrustEpochEnv    = "AEGIS_TAINT_RECOVERY_TRUST_EPOCH"
+	taintRecoveryNowEnv           = "AEGIS_TAINT_RECOVERY_NOW"
+	taintRecoveryBoundaryEnv      = "AEGIS_TAINT_RECOVERY_BOUNDARY"
 )
 
 func TestTaintRestartObserver(t *testing.T) {
@@ -83,19 +84,32 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 	if err := json.Unmarshal(payload, &signed); err != nil {
 		t.Fatalf("decode crash recovery authorization: %v", err)
 	}
-	keyBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryKeyEnv))
+	trustPayload, err := os.ReadFile(os.Getenv(taintRecoveryTrustManifestEnv))
 	if err != nil {
-		t.Fatalf("decode crash recovery authority key: %v", err)
+		t.Fatalf("read crash recovery trust manifest: %v", err)
 	}
-	if len(keyBytes) != ed25519.PublicKeySize {
-		t.Fatalf("crash recovery authority key size=%d want=%d", len(keyBytes), ed25519.PublicKeySize)
+	var signedTrust SignedTaintRecoveryTrustManifest
+	if err := json.Unmarshal(trustPayload, &signedTrust); err != nil {
+		t.Fatalf("decode crash recovery trust manifest: %v", err)
 	}
-	witnessKeyBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryWitnessKeyEnv))
+	trustSignerBytes, err := base64.StdEncoding.DecodeString(os.Getenv(taintRecoveryTrustSignerEnv))
 	if err != nil {
-		t.Fatalf("decode crash recovery witness key: %v", err)
+		t.Fatalf("decode crash recovery trust signer key: %v", err)
 	}
-	if len(witnessKeyBytes) != ed25519.PublicKeySize {
-		t.Fatalf("crash recovery witness key size=%d want=%d", len(witnessKeyBytes), ed25519.PublicKeySize)
+	if len(trustSignerBytes) != ed25519.PublicKeySize {
+		t.Fatalf("crash recovery trust signer key size=%d want=%d", len(trustSignerBytes), ed25519.PublicKeySize)
+	}
+	minimumTrustEpoch, err := strconv.ParseUint(os.Getenv(taintRecoveryTrustEpochEnv), 10, 64)
+	if err != nil {
+		t.Fatalf("parse crash recovery trust epoch: %v", err)
+	}
+	recoveryTrust, err := NewTaintRecoveryTrustRoot(
+		signedTrust,
+		ed25519.PublicKey(trustSignerBytes),
+		minimumTrustEpoch,
+	)
+	if err != nil {
+		t.Fatalf("verify crash recovery trust root: %v", err)
 	}
 	now, err := time.Parse(time.RFC3339Nano, os.Getenv(taintRecoveryNowEnv))
 	if err != nil {
@@ -103,12 +117,11 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 	}
 
 	req := TaintRecoveryRequest{
-		BPFFSRoot:            os.Getenv(taintNativeHelperBPFFSRoot),
-		Plan:                 plan,
-		SignedAuthorization:  signed,
-		RecoveryAuthorityKey: ed25519.PublicKey(keyBytes),
-		RecoveryWitnessKey:   ed25519.PublicKey(witnessKeyBytes),
-		Now:                  now,
+		BPFFSRoot:           os.Getenv(taintNativeHelperBPFFSRoot),
+		Plan:                plan,
+		SignedAuthorization: signed,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	}
 	switch os.Getenv(taintRecoveryBoundaryEnv) {
 	case "epoch":
@@ -606,6 +619,43 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	recoveryTrustSignerPublic, recoveryTrustSignerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryAuthorityKeyID, err := BootstrapKeyID(recoveryPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryWitnessKeyID, err := BootstrapKeyID(recoveryWitnessPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const recoveryTrustEpoch uint64 = 1
+	signedRecoveryTrust, err := SignTaintRecoveryTrustManifest(
+		TaintRecoveryTrustManifest{
+			Version:            TaintRecoveryTrustManifestVersion,
+			TrustEpoch:         recoveryTrustEpoch,
+			AuthorityPrincipal: "native/recovery-authority",
+			AuthorityKeyID:     recoveryAuthorityKeyID,
+			AuthorityPublicKey: base64.StdEncoding.EncodeToString(recoveryPublic),
+			WitnessPrincipal:   "native/recovery-witness",
+			WitnessKeyID:       recoveryWitnessKeyID,
+			WitnessPublicKey:   base64.StdEncoding.EncodeToString(recoveryWitnessPublic),
+		},
+		recoveryTrustSignerPrivate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryTrust, err := NewTaintRecoveryTrustRoot(
+		signedRecoveryTrust,
+		recoveryTrustSignerPublic,
+		recoveryTrustEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	recoveryAuth := TaintRecoveryAuthorization{
 		Version:         TaintRecoveryAuthorizationVersion,
 		AuthorizationID: "native-source-recovery-epoch-1-to-2",
@@ -640,12 +690,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 	sourcesBeforeSinglePrincipal := nativeTaintSourceSnapshot(t, bpffsRoot)
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  authorityOnly,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: authorityOnly,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err == nil {
 		t.Fatal("single-principal recovery authorization reopened source continuity")
@@ -670,6 +719,56 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
 		t.Fatalf("move recovery controller outside protected cgroup after single-principal denial: %v", err)
+	}
+
+	// Two signatures are still insufficient when their identities are not pinned
+	// by the verified recovery trust root.
+	_, rogueAuthorityPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rogueWitnessPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rogueJoint, err := SignJointTaintRecoveryAuthorization(
+		recoveryAuth,
+		rogueAuthorityPrivate,
+		rogueWitnessPrivate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: rogueJoint,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
+	})
+	if err == nil {
+		t.Fatal("untrusted two-key recovery authorization reopened source continuity")
+	}
+	if dirty, err := TaintSourceIdentityDirtyState(bpffsRoot); err != nil || dirty != dirtyBeforeSinglePrincipal {
+		t.Fatalf("untrusted two-key recovery mutated DIRTY: got=%d want=%d err=%v", dirty, dirtyBeforeSinglePrincipal, err)
+	}
+	if clean, err := TaintSourceContinuityWatermark(bpffsRoot); err != nil || clean != cleanBeforeSinglePrincipal {
+		t.Fatalf("untrusted two-key recovery mutated CLEAN: got=%d want=%d err=%v", clean, cleanBeforeSinglePrincipal, err)
+	}
+	if epoch, err := TaintEnrollmentEpoch(bpffsRoot); err != nil || epoch != epochBeforeSinglePrincipal {
+		t.Fatalf("untrusted two-key recovery mutated epoch: got=%d want=%d err=%v", epoch, epochBeforeSinglePrincipal, err)
+	}
+	if sources := nativeTaintSourceSnapshot(t, bpffsRoot); !reflect.DeepEqual(sourcesBeforeSinglePrincipal, sources) {
+		t.Fatalf("untrusted two-key recovery mutated source enrollment: before=%v after=%v", sourcesBeforeSinglePrincipal, sources)
+	}
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move workload into protected cgroup after untrusted-principal denial: %v", err)
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("untrusted two-key recovery reopened protected egress: %v", err)
+	}
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("move recovery controller outside protected cgroup after untrusted-principal denial: %v", err)
 	}
 
 	// Pre-issue a second stale authorization for the *next* invalidation
@@ -697,6 +796,14 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	if err := os.WriteFile(recoveryAuthPath, recoveryAuthPayload, 0o600); err != nil {
 		t.Fatalf("write crash recovery authorization: %v", err)
 	}
+	recoveryTrustPath := filepath.Join(recoveryDir, "recovery-trust.json")
+	recoveryTrustPayload, err := json.Marshal(signedRecoveryTrust)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(recoveryTrustPath, recoveryTrustPayload, 0o600); err != nil {
+		t.Fatalf("write crash recovery trust manifest: %v", err)
+	}
 	expectedCommitment, err := JointTaintRecoveryCommitmentDigest(signedRecovery)
 	if err != nil {
 		t.Fatal(err)
@@ -711,8 +818,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		taintRecoveryCrashHelperEnv+"=1",
 		taintRecoveryPlanEnv+"="+recoveryPlanPath,
 		taintRecoveryAuthEnv+"="+recoveryAuthPath,
-		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
-		taintRecoveryWitnessKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryWitnessPublic),
+		taintRecoveryTrustManifestEnv+"="+recoveryTrustPath,
+		taintRecoveryTrustSignerEnv+"="+base64.StdEncoding.EncodeToString(recoveryTrustSignerPublic),
+		taintRecoveryTrustEpochEnv+"="+strconv.FormatUint(recoveryTrustEpoch, 10),
 		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
 		taintRecoveryBoundaryEnv+"=epoch",
 		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
@@ -776,12 +884,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedOther,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedOther,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("different authorization resumed crashed recovery: %v", err)
@@ -795,12 +902,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 
 	recovered, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedRecovery,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedRecovery,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err != nil {
 		t.Fatalf("resume exact in-flight recovery after controller crash: %v", err)
@@ -904,12 +1010,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedStaleFuture,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedStaleFuture,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err == nil {
 		t.Fatal("stale epoch-1 recovery authorization was replayed after epoch-2 invalidation")
@@ -982,8 +1087,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		taintRecoveryCrashHelperEnv+"=1",
 		taintRecoveryPlanEnv+"="+recoveryPlanPath,
 		taintRecoveryAuthEnv+"="+cleanCrashAuthPath,
-		taintRecoveryKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryPublic),
-		taintRecoveryWitnessKeyEnv+"="+base64.StdEncoding.EncodeToString(recoveryWitnessPublic),
+		taintRecoveryTrustManifestEnv+"="+recoveryTrustPath,
+		taintRecoveryTrustSignerEnv+"="+base64.StdEncoding.EncodeToString(recoveryTrustSignerPublic),
+		taintRecoveryTrustEpochEnv+"="+strconv.FormatUint(recoveryTrustEpoch, 10),
 		taintRecoveryNowEnv+"="+now.Format(time.RFC3339Nano),
 		taintRecoveryBoundaryEnv+"=clean",
 		taintNativeHelperBPFFSRoot+"="+bpffsRoot,
@@ -1048,12 +1154,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedWrongCompleted,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedWrongCompleted,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("different authorization acknowledged completed recovery: %v", err)
@@ -1068,12 +1173,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 
 	sourcesBeforeAck := nativeTaintSourceSnapshot(t, bpffsRoot)
 	acknowledged, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedCleanCrash,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedCleanCrash,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err != nil {
 		t.Fatalf("reconcile completed recovery after lost reply: %v", err)
@@ -1128,12 +1232,11 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	// Once acknowledged, even the exact authorization is no longer an in-flight
 	// operation. Re-presenting it must not manufacture a second SUCCESS.
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedCleanCrash,
-		RecoveryAuthorityKey: recoveryPublic,
-		RecoveryWitnessKey:   recoveryWitnessPublic,
-		Now:                  now,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedCleanCrash,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("acknowledged recovery was accepted a second time: %v", err)
