@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,9 +227,13 @@ func (r *TPMNVMonotonicRoot) CurrentPlatformMeasurement(
 	if err != nil {
 		return kernelfabric.PlatformMeasurementCommitment{}, err
 	}
+	enrollmentIdentity, err := r.enrollmentHardwareIdentity(ctx)
+	if err != nil {
+		return kernelfabric.PlatformMeasurementCommitment{}, fmt.Errorf("derive enrollment hardware identity: %w", err)
+	}
 	return kernelfabric.NewPlatformMeasurementCommitment(
 		kernelfabric.PlatformMeasurementClassMeasuredBoot,
-		state.DeviceIdentity,
+		enrollmentIdentity,
 		state.MeasuredBootIdentity,
 		state.Generation,
 	)
@@ -300,8 +307,21 @@ func (r *TPMNVMonotonicRoot) recoverLocked(ctx context.Context) (tpmNVRootState,
 }
 
 func (r *TPMNVMonotonicRoot) deviceIdentity(ctx context.Context) (string, error) {
+	nameDigest, _, err := r.endorsementIdentity(ctx)
+	return nameDigest, err
+}
+
+// enrollmentHardwareIdentity returns the canonical EK SPKI digest used by the
+// enrollment protocol. It is intentionally distinct from the internal TPM Name
+// digest used to protect monotonic-root custody.
+func (r *TPMNVMonotonicRoot) enrollmentHardwareIdentity(ctx context.Context) (string, error) {
+	_, spkiDigest, err := r.endorsementIdentity(ctx)
+	return spkiDigest, err
+}
+
+func (r *TPMNVMonotonicRoot) endorsementIdentity(ctx context.Context) (string, string, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	response, err := (tpm2.CreatePrimary{
 		PrimaryHandle: tpm2.AuthHandle{
@@ -312,16 +332,47 @@ func (r *TPMNVMonotonicRoot) deviceIdentity(ctx context.Context) (string, error)
 		InPublic: tpm2.New2B(tpm2.ECCEKTemplate),
 	}).Execute(r.tpm)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer func() {
 		_, _ = (tpm2.FlushContext{FlushHandle: response.ObjectHandle}).Execute(r.tpm)
 	}()
 	if len(response.Name.Buffer) == 0 {
-		return "", fmt.Errorf("%w: empty endorsement primary name", ErrTPMMonotonicRootInvalid)
+		return "", "", fmt.Errorf("%w: empty endorsement primary name", ErrTPMMonotonicRootInvalid)
 	}
-	sum := sha256.Sum256(response.Name.Buffer)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	nameSum := sha256.Sum256(response.Name.Buffer)
+	nameDigest := "sha256:" + hex.EncodeToString(nameSum[:])
+
+	public, err := response.OutPublic.Contents()
+	if err != nil {
+		return "", "", fmt.Errorf("%w: decode endorsement public area: %v", ErrTPMMonotonicRootInvalid, err)
+	}
+	if public.Type != tpm2.TPMAlgECC {
+		return "", "", fmt.Errorf("%w: endorsement key type=%v want ECC", ErrTPMMonotonicRootInvalid, public.Type)
+	}
+	detail, err := public.Parameters.ECCDetail()
+	if err != nil {
+		return "", "", fmt.Errorf("%w: endorsement ECC parameters: %v", ErrTPMMonotonicRootInvalid, err)
+	}
+	curve, err := detail.CurveID.Curve()
+	if err != nil {
+		return "", "", fmt.Errorf("%w: endorsement ECC curve: %v", ErrTPMMonotonicRootInvalid, err)
+	}
+	unique, err := public.Unique.ECC()
+	if err != nil {
+		return "", "", fmt.Errorf("%w: endorsement ECC unique: %v", ErrTPMMonotonicRootInvalid, err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&ecdsa.PublicKey{
+		Curve: curve,
+		X:     new(big.Int).SetBytes(unique.X.Buffer),
+		Y:     new(big.Int).SetBytes(unique.Y.Buffer),
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("%w: marshal endorsement SPKI: %v", ErrTPMMonotonicRootInvalid, err)
+	}
+	spkiSum := sha256.Sum256(spki)
+	spkiDigest := "sha256:" + hex.EncodeToString(spkiSum[:])
+	return nameDigest, spkiDigest, nil
 }
 
 func (r *TPMNVMonotonicRoot) measuredBootIdentity(ctx context.Context) (string, error) {
