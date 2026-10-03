@@ -84,6 +84,22 @@ jobs:
             exit 1
           fi
 
+      - name: Prove authorized TPM root migration without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-positive.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay" "$RUNNER_TEMP/tpm-root-migration-positive.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-positive.log"; then
+            exit 1
+          fi
+          go test -v ./internal/server -run TestTPMRootMigrationRejectsExpiredAndForgedAuthorization -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-negative.log"
+          grep -q -- "--- PASS: TestTPMRootMigrationRejectsExpiredAndForgedAuthorization" "$RUNNER_TEMP/tpm-root-migration-negative.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-negative.log"; then
+            exit 1
+          fi
+
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
 
