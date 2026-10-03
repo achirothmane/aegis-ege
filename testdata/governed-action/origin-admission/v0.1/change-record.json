@@ -1,0 +1,22 @@
+{
+  "schema_version": "governed-action.change-log/v1",
+  "prior_normative_version": "candidate-kernel-contract-v1",
+  "proposed_normative_version": "candidate-kernel-contract-v1",
+  "affected_case_ids": [],
+  "affected_profile_ids": ["extension-origin-admission/experiment-v0.1"],
+  "motivating_trace_ref": "testdata/governed-action/origin-admission/v0.1/cases.json#ORIGIN-R01",
+  "old_rule": "Frozen v1 permits trusted typed profile specialization; it contains no shared ExecutionOrigin record family or origin-specific extension-loader experiment.",
+  "new_rule": "A separate test-only extension profile binds owner-issued origin/content/capability grants and checks current witnesses at fixture activation and use boundaries. Existing profile interpretations and frozen oracle expectations remain unchanged.",
+  "changes_valid_trace_acceptance": false,
+  "changes_core_relation": false,
+  "flags": {
+    "implementation": true,
+    "adapter": false,
+    "policy": true,
+    "domain_pack": false
+  },
+  "adjudicated_classification": "POLICY_PROFILE_SPECIALIZATION_EXPERIMENT",
+  "classification_status": "AUTHOR_PROPOSED_PENDING_PR_REVIEW",
+  "design_visible_consequence": "Adds bounded local origin-loader traces. No runtime activation, D03 cohort selection, independent-validation claim or frozen-v1 reinterpretation.",
+  "reviewer_attribution": []
+}

@@ -3,7 +3,6 @@
 package kernelfabric
 
 import (
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -14,12 +13,11 @@ import (
 )
 
 type TaintRecoveryRequest struct {
-	BPFFSRoot            string
-	Plan                 TaintActivationPlan
-	SignedAuthorization  JointSignedTaintRecoveryAuthorization
-	RecoveryAuthorityKey ed25519.PublicKey
-	RecoveryWitnessKey   ed25519.PublicKey
-	Now                  time.Time
+	BPFFSRoot           string
+	Plan                TaintActivationPlan
+	SignedAuthorization JointSignedTaintRecoveryAuthorization
+	RecoveryTrust       *TaintRecoveryTrustRoot
+	Now                 time.Time
 
 	// Crash-boundary hooks are internal to native falsification. External callers
 	// cannot set them. Tests use os.Exit so deferred rollback does not run,
@@ -44,12 +42,10 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if err := VerifyJointTaintRecoveryAuthorization(
-		req.SignedAuthorization,
-		req.RecoveryAuthorityKey,
-		req.RecoveryWitnessKey,
-		now,
-	); err != nil {
+	if req.RecoveryTrust == nil {
+		return TaintRecoveryResult{}, fmt.Errorf("%w: recovery trust root is required", ErrTaintRecoveryAuthorization)
+	}
+	if err := req.RecoveryTrust.Verify(req.SignedAuthorization, now); err != nil {
 		return TaintRecoveryResult{}, err
 	}
 	auth := req.SignedAuthorization.Authorization
