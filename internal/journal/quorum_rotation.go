@@ -54,6 +54,11 @@ type QuorumPolicyFencedStore interface {
 
 	CurrentQuorumPolicy(ctx context.Context) (QuorumPolicyState, error)
 
+	ObserveQuorumRotationHead(
+		ctx context.Context,
+		journalID string,
+	) (ExternalHead, error)
+
 	CompareAndTransitionQuorumPolicy(
 		ctx context.Context,
 		expected QuorumPolicyState,
@@ -227,17 +232,15 @@ func ExecuteQuorumRotation(
 		)
 	}
 
-	head, err := oldStore.Load(ctx, journalID)
-	if err != nil {
-		return QuorumRotationResult{}, fmt.Errorf("load old quorum head: %w", err)
-	}
-
-	joint, transitionHash, err := plan.jointPolicy(journalID, head)
+	sharedStores, err := plan.sharedPolicyStores(oldStore, newStore)
 	if err != nil {
 		return QuorumRotationResult{}, err
 	}
-
-	sharedStores, err := plan.sharedPolicyStores(oldStore, newStore)
+	head, err := observeSharedRotationHead(ctx, sharedStores, journalID)
+	if err != nil {
+		return QuorumRotationResult{}, err
+	}
+	joint, transitionHash, err := plan.jointPolicy(journalID, head)
 	if err != nil {
 		return QuorumRotationResult{}, err
 	}
@@ -257,6 +260,21 @@ func ExecuteQuorumRotation(
 			"%w: shared witnesses span OLD and NEW before OLD is fully fenced",
 			ErrQuorumRotationAmbiguous,
 		)
+	}
+	if oldCount == len(plan.sharedWitnesses) {
+		oldHead, err := oldStore.Load(ctx, journalID)
+		if err != nil {
+			return QuorumRotationResult{}, fmt.Errorf(
+				"fresh rotation cannot establish old quorum truth: %w",
+				err,
+			)
+		}
+		if !sameSemanticHead(oldHead, head) {
+			return QuorumRotationResult{}, fmt.Errorf(
+				"%w: shared witness head differs from old quorum truth",
+				ErrQuorumRotationContinuity,
+			)
+		}
 	}
 
 	// Phase 1: OLD -> JOINT_FROZEN. No NEW shared witness is activated until
@@ -556,6 +574,51 @@ func (p QuorumRotationPlan) sharedPolicyStores(
 		result[id] = oldPolicyStore
 	}
 	return result, nil
+}
+
+func observeSharedRotationHead(
+	ctx context.Context,
+	stores map[string]QuorumPolicyFencedStore,
+	journalID string,
+) (ExternalHead, error) {
+	ids := make([]string, 0, len(stores))
+	for id := range stores {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var frozen ExternalHead
+	haveFrozen := false
+	for _, id := range ids {
+		head, err := stores[id].ObserveQuorumRotationHead(ctx, journalID)
+		if err != nil {
+			return ExternalHead{}, fmt.Errorf(
+				"observe shared witness %s rotation head: %w",
+				id,
+				err,
+			)
+		}
+		if !haveFrozen {
+			frozen = head
+			haveFrozen = true
+			continue
+		}
+		if !sameSemanticHead(frozen, head) {
+			return ExternalHead{}, fmt.Errorf(
+				"%w: shared witness %s has divergent head %+v, frozen %+v",
+				ErrQuorumRotationContinuity,
+				id,
+				head,
+				frozen,
+			)
+		}
+	}
+	if !haveFrozen {
+		return ExternalHead{}, fmt.Errorf(
+			"%w: no shared witness head is available",
+			ErrQuorumRotationContinuity,
+		)
+	}
+	return frozen, nil
 }
 
 func classifyRotationPolicies(
