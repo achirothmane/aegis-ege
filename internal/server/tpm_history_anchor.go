@@ -57,9 +57,12 @@ type tpmNVHistoryAnchorState struct {
 	PreviousHeadDigest             string `json:"previous_head_digest,omitempty"`
 	TransitionKind                 string `json:"transition_kind,omitempty"`
 	PredecessorDeviceIdentity      string `json:"predecessor_device_identity,omitempty"`
-	MigrationSourceStateDigest     string `json:"migration_source_state_digest,omitempty"`
-	MigrationAuthorizationDigest   string `json:"migration_authorization_digest,omitempty"`
-	Digest                         string `json:"digest"`
+	MigrationSourceStateDigest             string `json:"migration_source_state_digest,omitempty"`
+	MigrationAuthorizationDigest           string `json:"migration_authorization_digest,omitempty"`
+	MigrationDestinationAttestationDigest string `json:"migration_destination_attestation_digest,omitempty"`
+	MigrationHistoryWitnessPolicyHash      string `json:"migration_history_witness_policy_hash,omitempty"`
+	MigrationOwnershipWitnessPolicyHash    string `json:"migration_ownership_witness_policy_hash,omitempty"`
+	Digest                                 string `json:"digest"`
 }
 
 var _ kernelfabric.TaintRecoveryHistoryAnchor = (*TPMNVHistoryAnchor)(nil)
@@ -510,7 +513,10 @@ func isTPMHistoryAnchorPendingMigration(
 		pending.HeadDigest != "" &&
 		validSHA256Ref(pending.PredecessorDeviceIdentity) &&
 		validSHA256Ref(pending.MigrationSourceStateDigest) &&
-		validSHA256Ref(pending.MigrationAuthorizationDigest)
+		validSHA256Ref(pending.MigrationAuthorizationDigest) &&
+		validSHA256Ref(pending.MigrationDestinationAttestationDigest) &&
+		validSHA256Ref(pending.MigrationHistoryWitnessPolicyHash) &&
+		validSHA256Ref(pending.MigrationOwnershipWitnessPolicyHash)
 }
 
 func publicTPMHistoryAnchorState(
@@ -667,7 +673,10 @@ func sealTPMNVHistoryAnchorState(
 			state.TransitionKind != "" ||
 			state.PredecessorDeviceIdentity != "" ||
 			state.MigrationSourceStateDigest != "" ||
-			state.MigrationAuthorizationDigest != "" {
+			state.MigrationAuthorizationDigest != "" ||
+			state.MigrationDestinationAttestationDigest != "" ||
+			state.MigrationHistoryWitnessPolicyHash != "" ||
+			state.MigrationOwnershipWitnessPolicyHash != "" {
 			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 		}
 	} else {
@@ -692,7 +701,10 @@ func sealTPMNVHistoryAnchorState(
 				state.PreviousHeadDigest != "" ||
 				state.PredecessorDeviceIdentity == "" ||
 				state.MigrationSourceStateDigest == "" ||
-				state.MigrationAuthorizationDigest == "" {
+				state.MigrationAuthorizationDigest == "" ||
+				state.MigrationDestinationAttestationDigest == "" ||
+				state.MigrationHistoryWitnessPolicyHash == "" ||
+				state.MigrationOwnershipWitnessPolicyHash == "" {
 				return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 			}
 		default:
@@ -714,6 +726,9 @@ func validateTPMHistoryMigrationLineage(state tpmNVHistoryAnchorState) error {
 		state.PredecessorDeviceIdentity,
 		state.MigrationSourceStateDigest,
 		state.MigrationAuthorizationDigest,
+		state.MigrationDestinationAttestationDigest,
+		state.MigrationHistoryWitnessPolicyHash,
+		state.MigrationOwnershipWitnessPolicyHash,
 	}
 	present := 0
 	for _, value := range values {
@@ -729,7 +744,10 @@ func validateTPMHistoryMigrationLineage(state tpmNVHistoryAnchorState) error {
 	}
 	if !validSHA256Ref(state.PredecessorDeviceIdentity) ||
 		!validSHA256Ref(state.MigrationSourceStateDigest) ||
-		!validSHA256Ref(state.MigrationAuthorizationDigest) {
+		!validSHA256Ref(state.MigrationAuthorizationDigest) ||
+		!validSHA256Ref(state.MigrationDestinationAttestationDigest) ||
+		!validSHA256Ref(state.MigrationHistoryWitnessPolicyHash) ||
+		!validSHA256Ref(state.MigrationOwnershipWitnessPolicyHash) {
 		return ErrTPMHistoryAnchorInvalid
 	}
 	if state.PredecessorDeviceIdentity == state.DeviceIdentity {
