@@ -24,7 +24,15 @@ type TPMRecoveryWitnessSigner struct {
 
 func NewTPMRecoveryWitnessSigner(
 	rw io.ReadWriteCloser,
-	password string,
+	keyAuth string,
+) (*TPMRecoveryWitnessSigner, error) {
+	return NewTPMRecoveryWitnessSignerWithAuth(rw, "", keyAuth)
+}
+
+func NewTPMRecoveryWitnessSignerWithAuth(
+	rw io.ReadWriteCloser,
+	ownerAuth string,
+	keyAuth string,
 ) (*TPMRecoveryWitnessSigner, error) {
 	if rw == nil {
 		return nil, errors.New("TPM transport is required")
@@ -49,8 +57,8 @@ func NewTPMRecoveryWitnessSigner(
 		rw,
 		legacytpm2.HandleOwner,
 		legacytpm2.PCRSelection{},
-		"",
-		password,
+		ownerAuth,
+		keyAuth,
 		template,
 	)
 	if err != nil {
@@ -69,7 +77,7 @@ func NewTPMRecoveryWitnessSigner(
 	return &TPMRecoveryWitnessSigner{
 		rw:       rw,
 		handle:   handle,
-		password: password,
+		password: keyAuth,
 		verifier: verifier,
 	}, nil
 }
