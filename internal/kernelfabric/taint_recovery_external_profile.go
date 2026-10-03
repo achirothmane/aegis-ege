@@ -159,6 +159,13 @@ func normalizeExternalRecoveryWitnessProfile(
 		return ExternalRecoveryWitnessProfile{}, fmt.Errorf("%w: incomplete external witness profile",
 			ErrTaintRecoveryAuthorization)
 	}
+	if profile.ProfileEpoch > maxTaintRecoveryTrustJSONInteger ||
+		profile.PolicyEpoch > maxTaintRecoveryTrustJSONInteger {
+		return ExternalRecoveryWitnessProfile{}, fmt.Errorf(
+			"%w: external witness epoch exceeds RFC8785/JCS exact integer profile",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
 	if _, err := ParseSHA256Digest(profile.TLSTrustAnchorSHA256); err != nil {
 		return ExternalRecoveryWitnessProfile{}, fmt.Errorf("%w: TLS trust anchor digest: %v",
 			ErrTaintRecoveryAuthorization, err)
