@@ -24,10 +24,11 @@ type QuorumTrustIdentityProvider interface {
 }
 
 type QuorumHeadStore struct {
-	members        []QuorumHeadMember
-	threshold      int
-	policyHash     string
-	governedPolicy *QuorumPolicyState
+	members                []QuorumHeadMember
+	threshold              int
+	policyHash             string
+	capabilityEnvelopeHash string
+	governedPolicy         *QuorumPolicyState
 }
 
 func (s *QuorumHeadStore) QuorumPolicyHash() string {
@@ -126,9 +127,10 @@ func NewQuorumHeadStore(
 	}
 	sort.Slice(copied, func(i, j int) bool { return copied[i].ID < copied[j].ID })
 	return &QuorumHeadStore{
-		members:    copied,
-		threshold:  binding.threshold,
-		policyHash: binding.policyHash,
+		members:                copied,
+		threshold:              binding.threshold,
+		policyHash:             binding.policyHash,
+		capabilityEnvelopeHash: binding.capabilityEnvelopeHash,
 	}, nil
 }
 

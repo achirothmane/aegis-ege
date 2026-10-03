@@ -119,6 +119,18 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bind exact Genesis capability envelope: %v", err)
 	}
+	historyBinding, err := pin.ParseHistoryBinding(envelope, "production-history")
+	if err != nil {
+		t.Fatalf("bind exact Genesis history identity: %v", err)
+	}
+	if historyBinding.JournalID() != "production-history/main" ||
+		historyBinding.CapabilityEnvelopeHash() != pin.CapabilityEnvelopeHash() {
+		t.Fatalf(
+			"unexpected Genesis history binding: journal=%q envelope=%q",
+			historyBinding.JournalID(),
+			historyBinding.CapabilityEnvelopeHash(),
+		)
+	}
 	store := &verifiedPinTestStore{
 		trustManifestHash: memberTrustHash,
 		policy: journal.QuorumPolicyState{
@@ -147,6 +159,12 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 	if _, err := pin.ParseQuorumBinding(tampered); err == nil ||
 		!strings.Contains(err.Error(), "capability envelope hash mismatch") {
 		t.Fatalf("tampered envelope = %v, want exact Genesis hash rejection", err)
+	}
+	if _, err := pin.ParseHistoryBinding(
+		tampered,
+		"production-history",
+	); err == nil || !strings.Contains(err.Error(), "capability envelope hash mismatch") {
+		t.Fatalf("tampered history envelope = %v, want exact Genesis hash rejection", err)
 	}
 }
 
@@ -242,6 +260,12 @@ func TestProductionGenesisLockedDoesNotEmitVerifiedPin(t *testing.T) {
 		!strings.Contains(err.Error(), "verified Genesis pin is unavailable") {
 		t.Fatalf("zero pin parse = %v, want unavailable", err)
 	}
+	if _, err := pin.ParseHistoryBinding(
+		[]byte("{}"),
+		"production-history",
+	); err == nil || !strings.Contains(err.Error(), "verified Genesis pin is unavailable") {
+		t.Fatalf("zero pin history parse = %v, want unavailable", err)
+	}
 }
 
 func installQuorumCapabilityEnvelope(
@@ -257,6 +281,13 @@ func installQuorumCapabilityEnvelope(
 			Members: []journal.QuorumTrustPolicyMember{{
 				ID:                "witness-live-a",
 				TrustManifestHash: memberTrustHash,
+			}},
+		},
+		"governed_histories": journal.GovernedHistoryTrustPolicy{
+			Protocol: journal.GovernedHistoryTrustPolicyVersion,
+			Histories: []journal.GovernedHistoryIdentity{{
+				Purpose:   "production-history",
+				JournalID: "production-history/main",
 			}},
 		},
 	})

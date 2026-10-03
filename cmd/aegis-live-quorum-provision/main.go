@@ -37,8 +37,9 @@ import (
 const (
 	bundleVersion = "aegis-ege/live-external-head-quorum-client/v1"
 	namespace     = "aegis-capability-witness"
-	journalID     = "cross-cluster-capability-root"
-	rootKeyID     = "aegis-ege/capability-root-head/v1"
+	journalID      = "cross-cluster-capability-root"
+	historyPurpose = "capability-root-history"
+	rootKeyID      = "aegis-ege/capability-root-head/v1"
 	genesisEpoch  = uint64(1)
 
 	witnessImage = "aegis-external-head-witness:ci"
@@ -70,7 +71,8 @@ type liveQuorumMember struct {
 }
 
 type capabilityEnvelope struct {
-	ExternalWitnessQuorum journal.QuorumTrustPolicy `json:"external_witness_quorum"`
+	ExternalWitnessQuorum journal.QuorumTrustPolicy          `json:"external_witness_quorum"`
+	GovernedHistories     journal.GovernedHistoryTrustPolicy `json:"governed_histories"`
 }
 
 type memberSpec struct {
@@ -167,11 +169,31 @@ func main() {
 	}
 	envelope, err := json.Marshal(capabilityEnvelope{
 		ExternalWitnessQuorum: policy,
+		GovernedHistories: journal.GovernedHistoryTrustPolicy{
+			Protocol: journal.GovernedHistoryTrustPolicyVersion,
+			Histories: []journal.GovernedHistoryIdentity{{
+				Purpose:   historyPurpose,
+				JournalID: journalID,
+			}},
+		},
 	})
 	must(err)
 	envelopeHash := sha256Digest(envelope)
 	binding, err := journal.ParseGenesisQuorumBinding(envelope, envelopeHash)
 	must(err)
+	historyBinding, err := journal.ParseGenesisHistoryBinding(
+		envelope,
+		envelopeHash,
+		historyPurpose,
+	)
+	must(err)
+	if historyBinding.JournalID() != journalID {
+		must(fmt.Errorf(
+			"Genesis history lineage=%q want provisioned %q",
+			historyBinding.JournalID(),
+			journalID,
+		))
+	}
 	activePolicy, err := binding.ActivePolicy(genesisEpoch)
 	must(err)
 

@@ -181,6 +181,13 @@ func prepareIndependentQuorum() (independentPreparedQuorum, error) {
 	}
 	envelope, err := json.Marshal(capabilityEnvelope{
 		ExternalWitnessQuorum: policy,
+		GovernedHistories: journal.GovernedHistoryTrustPolicy{
+			Protocol: journal.GovernedHistoryTrustPolicyVersion,
+			Histories: []journal.GovernedHistoryIdentity{{
+				Purpose:   historyPurpose,
+				JournalID: journalID,
+			}},
+		},
 	})
 	if err != nil {
 		return independentPreparedQuorum{}, err
