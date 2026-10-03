@@ -225,6 +225,15 @@ jobs:
                 - containerPort: 30444
                   hostPort: 30444
                   protocol: TCP
+                - containerPort: 30445
+                  hostPort: 30445
+                  protocol: TCP
+                - containerPort: 30446
+                  hostPort: 30446
+                  protocol: TCP
+                - containerPort: 30447
+                  hostPort: 30447
+                  protocol: TCP
           EOF
           "$(go env GOPATH)/bin/kind" create cluster \
             --name aegis-witness \
