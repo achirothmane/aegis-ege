@@ -38,8 +38,8 @@ func NewTPMRecoveryWitnessSignerWithAuth(
 		return nil, errors.New("TPM transport is required")
 	}
 	template := legacytpm2.Public{
-		Type:       legacytpm2.AlgECC,
-		NameAlg:    legacytpm2.AlgSHA256,
+		Type:    legacytpm2.AlgECC,
+		NameAlg: legacytpm2.AlgSHA256,
 		Attributes: legacytpm2.FlagSign |
 			legacytpm2.FlagFixedTPM |
 			legacytpm2.FlagFixedParent |
