@@ -63,8 +63,8 @@ type controllerBundle struct {
 	AuthorityPrivateKey           string                                             `json:"authority_private_key"`
 	SignedTrust                   kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
 	SignedWitnessProfile          kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
-	GenesisCapabilityEnvelope     json.RawMessage                                    `json:"genesis_capability_envelope"`
-	GenesisCapabilityEnvelopeHash string                                             `json:"genesis_capability_envelope_hash"`
+	GenesisCapabilityEnvelopeBase64 string                                            `json:"genesis_capability_envelope_base64"`
+	GenesisCapabilityEnvelopeHash   string                                            `json:"genesis_capability_envelope_hash"`
 	TrustSignerPublicKey          string                                             `json:"trust_signer_public_key"`
 	WitnessCAPEM                  string                                             `json:"witness_ca_pem"`
 	WitnessTLSServerName          string                                             `json:"witness_tls_server_name"`
@@ -452,8 +452,8 @@ func provisionTaintRecoveryWitness(
 		AuthorityPrivateKey:           base64.StdEncoding.EncodeToString(authorityPrivate),
 		SignedTrust:                   signedTrust,
 		SignedWitnessProfile:          signedWitnessProfile,
-		GenesisCapabilityEnvelope:     append(json.RawMessage(nil), genesisCapabilityEnvelope...),
-		GenesisCapabilityEnvelopeHash: genesisCapabilityEnvelopeHash,
+		GenesisCapabilityEnvelopeBase64: base64.StdEncoding.EncodeToString(genesisCapabilityEnvelope),
+		GenesisCapabilityEnvelopeHash:   genesisCapabilityEnvelopeHash,
 		TrustSignerPublicKey:          base64.StdEncoding.EncodeToString(trustSignerPublic),
 		WitnessCAPEM:                  string(tlsCertPEM),
 		WitnessTLSServerName:          recoveryWitnessServerName,
