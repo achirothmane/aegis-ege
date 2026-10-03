@@ -426,13 +426,13 @@ func TestTPMRootMigrationRequiresIndependentLiveDestinationAttestation(t *testin
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 3, 3, 0, 0, 0, time.UTC)
 
-	simA, err := simulator.GetWithFixedSeedInsecure(501)
+	simA, err := simulator.GetWithFixedSeedInsecure(301)
 	if err != nil {
 		t.Fatalf("start TPM-A simulator: %v", err)
 	}
 	deviceA := transport.FromReadWriter(simA)
 	cfgA := TPMNVMonotonicRootConfig{
-		NVIndex:   tpm2.TPMHandle(0x0180A153),
+		NVIndex:   tpm2.TPMHandle(0x0180A151),
 		StatePath: filepath.Join(dir, "root-a.json"),
 		IndexAuth: []byte("aegis-root-migration-attestation-test"),
 	}
@@ -469,7 +469,7 @@ func TestTPMRootMigrationRequiresIndependentLiveDestinationAttestation(t *testin
 		t.Fatal(err)
 	}
 
-	simB, err := simulator.GetWithFixedSeedInsecure(502)
+	simB, err := simulator.GetWithFixedSeedInsecure(302)
 	if err != nil {
 		t.Fatalf("start TPM-B simulator: %v", err)
 	}
