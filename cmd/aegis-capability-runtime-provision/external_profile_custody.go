@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -547,6 +548,10 @@ func validateWitnessSignerPublicConfig(
 	}
 	if strings.TrimSpace(string(caPEM)) == "" {
 		return fmt.Errorf("witness signer TLS certificate is required")
+	}
+	roots := x509.NewCertPool()
+	if ok := roots.AppendCertsFromPEM(caPEM); !ok {
+		return fmt.Errorf("witness signer TLS certificate PEM is invalid")
 	}
 	return nil
 }
