@@ -1,0 +1,23 @@
+{
+  "schema_version": "governed-action.r02-decision/v1",
+  "decision": "SURVIVES_R02",
+  "scope": "candidate-kernel-contract-v1 process/storage/network failure-domain separation",
+  "source_head": "92c53d167ea285c5feb55af406c682f99c904df9",
+  "frozen_oracle_changed": false,
+  "new_normative_relation_required": false,
+  "evidence_ref": "docs/governed-action/r02-evidence/failure-domains-37090111863.json",
+  "exact_head_checks": {
+    "ci_run_id": 37090111827,
+    "ci_conclusion": "success",
+    "d04_run_id": 37090111832,
+    "d04_conclusion": "success",
+    "postgresql_run_id": 37090111863,
+    "postgresql_conclusion": "success"
+  },
+  "reason": "The same frozen v1 relations remained sufficient when E1, E2 and E3 were moved into distinct runtime/storage boundaries. Provider A durably accepted E2 and died before acknowledgement while provider B remained available; provider A recovered E2 from its own store after restart; provider B rejected stale E3 at its native fence and allowed a current-fence control exactly once; PostgreSQL independently reversed E1; same-value semantic ABA and contradictory provider-A observations did not manufacture exact lineage or authorization. Production reconciliation and frozen CE6/CE7/CE10 checks required no oracle edit.",
+  "limits": [
+    "E1/E2/E3 are separated by service/process and durable-store boundaries on the same GitHub Actions runner; this is not proof of independent physical hosts, regions, clouds, or administrative domains.",
+    "Provider-A webhook and provider-A API are two observation paths inside one provider failure domain and must not be counted as independent merely because their source labels differ.",
+    "SURVIVES_R02 does not prove universal correctness, complete mediation across all domains, or the Complexity Dividend."
+  ]
+}
