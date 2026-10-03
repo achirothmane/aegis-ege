@@ -535,7 +535,7 @@ func TestR02IndependentFailureDomainsWholeTrace(t *testing.T) {
 	var e1State string
 	must(t, db.QueryRow(`SELECT state FROM r02_inventory WHERE effect_id=$1`, e1).Scan(&e1State))
 
-	ev := r02Evidence{SchemaVersion: "governed-action.r02-failure-domains/v1", ActionRef: actionRef}
+	ev := r02Evidence{SchemaVersion: "governed-action.r02-failure-domains/v1", ActionRef: actionRef, Amount: amount}
 	ev.FailureDomains.E1 = "postgresql-service-container"
 	ev.FailureDomains.E2 = "provider-a-http-process+durable-file"
 	ev.FailureDomains.E3 = "provider-b-http-process+durable-file"
