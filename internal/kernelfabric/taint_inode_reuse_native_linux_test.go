@@ -331,7 +331,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	loaded, err := loader.LoadAndAttach(context.Background(), TaintBootstrapLoadRequest{
 		ArtifactPath:          artifact,
 		CgroupPath:            cgroupPath,
-		BPFFSRoot:            bpffsRoot,
+		BPFFSRoot:             bpffsRoot,
 		SignedManifest:        signedManifest,
 		Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
 		AttestationPrivateKey: attestationPrivate,
@@ -361,8 +361,8 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		})
 	}
 	activated, err := ActivateTaintCgroup(TaintActivationRequest{
-		BPFFSRoot:                    bpffsRoot,
-		Plan:                         plan,
+		BPFFSRoot:                     bpffsRoot,
+		Plan:                          plan,
 		SignedBootstrapReceipt:        loaded.SignedReceipt,
 		BootstrapAttestationPublicKey: attestationPublic,
 	})
@@ -500,7 +500,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	_, err = (TaintBootstrapLoader{}).LoadAndAttach(context.Background(), TaintBootstrapLoadRequest{
 		ArtifactPath:          artifact,
 		CgroupPath:            cgroupPath,
-		BPFFSRoot:            bpffsRoot,
+		BPFFSRoot:             bpffsRoot,
 		SignedManifest:        signedManifest,
 		Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
 		AttestationPrivateKey: attestationPrivate,
@@ -517,8 +517,8 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	// implementation reports the already-armed lifetime guard or DIRTY
 	// continuity, stale enrollment must never become a second ALLOW transition.
 	_, err = ActivateTaintCgroup(TaintActivationRequest{
-		BPFFSRoot:                    bpffsRoot,
-		Plan:                         plan,
+		BPFFSRoot:                     bpffsRoot,
+		Plan:                          plan,
 		SignedBootstrapReceipt:        loaded.SignedReceipt,
 		BootstrapAttestationPublicKey: attestationPublic,
 	})
@@ -694,7 +694,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: authorityOnly,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err == nil {
 		t.Fatal("single-principal recovery authorization reopened source continuity")
@@ -888,7 +888,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: signedOther,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("different authorization resumed crashed recovery: %v", err)
@@ -906,7 +906,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: signedRecovery,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err != nil {
 		t.Fatalf("resume exact in-flight recovery after controller crash: %v", err)
@@ -1014,7 +1014,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: signedStaleFuture,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err == nil {
 		t.Fatal("stale epoch-1 recovery authorization was replayed after epoch-2 invalidation")
@@ -1158,7 +1158,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: signedWrongCompleted,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("different authorization acknowledged completed recovery: %v", err)
@@ -1177,7 +1177,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: signedCleanCrash,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err != nil {
 		t.Fatalf("reconcile completed recovery after lost reply: %v", err)
@@ -1236,7 +1236,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		Plan:                recoveryPlan,
 		SignedAuthorization: signedCleanCrash,
 		RecoveryTrust:       recoveryTrust,
-		Now:                  now,
+		Now:                 now,
 	})
 	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
 		t.Fatalf("acknowledged recovery was accepted a second time: %v", err)
