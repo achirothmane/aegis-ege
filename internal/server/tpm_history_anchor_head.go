@@ -67,6 +67,27 @@ func defineTPMNVHistoryProtectedHead(
 	return nil
 }
 
+func undefineTPMNVHistorySpaceBestEffort(
+	device transport.TPM,
+	handle tpm2.TPMHandle,
+	ownerAuth []byte,
+) {
+	response, err := (tpm2.NVReadPublic{NVIndex: handle}).Execute(device)
+	if err != nil {
+		return
+	}
+	_, _ = (tpm2.NVUndefineSpace{
+		AuthHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHOwner,
+			Auth:   tpm2.PasswordAuth(ownerAuth),
+		},
+		NVIndex: tpm2.NamedHandle{
+			Handle: handle,
+			Name:   response.NVName,
+		},
+	}).Execute(device)
+}
+
 func (a *TPMNVHistoryAnchor) readProtectedHead(
 	ctx context.Context,
 ) (tpmNVHistoryProtectedHead, error) {
