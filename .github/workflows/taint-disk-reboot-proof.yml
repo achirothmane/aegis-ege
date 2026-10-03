@@ -1,0 +1,50 @@
+name: Disk-backed reboot recovery proof
+
+on:
+  pull_request:
+    paths:
+      - "kernel/bpf/aegis_taint.bpf.c"
+      - "kernel/bpf/include/aegis_taint_abi.h"
+      - "internal/kernelfabric/taint_*.go"
+      - "scripts/taint-disk-reboot-proof.sh"
+      - ".github/workflows/taint-disk-reboot-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  durable-record-reboot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Install VM proof dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+          CGO_ENABLED=0 go install lmb.io/vimto@v0.4.0
+          if [ -e /dev/kvm ]; then
+            sudo chmod 0666 /dev/kvm
+          fi
+      - name: Compile taint BPF object for reboot proof
+        shell: bash
+        run: |
+          mkdir -p internal/kernelfabric/testdata
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o internal/kernelfabric/testdata/aegis_taint.bpf.o
+      - name: Execute durable-record proof across two Linux boots
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: bash scripts/taint-disk-reboot-proof.sh
