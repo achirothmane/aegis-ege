@@ -4,31 +4,25 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/journal"
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 	"github.com/achirothmane/aegis-ege/internal/recoverywitnessprofile"
-	appsv1 "k8s.io/api/apps/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -55,7 +49,7 @@ const (
 	recoveryWitnessExternalEndpoint = "https://127.0.0.1:30443"
 	recoveryWitnessNodePort   int32  = 30443
 
-	controllerBundleVersion = "aegis.ege/taint-recovery-controller-bundle/v3"
+	controllerBundleVersion = "aegis.ege/taint-recovery-controller-bundle/v4"
 )
 
 type controllerBundle struct {
@@ -76,12 +70,27 @@ type recoveryGenesisCapabilityEnvelope struct {
 }
 
 func main() {
+	switch requireEnv("PROVISION_PHASE") {
+	case "prepare":
+		must(prepareTaintRecoveryWitness(
+			requireEnv("TAINT_RECOVERY_PREPARED_BUNDLE"),
+			requireEnv("UNSIGNED_WITNESS_PROFILE_PATH"),
+			requireEnv("PROFILE_AUTHORITY_PUBLIC_KEY_PATH"),
+		))
+		return
+	case "activate":
+	default:
+		panic("PROVISION_PHASE must be prepare or activate")
+	}
+
 	ctx := context.Background()
 	workloadAdminPath := requireEnv("WORKLOAD_ADMIN_KUBECONFIG")
 	witnessAdminPath := requireEnv("WITNESS_ADMIN_KUBECONFIG")
 	workloadRuntimePath := requireEnv("WORKLOAD_RUNTIME_KUBECONFIG")
 	witnessRuntimePath := requireEnv("WITNESS_RUNTIME_KUBECONFIG")
 	controllerBundlePath := requireEnv("TAINT_RECOVERY_CONTROLLER_BUNDLE")
+	preparedBundlePath := requireEnv("TAINT_RECOVERY_PREPARED_BUNDLE")
+	signedProfilePath := requireEnv("SIGNED_WITNESS_PROFILE_PATH")
 
 	workloadConfig, err := clientcmd.BuildConfigFromFlags("", workloadAdminPath)
 	must(err)
@@ -139,334 +148,16 @@ func main() {
 	)
 	must(err)
 
-	must(provisionTaintRecoveryWitness(ctx, witnessAdmin, controllerBundlePath))
+	must(activateTaintRecoveryWitness(
+		ctx,
+		witnessAdmin,
+		controllerBundlePath,
+		preparedBundlePath,
+		signedProfilePath,
+	))
 
 	must(writeRuntimeKubeconfig(workloadRuntimePath, workloadConfig, workloadToken, workloadNamespace))
 	must(writeRuntimeKubeconfig(witnessRuntimePath, witnessConfig, witnessToken, witnessNamespace))
-}
-
-func provisionTaintRecoveryWitness(
-	ctx context.Context,
-	witnessAdmin kubernetes.Interface,
-	controllerBundlePath string,
-) error {
-	authorityPublic, authorityPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	witnessPublic, witnessPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	trustSignerPublic, trustSignerPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	profileAuthorityPublic, profileAuthorityPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-
-	authorityKeyID, err := kernelfabric.BootstrapKeyID(authorityPublic)
-	if err != nil {
-		return err
-	}
-	recoveryWitnessKeyID, err := kernelfabric.BootstrapKeyID(witnessPublic)
-	if err != nil {
-		return err
-	}
-	const trustEpoch uint64 = 1
-	signedTrust, err := kernelfabric.SignTaintRecoveryTrustManifest(
-		kernelfabric.TaintRecoveryTrustManifest{
-			Version:            kernelfabric.TaintRecoveryTrustManifestVersion,
-			TrustEpoch:         trustEpoch,
-			AuthorityPrincipal: "workload/recovery-controller",
-			AuthorityKeyID:     authorityKeyID,
-			AuthorityPublicKey: base64.StdEncoding.EncodeToString(authorityPublic),
-			WitnessPrincipal:   "witness/control-plane-b",
-			WitnessKeyID:       recoveryWitnessKeyID,
-			WitnessPublicKey:   base64.StdEncoding.EncodeToString(witnessPublic),
-		},
-		trustSignerPrivate,
-	)
-	if err != nil {
-		return err
-	}
-
-	policy := recoverywitnessprofile.StaticPolicy{
-		Version:       recoverywitnessprofile.StaticPolicyVersion,
-		PolicyEpoch:   1,
-		PlanDigest:    "sha256:" + strings.Repeat("c", 64),
-		CgroupID:      4242,
-		BPFFSRoot:     "/sys/fs/bpf/aegis-ege/taint-ci",
-		BootIDHash:    "sha256:" + strings.Repeat("d", 64),
-		FromEpoch:     11,
-		ToEpoch:       12,
-		ExpectedDirty: 7,
-	}
-	if err := policy.Validate(); err != nil {
-		return err
-	}
-
-	trustPayload, err := json.Marshal(signedTrust)
-	if err != nil {
-		return err
-	}
-	policyPayload, err := json.Marshal(policy)
-	if err != nil {
-		return err
-	}
-	tlsCertPEM, tlsKeyPEM, err := newWitnessTLSCertificate(recoveryWitnessServerName)
-	if err != nil {
-		return err
-	}
-	policyHash, err := policy.RecoveryWitnessPolicyHash()
-	if err != nil {
-		return err
-	}
-	tlsTrustAnchorHash, err := kernelfabric.TLSCertificatePEMSHA256(tlsCertPEM)
-	if err != nil {
-		return err
-	}
-	profileAuthorityKeyID, err := kernelfabric.BootstrapKeyID(profileAuthorityPublic)
-	if err != nil {
-		return err
-	}
-	genesisCapabilityEnvelope, err := json.Marshal(recoveryGenesisCapabilityEnvelope{
-		ExternalRecoveryWitness: kernelfabric.ExternalRecoveryWitnessGenesisPolicy{
-			Protocol:                  kernelfabric.ExternalRecoveryWitnessGenesisPolicyVersion,
-			ProfileAuthorityKeyID:     profileAuthorityKeyID,
-			ProfileAuthorityPublicKey: base64.StdEncoding.EncodeToString(profileAuthorityPublic),
-			RequiredWitnessID:         "witness/control-plane-b",
-			TLSServerName:             recoveryWitnessServerName,
-			MinimumProfileEpoch:       1,
-			MinimumPolicyEpoch:        1,
-		},
-	})
-	if err != nil {
-		return err
-	}
-	genesisEnvelopeSum := sha256.Sum256(genesisCapabilityEnvelope)
-	genesisCapabilityEnvelopeHash := "sha256:" + hex.EncodeToString(genesisEnvelopeSum[:])
-	if _, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
-		genesisCapabilityEnvelope,
-		genesisCapabilityEnvelopeHash,
-	); err != nil {
-		return fmt.Errorf("self-verify external witness Genesis binding: %w", err)
-	}
-	signedWitnessProfile, err := kernelfabric.SignExternalRecoveryWitnessProfile(
-		kernelfabric.ExternalRecoveryWitnessProfile{
-			Version:              kernelfabric.ExternalRecoveryWitnessProfileVersion,
-			ProfileEpoch:         1,
-			WitnessID:            "witness/control-plane-b",
-			WitnessKeyID:         recoveryWitnessKeyID,
-			Endpoint:             recoveryWitnessExternalEndpoint,
-			TLSTrustAnchorSHA256: tlsTrustAnchorHash,
-			PolicyEpoch:          policy.PolicyEpoch,
-			PolicyHash:           policyHash,
-		},
-		profileAuthorityPrivate,
-	)
-	if err != nil {
-		return err
-	}
-	witnessProfilePayload, err := json.Marshal(signedWitnessProfile)
-	if err != nil {
-		return err
-	}
-
-	immutable := true
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      recoveryWitnessSecretName,
-			Namespace: witnessNamespace,
-		},
-		Immutable: &immutable,
-		StringData: map[string]string{
-			"witness-private-key": base64.StdEncoding.EncodeToString(witnessPrivate),
-			"tls.crt":             string(tlsCertPEM),
-			"tls.key":             string(tlsKeyPEM),
-		},
-	}
-	if _, err := witnessAdmin.CoreV1().Secrets(witnessNamespace).Create(
-		ctx,
-		secret,
-		metav1.CreateOptions{},
-	); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create recovery witness secret: %w", err)
-	}
-
-	config := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      recoveryWitnessConfigName,
-			Namespace: witnessNamespace,
-		},
-		Immutable: &immutable,
-		Data: map[string]string{
-			"trust-manifest.json":             string(trustPayload),
-			"external-profile.json":           string(witnessProfilePayload),
-			"genesis-capability-envelope.json": string(genesisCapabilityEnvelope),
-			"genesis-capability-envelope-hash": genesisCapabilityEnvelopeHash,
-			"trust-signer-public-key":         base64.StdEncoding.EncodeToString(trustSignerPublic),
-			"policy.json":                     string(policyPayload),
-		},
-	}
-	if _, err := witnessAdmin.CoreV1().ConfigMaps(witnessNamespace).Create(
-		ctx,
-		config,
-		metav1.CreateOptions{},
-	); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create recovery witness config: %w", err)
-	}
-
-	falseValue := false
-	replicas := int32(1)
-	labels := map[string]string{"app": recoveryWitnessDeploymentName}
-	deployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      recoveryWitnessDeploymentName,
-			Namespace: witnessNamespace,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					AutomountServiceAccountToken: &falseValue,
-					Containers: []corev1.Container{{
-						Name:            "witness",
-						Image:           recoveryWitnessImage,
-						ImagePullPolicy: corev1.PullNever,
-						Env: []corev1.EnvVar{
-							{Name: "WITNESS_PRIVATE_KEY_PATH", Value: "/run/aegis-witness/secret/witness-private-key"},
-							{Name: "TRUST_MANIFEST_PATH", Value: "/run/aegis-witness/config/trust-manifest.json"},
-							{Name: "EXTERNAL_WITNESS_PROFILE_PATH", Value: "/run/aegis-witness/config/external-profile.json"},
-							{Name: "GENESIS_CAPABILITY_ENVELOPE_PATH", Value: "/run/aegis-witness/config/genesis-capability-envelope.json"},
-							{Name: "GENESIS_CAPABILITY_ENVELOPE_HASH_PATH", Value: "/run/aegis-witness/config/genesis-capability-envelope-hash"},
-							{Name: "TRUST_SIGNER_PUBLIC_KEY_PATH", Value: "/run/aegis-witness/config/trust-signer-public-key"},
-							{Name: "WITNESS_POLICY_PATH", Value: "/run/aegis-witness/config/policy.json"},
-							{Name: "TLS_CERT_PATH", Value: "/run/aegis-witness/secret/tls.crt"},
-							{Name: "TLS_KEY_PATH", Value: "/run/aegis-witness/secret/tls.key"},
-							{Name: "LISTEN_ADDR", Value: ":8443"},
-						},
-						Ports: []corev1.ContainerPort{{
-							Name:          "https",
-							ContainerPort: 8443,
-							Protocol:      corev1.ProtocolTCP,
-						}},
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path:   "/healthz",
-									Port:   intstr.FromInt(8443),
-									Scheme: corev1.URISchemeHTTPS,
-								},
-							},
-							PeriodSeconds:    1,
-							FailureThreshold: 30,
-						},
-						VolumeMounts: []corev1.VolumeMount{
-							{Name: "secret", MountPath: "/run/aegis-witness/secret", ReadOnly: true},
-							{Name: "config", MountPath: "/run/aegis-witness/config", ReadOnly: true},
-						},
-					}},
-					Volumes: []corev1.Volume{
-						{
-							Name: "secret",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName:  recoveryWitnessSecretName,
-									DefaultMode: int32Ptr(0o400),
-								},
-							},
-						},
-						{
-							Name: "config",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{Name: recoveryWitnessConfigName},
-									DefaultMode:          int32Ptr(0o400),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	if _, err := witnessAdmin.AppsV1().Deployments(witnessNamespace).Create(
-		ctx,
-		deployment,
-		metav1.CreateOptions{},
-	); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create recovery witness deployment: %w", err)
-	}
-
-	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      recoveryWitnessServiceName,
-			Namespace: witnessNamespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeNodePort,
-			Selector: labels,
-			Ports: []corev1.ServicePort{{
-				Name:       "https",
-				Protocol:   corev1.ProtocolTCP,
-				Port:       443,
-				TargetPort: intstr.FromInt(8443),
-				NodePort:   recoveryWitnessNodePort,
-			}},
-		},
-	}
-	if _, err := witnessAdmin.CoreV1().Services(witnessNamespace).Create(
-		ctx,
-		service,
-		metav1.CreateOptions{},
-	); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create recovery witness service: %w", err)
-	}
-
-	deadline := time.Now().Add(90 * time.Second)
-	for {
-		current, err := witnessAdmin.AppsV1().Deployments(witnessNamespace).Get(
-			ctx,
-			recoveryWitnessDeploymentName,
-			metav1.GetOptions{},
-		)
-		if err != nil {
-			return err
-		}
-		if current.Status.ReadyReplicas >= 1 {
-			break
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("recovery witness deployment did not become ready")
-		}
-		time.Sleep(time.Second)
-	}
-
-	bundle := controllerBundle{
-		Version:                       controllerBundleVersion,
-		AuthorityPrivateKey:           base64.StdEncoding.EncodeToString(authorityPrivate),
-		SignedTrust:                   signedTrust,
-		SignedWitnessProfile:          signedWitnessProfile,
-		GenesisCapabilityEnvelopeBase64: base64.StdEncoding.EncodeToString(genesisCapabilityEnvelope),
-		GenesisCapabilityEnvelopeHash:   genesisCapabilityEnvelopeHash,
-		TrustSignerPublicKey:          base64.StdEncoding.EncodeToString(trustSignerPublic),
-		WitnessCAPEM:                  string(tlsCertPEM),
-		WitnessTLSServerName:          recoveryWitnessServerName,
-		Policy:                        policy,
-	}
-	payload, err := json.MarshalIndent(bundle, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(controllerBundlePath), 0o700); err != nil {
-		return err
-	}
-	return os.WriteFile(controllerBundlePath, payload, 0o600)
 }
 
 func newWitnessTLSCertificate(serverName string) ([]byte, []byte, error) {
