@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-tpm/tpm2"
+	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 )
 
 const TPMRootMigrationAuthorizationVersion = "aegis.ege/tpm-root-migration-authorization/v1"
@@ -272,4 +272,3 @@ func validSHA256Ref(value string) bool {
 	return err == nil
 }
 
-var _ = tpm2.TPMHandle(0)
