@@ -1,0 +1,39 @@
+name: Host reboot taint proof
+
+on:
+  pull_request:
+    paths:
+      - "internal/kernelfabric/taint_recovery*.go"
+      - "internal/kernelfabric/taint_host_reboot_native_linux_test.go"
+      - "scripts/taint-host-reboot-proof.sh"
+      - ".github/workflows/taint-host-reboot-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  two-boot-trust-reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Install VM proof dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+          CGO_ENABLED=0 go install lmb.io/vimto@v0.4.0
+          if [ -e /dev/kvm ]; then
+            sudo chmod 0666 /dev/kvm
+          fi
+      - name: Execute two independent Linux boots
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: bash scripts/taint-host-reboot-proof.sh
