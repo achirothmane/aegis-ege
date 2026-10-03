@@ -119,47 +119,49 @@ func quorumStoreForTest(
 	c ExternalHeadStore,
 ) *QuorumHeadStore {
 	t.Helper()
+	binding := quorumBindingForTest(
+		t,
+		2,
+		"witness-a",
+		"witness-b",
+		"witness-c",
+	)
 	store, err := NewQuorumHeadStore([]QuorumHeadMember{
-		{ID: "witness-a", Store: a},
-		{ID: "witness-b", Store: b},
-		{ID: "witness-c", Store: c},
-	}, 2)
+		quorumMemberForTest("witness-a", a),
+		quorumMemberForTest("witness-b", b),
+		quorumMemberForTest("witness-c", c),
+	}, binding)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store
 }
 
-func TestQuorumHeadStoreRequiresStrictMajority(t *testing.T) {
+func TestQuorumHeadStoreRequiresGovernedBinding(t *testing.T) {
 	base := newQuorumTestStore(nil)
-	if _, err := NewQuorumHeadStore([]QuorumHeadMember{
-		{ID: "a", Store: base},
-		{ID: "b", Store: base},
-		{ID: "c", Store: base},
-	}, 1); err == nil {
-		t.Fatal("1-of-3 quorum unexpectedly accepted")
+	members := []QuorumHeadMember{
+		quorumMemberForTest("witness-a", base),
+		quorumMemberForTest("witness-b", base),
+		quorumMemberForTest("witness-c", base),
 	}
-	if _, err := NewQuorumHeadStore([]QuorumHeadMember{
-		{ID: "a", Store: base},
-		{ID: "b", Store: base},
-		{ID: "c", Store: base},
-		{ID: "d", Store: base},
-	}, 2); err == nil {
-		t.Fatal("2-of-4 non-intersecting quorum unexpectedly accepted")
+	if _, err := NewQuorumHeadStore(members, GenesisQuorumBinding{}); err == nil {
+		t.Fatal("ungoverned quorum configuration unexpectedly accepted")
 	}
-	if _, err := NewQuorumHeadStore([]QuorumHeadMember{
-		{ID: "a", Store: base},
-		{ID: "a", Store: base},
-		{ID: "c", Store: base},
-	}, 2); err == nil {
-		t.Fatal("duplicate witness identity unexpectedly accepted")
+
+	binding := quorumBindingForTest(
+		t,
+		2,
+		"witness-a",
+		"witness-b",
+		"witness-c",
+	)
+	duplicate := []QuorumHeadMember{
+		quorumMemberForTest("witness-a", base),
+		quorumMemberForTest("witness-a", base),
+		quorumMemberForTest("witness-c", base),
 	}
-	if _, err := NewQuorumHeadStore([]QuorumHeadMember{
-		{ID: "a", Store: base},
-		{ID: "b", Store: base},
-		{ID: "c", Store: base},
-	}, 2); err != nil {
-		t.Fatalf("2-of-3 quorum rejected: %v", err)
+	if _, err := NewQuorumHeadStore(duplicate, binding); err == nil {
+		t.Fatal("duplicate runtime witness identity unexpectedly accepted")
 	}
 }
 

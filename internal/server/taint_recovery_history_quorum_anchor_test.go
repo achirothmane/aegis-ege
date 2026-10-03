@@ -6,6 +6,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -19,8 +22,50 @@ import (
 )
 
 type switchableHeadStore struct {
-	store    journal.ExternalHeadStore
-	failLoad bool
+	store             journal.ExternalHeadStore
+	failLoad          bool
+	trustManifestHash string
+}
+
+func (s *switchableHeadStore) QuorumTrustManifestHash() string {
+	if s == nil {
+		return ""
+	}
+	return s.trustManifestHash
+}
+
+
+func quorumBindingForServerTest(t *testing.T) journal.GenesisQuorumBinding {
+	t.Helper()
+	policy := journal.QuorumTrustPolicy{
+		Protocol:  journal.QuorumTrustPolicyVersion,
+		Threshold: 2,
+		Members: []journal.QuorumTrustPolicyMember{
+			{ID: "witness-a", TrustManifestHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			{ID: "witness-b", TrustManifestHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			{ID: "witness-c", TrustManifestHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		},
+	}
+	envelope := struct {
+		Version               string                    `json:"version"`
+		ExternalWitnessQuorum journal.QuorumTrustPolicy `json:"external_witness_quorum"`
+	}{
+		Version:               "aegis-ege/capability-envelope/v1",
+		ExternalWitnessQuorum: policy,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	binding, err := journal.ParseGenesisQuorumBinding(
+		raw,
+		"sha256:"+hex.EncodeToString(sum[:]),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding
 }
 
 func (s *switchableHeadStore) Load(
@@ -47,14 +92,23 @@ func (s *switchableHeadStore) CompareAndAdvance(
 func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	ctx := context.Background()
 
-	w1 := &switchableHeadStore{store: journal.NewMemoryHeadStore()}
-	w2 := &switchableHeadStore{store: journal.NewMemoryHeadStore()}
-	w3 := &switchableHeadStore{store: journal.NewMemoryHeadStore()}
+	w1 := &switchableHeadStore{
+		store:             journal.NewMemoryHeadStore(),
+		trustManifestHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	w2 := &switchableHeadStore{
+		store:             journal.NewMemoryHeadStore(),
+		trustManifestHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	w3 := &switchableHeadStore{
+		store:             journal.NewMemoryHeadStore(),
+		trustManifestHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	}
 	quorum, err := journal.NewQuorumHeadStore([]journal.QuorumHeadMember{
 		{ID: "witness-a", Store: w1},
 		{ID: "witness-b", Store: w2},
 		{ID: "witness-c", Store: w3},
-	}, 2)
+	}, quorumBindingForServerTest(t))
 	if err != nil {
 		t.Fatal(err)
 	}
