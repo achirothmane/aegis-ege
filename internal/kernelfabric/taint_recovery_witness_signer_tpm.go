@@ -25,6 +25,18 @@ type TPMRecoveryWitnessSigner struct {
 
 const tpmHardwareWitnessEvidenceDomain = "aegis-ege/tpm-hardware-witness-evidence/v1\x00"
 
+func legacyTPMRequiredHardwareSignerAttributes() legacytpm2.KeyProp {
+	return legacytpm2.FlagSign |
+		legacytpm2.FlagFixedTPM |
+		legacytpm2.FlagFixedParent |
+		legacytpm2.FlagSensitiveDataOrigin |
+		legacytpm2.FlagUserWithAuth
+}
+
+func legacyTPMForbiddenHardwareSignerAttributes() legacytpm2.KeyProp {
+	return legacytpm2.FlagDecrypt
+}
+
 type TPMRecoveryWitnessPublicEvidence struct {
 	PublicAreaSHA256    string `json:"public_area_sha256"`
 	NameHex             string `json:"name_hex"`
@@ -196,12 +208,9 @@ func (s *TPMRecoveryWitnessSigner) PublicEvidence() (TPMRecoveryWitnessPublicEvi
 		public.ECCParameters.Sign == nil {
 		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness public area is not ECC signing")
 	}
-	required := legacytpm2.FlagSign |
-		legacytpm2.FlagFixedTPM |
-		legacytpm2.FlagFixedParent |
-		legacytpm2.FlagSensitiveDataOrigin |
-		legacytpm2.FlagUserWithAuth
-	if public.Attributes&required != required || public.Attributes&legacytpm2.FlagDecrypt != 0 {
+	required := legacyTPMRequiredHardwareSignerAttributes()
+	forbidden := legacyTPMForbiddenHardwareSignerAttributes()
+	if public.Attributes&required != required || public.Attributes&forbidden != 0 {
 		return TPMRecoveryWitnessPublicEvidence{}, errors.New("TPM recovery witness public attributes violate non-exportable signer contract")
 	}
 	encodedPublic, err := public.Encode()
