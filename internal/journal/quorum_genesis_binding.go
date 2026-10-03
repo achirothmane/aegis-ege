@@ -92,6 +92,23 @@ func ParseGenesisQuorumBinding(
 	}, nil
 }
 
+func (b GenesisQuorumBinding) ActivePolicy(
+	genesisEpoch uint64,
+) (QuorumPolicyState, error) {
+	if err := validateGenesisQuorumBinding(b); err != nil {
+		return QuorumPolicyState{}, err
+	}
+	policy := QuorumPolicyState{
+		Phase:        QuorumPolicyPhaseActive,
+		GenesisEpoch: genesisEpoch,
+		PolicyHash:   b.policyHash,
+	}
+	if err := validateQuorumPolicyState(policy); err != nil {
+		return QuorumPolicyState{}, err
+	}
+	return policy, nil
+}
+
 func WitnessTrustManifestDigest(manifest WitnessTrustManifest) (string, error) {
 	normalized, err := normalizeWitnessTrustManifest(manifest)
 	if err != nil {
