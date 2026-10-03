@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const EnrollmentIdentityReceiptVersion = "aegis.ege/tpm-enrollment-identity-receipt/v1"
+const (
+	EnrollmentIdentityReceiptVersion   = "aegis.ege/tpm-enrollment-identity-receipt/v1"
+	EnrollmentIdentityReceiptVersionV2 = "aegis.ege/tpm-enrollment-identity-receipt/v2"
+)
 
 var (
 	ErrEnrollmentIdentityReceiptInvalid   = errors.New("enrollment identity receipt is invalid")
@@ -21,15 +24,16 @@ var (
 )
 
 type EnrollmentIdentityReceipt struct {
-	Version                  string    `json:"version"`
-	ReceiptID                string    `json:"receipt_id"`
-	Sequence                 uint64    `json:"sequence"`
-	PreviousReceiptDigest    string    `json:"previous_receipt_digest,omitempty"`
-	DeviceID                 string    `json:"device_id"`
-	EKSPKISHA256             string    `json:"ek_spki_sha256"`
-	EnrollmentIdentityDigest string    `json:"enrollment_identity_digest"`
-	EnrolledAt               time.Time `json:"enrolled_at"`
-	IssuedAt                 time.Time `json:"issued_at"`
+	Version                      string    `json:"version"`
+	ReceiptID                    string    `json:"receipt_id"`
+	Sequence                     uint64    `json:"sequence"`
+	PreviousReceiptDigest        string    `json:"previous_receipt_digest,omitempty"`
+	SuccessorAuthorizationDigest string    `json:"successor_authorization_digest,omitempty"`
+	DeviceID                     string    `json:"device_id"`
+	EKSPKISHA256                 string    `json:"ek_spki_sha256"`
+	EnrollmentIdentityDigest     string    `json:"enrollment_identity_digest"`
+	EnrolledAt                   time.Time `json:"enrolled_at"`
+	IssuedAt                     time.Time `json:"issued_at"`
 }
 
 type SignedEnrollmentIdentityReceipt struct {
@@ -59,6 +63,45 @@ func NewEnrollmentIdentityReceipt(
 	identity EnrolledTPMIdentity,
 	issuedAt time.Time,
 ) (EnrollmentIdentityReceipt, error) {
+	return newEnrollmentIdentityReceipt(
+		EnrollmentIdentityReceiptVersion,
+		receiptID,
+		sequence,
+		previousReceiptDigest,
+		"",
+		identity,
+		issuedAt,
+	)
+}
+
+func NewGovernedEnrollmentIdentitySuccessorReceipt(
+	receiptID string,
+	sequence uint64,
+	previousReceiptDigest string,
+	successorAuthorizationDigest string,
+	identity EnrolledTPMIdentity,
+	issuedAt time.Time,
+) (EnrollmentIdentityReceipt, error) {
+	return newEnrollmentIdentityReceipt(
+		EnrollmentIdentityReceiptVersionV2,
+		receiptID,
+		sequence,
+		previousReceiptDigest,
+		successorAuthorizationDigest,
+		identity,
+		issuedAt,
+	)
+}
+
+func newEnrollmentIdentityReceipt(
+	version string,
+	receiptID string,
+	sequence uint64,
+	previousReceiptDigest string,
+	successorAuthorizationDigest string,
+	identity EnrolledTPMIdentity,
+	issuedAt time.Time,
+) (EnrollmentIdentityReceipt, error) {
 	identityDigest, err := EnrolledTPMIdentityDigest(identity)
 	if err != nil {
 		return EnrollmentIdentityReceipt{}, err
@@ -67,15 +110,16 @@ func NewEnrollmentIdentityReceipt(
 		issuedAt = time.Now().UTC()
 	}
 	receipt := EnrollmentIdentityReceipt{
-		Version:                  EnrollmentIdentityReceiptVersion,
-		ReceiptID:                strings.TrimSpace(receiptID),
-		Sequence:                 sequence,
-		PreviousReceiptDigest:    strings.TrimSpace(previousReceiptDigest),
-		DeviceID:                 identity.DeviceID,
-		EKSPKISHA256:             identity.EKSPKISHA256,
-		EnrollmentIdentityDigest: identityDigest,
-		EnrolledAt:               identity.EnrolledAt.UTC(),
-		IssuedAt:                 issuedAt.UTC(),
+		Version:                      version,
+		ReceiptID:                    strings.TrimSpace(receiptID),
+		Sequence:                     sequence,
+		PreviousReceiptDigest:        strings.TrimSpace(previousReceiptDigest),
+		SuccessorAuthorizationDigest: strings.TrimSpace(successorAuthorizationDigest),
+		DeviceID:                     identity.DeviceID,
+		EKSPKISHA256:                 identity.EKSPKISHA256,
+		EnrollmentIdentityDigest:     identityDigest,
+		EnrolledAt:                   identity.EnrolledAt.UTC(),
+		IssuedAt:                     issuedAt.UTC(),
 	}
 	if err := ValidateEnrollmentIdentityReceipt(receipt); err != nil {
 		return EnrollmentIdentityReceipt{}, err
@@ -153,7 +197,11 @@ func EnrollmentIdentityReceiptDigest(
 	if err != nil {
 		return "", fmt.Errorf("marshal signed enrollment identity receipt: %w", err)
 	}
-	sum := sha256.Sum256(append([]byte("aegis.ege/signed-enrollment-identity-receipt/v1\x00"), body...))
+	domain, err := signedEnrollmentIdentityReceiptDomain(signed.Receipt.Version)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(append([]byte(domain), body...))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -179,7 +227,19 @@ func VerifyEnrollmentIdentityReceiptForIdentity(
 }
 
 func ValidateEnrollmentIdentityReceipt(receipt EnrollmentIdentityReceipt) error {
-	if receipt.Version != EnrollmentIdentityReceiptVersion {
+	switch receipt.Version {
+	case EnrollmentIdentityReceiptVersion:
+		if receipt.SuccessorAuthorizationDigest != "" {
+			return fmt.Errorf("%w: v1 receipt cannot carry successor authorization", ErrEnrollmentIdentityReceiptInvalid)
+		}
+	case EnrollmentIdentityReceiptVersionV2:
+		if receipt.Sequence < 2 {
+			return fmt.Errorf("%w: governed successor receipt requires sequence >= 2", ErrEnrollmentIdentityReceiptInvalid)
+		}
+		if _, err := ParseSHA256Digest(receipt.SuccessorAuthorizationDigest); err != nil {
+			return fmt.Errorf("%w: successor authorization digest: %v", ErrEnrollmentIdentityReceiptInvalid, err)
+		}
+	default:
 		return fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentityReceiptInvalid, receipt.Version)
 	}
 	if strings.TrimSpace(receipt.ReceiptID) == "" {
@@ -249,7 +309,33 @@ func canonicalEnrollmentIdentityReceiptPayload(
 	if err != nil {
 		return nil, fmt.Errorf("marshal enrollment identity receipt: %w", err)
 	}
-	return append([]byte("aegis.ege/tpm-enrollment-identity-receipt/v1\x00"), body...), nil
+	domain, err := enrollmentIdentityReceiptDomain(receipt.Version)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(domain), body...), nil
+}
+
+func enrollmentIdentityReceiptDomain(version string) (string, error) {
+	switch version {
+	case EnrollmentIdentityReceiptVersion:
+		return "aegis.ege/tpm-enrollment-identity-receipt/v1\x00", nil
+	case EnrollmentIdentityReceiptVersionV2:
+		return "aegis.ege/tpm-enrollment-identity-receipt/v2\x00", nil
+	default:
+		return "", fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentityReceiptInvalid, version)
+	}
+}
+
+func signedEnrollmentIdentityReceiptDomain(version string) (string, error) {
+	switch version {
+	case EnrollmentIdentityReceiptVersion:
+		return "aegis.ege/signed-enrollment-identity-receipt/v1\x00", nil
+	case EnrollmentIdentityReceiptVersionV2:
+		return "aegis.ege/signed-enrollment-identity-receipt/v2\x00", nil
+	default:
+		return "", fmt.Errorf("%w: unsupported version %q", ErrEnrollmentIdentityReceiptInvalid, version)
+	}
 }
 
 func enrollmentAuthorityKeyID(publicKey ed25519.PublicKey) (string, error) {

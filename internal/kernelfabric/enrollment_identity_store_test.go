@@ -214,6 +214,109 @@ func TestAnchoredEnrollmentIdentityStoreRejectsSameSequenceReplacement(t *testin
 	}
 }
 
+
+func TestAnchoredEnrollmentIdentityStoreRequiresGovernanceForV2Successor(t *testing.T) {
+	enrollmentPub, enrollmentPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	governancePub, governancePriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := AnchoredEnrollmentIdentityStore{
+		Store: EnrollmentIdentityReceiptStore{
+			Path: filepath.Join(t.TempDir(), "enrollment-current.json"),
+		},
+		Anchor: &testDurableHeadAnchor{},
+	}
+	ctx := context.Background()
+	predecessor := enrollmentReceiptTestIdentity()
+	r1 := signEnrollmentReceiptTest(t, enrollmentPriv, "governed-r1", 1, "", predecessor)
+	d1, err := store.Append(ctx, r1, enrollmentPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	successor := predecessor
+	successor.EKSPKISHA256 = "sha256:" + strings.Repeat("b", 64)
+	successor.EnrolledAt = predecessor.EnrolledAt.Add(time.Minute)
+	now := successor.EnrolledAt.Add(time.Second)
+	auth := EnrollmentIdentitySuccessorAuthorization{
+		Version:                                EnrollmentIdentitySuccessorAuthorizationVersion,
+		AuthorizationID:                        "store-governed-successor",
+		DeviceID:                               predecessor.DeviceID,
+		PredecessorReceiptDigest:               d1,
+		PredecessorSequence:                    1,
+		PredecessorHardwareIdentityDigest:      predecessor.EKSPKISHA256,
+		SuccessorEnrollmentID:                  "governed-r2",
+		SuccessorEnrollmentRequestDigest:       "sha256:" + strings.Repeat("1", 64),
+		SuccessorHardwareIdentityDigest:        successor.EKSPKISHA256,
+		ContinuityTransferAuthorizationDigest: "sha256:" + strings.Repeat("2", 64),
+		DestinationAttestationDigest:           "sha256:" + strings.Repeat("3", 64),
+		SourceDeviceIdentity:                   "sha256:" + strings.Repeat("4", 64),
+		DestinationDeviceIdentity:              "sha256:" + strings.Repeat("5", 64),
+		DestinationMeasuredBootIdentity:        "sha256:" + strings.Repeat("6", 64),
+		DestinationGeneration:                  7,
+		HistoryWitnessPolicyHash:               "sha256:" + strings.Repeat("7", 64),
+		OwnershipWitnessPolicyHash:             "sha256:" + strings.Repeat("8", 64),
+		NotBefore:                              now.Add(-time.Minute),
+		ExpiresAt:                              now.Add(time.Minute),
+	}
+	signedAuth, err := SignEnrollmentIdentitySuccessorAuthorization(auth, governancePriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authDigest, err := EnrollmentIdentitySuccessorAuthorizationDigest(signedAuth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := NewGovernedEnrollmentIdentitySuccessorReceipt(
+		auth.SuccessorEnrollmentID,
+		2,
+		d1,
+		authDigest,
+		successor,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedR2, err := SignEnrollmentIdentityReceipt(r2, enrollmentPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.Append(ctx, signedR2, enrollmentPub); err == nil {
+		t.Fatal("direct append must not advance governed v2 successor")
+	}
+	current, currentDigest, exists, err := store.Current(ctx, enrollmentPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || current.Receipt.Sequence != 1 || currentDigest != d1 {
+		t.Fatalf("rejected direct v2 append changed predecessor head: exists=%t digest=%s receipt=%+v", exists, currentDigest, current.Receipt)
+	}
+
+	if _, err := store.AppendGovernedSuccessor(
+		ctx,
+		signedR2,
+		enrollmentPub,
+		signedAuth,
+		governancePub,
+		now,
+	); err != nil {
+		t.Fatal(err)
+	}
+	current, _, exists, err = store.Current(ctx, enrollmentPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || current.Receipt.Sequence != 2 || current.Receipt.SuccessorAuthorizationDigest != authDigest {
+		t.Fatalf("governed append did not commit exact R2: exists=%t receipt=%+v", exists, current.Receipt)
+	}
+}
+
 func enrollmentReceiptTestIdentity() EnrolledTPMIdentity {
 	return EnrolledTPMIdentity{
 		DeviceID:                   "device:vcs11",
