@@ -31,10 +31,12 @@ var (
 
 type TPMNVHistoryAnchorConfig struct {
 	NVIndex         tpm2.TPMHandle
+	HeadNVIndex     tpm2.TPMHandle
 	StatePath       string
 	OwnerAuth       []byte
 	EndorsementAuth []byte
 	IndexAuth       []byte
+	HeadIndexAuth   []byte
 }
 
 type TPMNVHistoryAnchor struct {
@@ -63,10 +65,10 @@ func ProvisionTPMNVHistoryAnchor(
 	device transport.TPM,
 	cfg TPMNVHistoryAnchorConfig,
 ) error {
-	rootCfg := historyAnchorRootConfig(cfg)
-	if err := validateTPMNVRootConfig(device, rootCfg); err != nil {
+	if err := validateTPMNVHistoryAnchorConfig(device, cfg); err != nil {
 		return err
 	}
+	rootCfg := historyAnchorRootConfig(cfg)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -78,7 +80,7 @@ func ProvisionTPMNVHistoryAnchor(
 		}
 	}
 
-	def := tpm2.NVDefineSpace{
+	counterDef := tpm2.NVDefineSpace{
 		AuthHandle: tpm2.AuthHandle{
 			Handle: tpm2.TPMRHOwner,
 			Auth:   tpm2.PasswordAuth(cfg.OwnerAuth),
@@ -98,8 +100,21 @@ func ProvisionTPMNVHistoryAnchor(
 			DataSize: 8,
 		}),
 	}
-	if _, err := def.Execute(device); err != nil {
+	if _, err := counterDef.Execute(device); err != nil {
 		return fmt.Errorf("define TPM history counter 0x%x: %w", uint32(cfg.NVIndex), err)
+	}
+
+	provisioned := false
+	defer func() {
+		if provisioned {
+			return
+		}
+		undefineTPMNVHistorySpaceBestEffort(device, cfg.HeadNVIndex, cfg.OwnerAuth)
+		undefineTPMNVHistorySpaceBestEffort(device, cfg.NVIndex, cfg.OwnerAuth)
+	}()
+
+	if err := defineTPMNVHistoryProtectedHead(device, cfg); err != nil {
+		return err
 	}
 
 	helper, err := NewTPMNVMonotonicRoot(device, rootCfg)
@@ -119,19 +134,34 @@ func ProvisionTPMNVHistoryAnchor(
 		return fmt.Errorf("initialize TPM history counter: %w", err)
 	}
 
-	return writeTPMNVHistoryAnchorStateAtomic(cfg.StatePath, tpmNVHistoryAnchorState{
+	anchor := &TPMNVHistoryAnchor{helper: helper, cfg: cfg}
+	if err := anchor.writeProtectedHead(ctx, tpmNVHistoryProtectedHead{
+		Generation: generation,
+		Sequence:   0,
+	}); err != nil {
+		return fmt.Errorf("initialize TPM history exact head: %w", err)
+	}
+
+	if err := writeTPMNVHistoryAnchorStateAtomic(cfg.StatePath, tpmNVHistoryAnchorState{
 		Version:              tpmNVHistoryAnchorStateVersion,
 		DeviceIdentity:       deviceIdentity,
 		MeasuredBootIdentity: measuredBootIdentity,
 		Generation:           generation,
 		Sequence:             0,
-	})
+	}); err != nil {
+		return err
+	}
+	provisioned = true
+	return nil
 }
 
 func NewTPMNVHistoryAnchor(
 	device transport.TPM,
 	cfg TPMNVHistoryAnchorConfig,
 ) (*TPMNVHistoryAnchor, error) {
+	if err := validateTPMNVHistoryAnchorConfig(device, cfg); err != nil {
+		return nil, err
+	}
 	rootCfg := historyAnchorRootConfig(cfg)
 	helper, err := NewTPMNVMonotonicRoot(device, rootCfg)
 	if err != nil {
@@ -141,6 +171,7 @@ func NewTPMNVHistoryAnchor(
 	cfg.OwnerAuth = append([]byte(nil), cfg.OwnerAuth...)
 	cfg.EndorsementAuth = append([]byte(nil), cfg.EndorsementAuth...)
 	cfg.IndexAuth = append([]byte(nil), cfg.IndexAuth...)
+	cfg.HeadIndexAuth = append([]byte(nil), cfg.HeadIndexAuth...)
 	return &TPMNVHistoryAnchor{helper: helper, cfg: cfg}, nil
 }
 
@@ -237,6 +268,16 @@ func (a *TPMNVHistoryAnchor) CompareAndAdvance(
 			err,
 		)
 	}
+	if err := a.writeProtectedHead(ctx, tpmNVHistoryProtectedHead{
+		Generation: pending.Generation,
+		Sequence:   pending.Sequence,
+		HeadDigest: pending.HeadDigest,
+	}); err != nil {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"commit TPM history exact head: %w",
+			err,
+		)
+	}
 	generation, err := a.helper.incrementCounter(ctx)
 	if err != nil {
 		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
@@ -268,16 +309,24 @@ func (a *TPMNVHistoryAnchor) recoverLocked(
 	if err != nil {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf("read TPM history counter: %w", err)
 	}
+	protectedHead, err := a.readProtectedHead(ctx)
+	if err != nil {
+		return tpmNVHistoryAnchorState{}, err
+	}
+
 	committed, committedOK, err := readTPMNVHistoryAnchorState(a.cfg.StatePath)
 	if err != nil {
 		return tpmNVHistoryAnchorState{}, err
 	}
 	if !committedOK {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf(
-			"%w: state=%s counter=%d",
+			"%w: state=%s counter=%d protected=(%d,%d,%s)",
 			ErrTPMHistoryAnchorUnprovisioned,
 			a.cfg.StatePath,
 			generation,
+			protectedHead.Generation,
+			protectedHead.Sequence,
+			protectedHead.HeadDigest,
 		)
 	}
 
@@ -331,11 +380,15 @@ func (a *TPMNVHistoryAnchor) recoverLocked(
 		)
 	}
 
-	if committed.Generation == generation {
+	committedProtected := protectedTPMHistoryHeadMatches(protectedHead, committed)
+	pendingSuccessor := pendingOK && isTPMHistoryAnchorPendingSuccessor(committed, pending)
+	pendingProtected := pendingOK && protectedTPMHistoryHeadMatches(protectedHead, pending)
+
+	if committed.Generation == generation && committedProtected {
 		if !pendingOK {
 			return committed, nil
 		}
-		if isTPMHistoryAnchorPendingSuccessor(committed, pending) {
+		if pendingSuccessor {
 			if err := os.Remove(pendingPath); err != nil && !os.IsNotExist(err) {
 				return tpmNVHistoryAnchorState{}, err
 			}
@@ -353,9 +406,36 @@ func (a *TPMNVHistoryAnchor) recoverLocked(
 		)
 	}
 
-	if pendingOK &&
-		pending.Generation == generation &&
-		isTPMHistoryAnchorPendingSuccessor(committed, pending) {
+	if pendingSuccessor && pendingProtected {
+		switch generation {
+		case committed.Generation:
+			advanced, err := a.helper.incrementCounter(ctx)
+			if err != nil {
+				return tpmNVHistoryAnchorState{}, fmt.Errorf(
+					"finish TPM history counter after exact-head commit: %w",
+					err,
+				)
+			}
+			if advanced != pending.Generation {
+				return tpmNVHistoryAnchorState{}, fmt.Errorf(
+					"%w: counter=%d pending_generation=%d",
+					ErrTPMHistoryAnchorRollback,
+					advanced,
+					pending.Generation,
+				)
+			}
+		case pending.Generation:
+			// Counter and exact head are already committed; only the companion
+			// promotion was interrupted.
+		default:
+			return tpmNVHistoryAnchorState{}, fmt.Errorf(
+				"%w: counter=%d committed=%d pending=%d",
+				ErrTPMHistoryAnchorRollback,
+				generation,
+				committed.Generation,
+				pending.Generation,
+			)
+		}
 		if err := promoteTPMNVHistoryAnchorPending(pendingPath, a.cfg.StatePath); err != nil {
 			return tpmNVHistoryAnchorState{}, err
 		}
@@ -363,11 +443,18 @@ func (a *TPMNVHistoryAnchor) recoverLocked(
 	}
 
 	return tpmNVHistoryAnchorState{}, fmt.Errorf(
-		"%w: committed=%d pending=%d counter=%d",
+		"%w: committed=(gen=%d seq=%d head=%s) pending=(gen=%d seq=%d head=%s) counter=%d protected=(gen=%d seq=%d head=%s)",
 		ErrTPMHistoryAnchorRollback,
 		committed.Generation,
+		committed.Sequence,
+		committed.HeadDigest,
 		pending.Generation,
+		pending.Sequence,
+		pending.HeadDigest,
 		generation,
+		protectedHead.Generation,
+		protectedHead.Sequence,
+		protectedHead.HeadDigest,
 	)
 }
 
