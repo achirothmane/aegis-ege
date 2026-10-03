@@ -12,7 +12,10 @@ import (
 	"github.com/ucarion/jcs"
 )
 
-const TaintRecoveryTrustManifestVersion = "aegis.ege/taint-recovery-trust/v1"
+const (
+	TaintRecoveryTrustManifestVersion = "aegis.ege/taint-recovery-trust/v1"
+	maxTaintRecoveryTrustJSONInteger  = uint64(1<<53 - 1)
+)
 
 type TaintRecoveryTrustManifest struct {
 	Version            string `json:"version"`
@@ -26,9 +29,9 @@ type TaintRecoveryTrustManifest struct {
 }
 
 type SignedTaintRecoveryTrustManifest struct {
-	Manifest     TaintRecoveryTrustManifest `json:"manifest"`
-	SignerKeyID  string                     `json:"signer_key_id"`
-	Signature    string                     `json:"signature"`
+	Manifest    TaintRecoveryTrustManifest `json:"manifest"`
+	SignerKeyID string                     `json:"signer_key_id"`
+	Signature   string                     `json:"signature"`
 }
 
 type TaintRecoveryTrustRoot struct {
@@ -149,6 +152,12 @@ func normalizeTaintRecoveryTrustManifest(
 			ErrTaintRecoveryAuthorization,
 		)
 	}
+	if manifest.TrustEpoch > maxTaintRecoveryTrustJSONInteger {
+		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+			"%w: recovery trust epoch exceeds RFC8785/JCS exact integer profile",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
 	manifest.AuthorityPrincipal = strings.TrimSpace(manifest.AuthorityPrincipal)
 	manifest.WitnessPrincipal = strings.TrimSpace(manifest.WitnessPrincipal)
 	manifest.AuthorityKeyID = strings.TrimSpace(manifest.AuthorityKeyID)
@@ -201,6 +210,8 @@ func normalizeTaintRecoveryTrustManifest(
 			ErrTaintRecoveryAuthorization,
 		)
 	}
+	manifest.AuthorityPublicKey = base64.StdEncoding.EncodeToString(authorityKey)
+	manifest.WitnessPublicKey = base64.StdEncoding.EncodeToString(witnessKey)
 	return manifest, authorityKey, witnessKey, nil
 }
 
