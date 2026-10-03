@@ -93,11 +93,11 @@ func (a *postgresNativeFenceAdapter) VerifyAttestation(ctx context.Context, att 
 }
 
 func (a *postgresNativeFenceAdapter) ReserveFencedCustody(ctx context.Context, custody gaRuntime.FencedCustody) error {
-	_, err := a.db.ExecContext(
+	result, err := a.db.ExecContext(
 		ctx,
 		"INSERT INTO "+nativeFenceTable("custody")+" "+
-			"(effect_id, attempt_id, target, owner_id, owner_kind, generation, phase, expected_revision, expected_digest, admission_binding) "+
-			"VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+			"(effect_id, attempt_id, target, owner_id, owner_kind, generation, phase, expected_revision, expected_digest, admission_binding, authority_epoch, authority_generation) "+
+			"SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,epoch,generation FROM "+nativeFenceTable("authority")+" WHERE binding_digest=$10 AND active=TRUE",
 		custody.EffectID,
 		custody.AttemptID,
 		custody.Target,
@@ -109,7 +109,17 @@ func (a *postgresNativeFenceAdapter) ReserveFencedCustody(ctx context.Context, c
 		a.req.Current.Digest,
 		a.req.Admission.BindingDigest,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return errNativeAuthority
+	}
+	return nil
 }
 
 func (a *postgresNativeFenceAdapter) LoadFencedCustody(ctx context.Context, effectID, attemptID string) (gaRuntime.FencedCustody, error) {
@@ -194,14 +204,15 @@ func (a *postgresNativeFenceAdapter) ExecuteFenced(
 	defer func() { _ = tx.Rollback() }()
 
 	var (
-		ownerID, ownerKind, phase                string
-		target, expectedRevision, expectedDigest string
-		admissionBinding                         string
-		generationRaw                            int64
+		ownerID, ownerKind, phase                           string
+		target, expectedRevision, expectedDigest            string
+		admissionBinding                                    string
+		generationRaw                                       int64
+		expectedAuthorityEpoch, expectedAuthorityGeneration int64
 	)
 	err = tx.QueryRowContext(
 		ctx,
-		"SELECT target, owner_id, owner_kind, generation, phase, expected_revision, expected_digest, admission_binding "+
+		"SELECT target, owner_id, owner_kind, generation, phase, expected_revision, expected_digest, admission_binding, authority_epoch, authority_generation "+
 			"FROM "+nativeFenceTable("custody")+" "+
 			"WHERE effect_id=$1 AND attempt_id=$2 FOR UPDATE",
 		custody.EffectID,
@@ -215,6 +226,8 @@ func (a *postgresNativeFenceAdapter) ExecuteFenced(
 		&expectedRevision,
 		&expectedDigest,
 		&admissionBinding,
+		&expectedAuthorityEpoch,
+		&expectedAuthorityGeneration,
 	)
 	if err != nil {
 		return gaRuntime.Acceptance{}, err
@@ -246,22 +259,23 @@ func (a *postgresNativeFenceAdapter) ExecuteFenced(
 	}
 
 	var active bool
+	var authorityEpoch, authorityGeneration int64
 	if err := tx.QueryRowContext(
 		ctx,
-		"SELECT active FROM "+nativeFenceTable("authority")+" WHERE binding_digest=$1 FOR SHARE",
+		"SELECT active, epoch, generation FROM "+nativeFenceTable("authority")+" WHERE binding_digest=$1 FOR SHARE",
 		admissionBinding,
-	).Scan(&active); err != nil {
+	).Scan(&active, &authorityEpoch, &authorityGeneration); err != nil {
 		return gaRuntime.Acceptance{}, err
 	}
-	if !active {
+	if !active || authorityEpoch != expectedAuthorityEpoch || authorityGeneration != expectedAuthorityGeneration {
 		return gaRuntime.Acceptance{}, errNativeAuthority
 	}
 
 	if _, err := tx.ExecContext(
 		ctx,
 		"INSERT INTO "+nativeFenceTable("effects")+" "+
-			"(effect_id, attempt_id, target, owner_id, owner_kind, generation, operation, from_revision, to_revision) "+
-			"VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+			"(effect_id, attempt_id, target, owner_id, owner_kind, generation, operation, from_revision, to_revision, from_digest, to_digest, admission_binding, authority_epoch, authority_generation, authority_active) "+
+			"VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
 		custody.EffectID,
 		custody.AttemptID,
 		custody.Target,
@@ -271,6 +285,12 @@ func (a *postgresNativeFenceAdapter) ExecuteFenced(
 		transition.Operation,
 		transition.From.Revision,
 		transition.To.Revision,
+		transition.From.Digest,
+		transition.To.Digest,
+		admissionBinding,
+		authorityEpoch,
+		authorityGeneration,
+		active,
 	); err != nil {
 		return gaRuntime.Acceptance{}, fmt.Errorf("native effect insert: %w", err)
 	}
@@ -311,11 +331,21 @@ func (a *postgresNativeFenceAdapter) ObserveFenced(
 	if err := a.db.QueryRowContext(
 		ctx,
 		"SELECT COUNT(*) FROM "+nativeFenceTable("effects")+" "+
-			"WHERE effect_id=$1 AND attempt_id=$2 AND owner_id=$3 AND generation=$4",
+			"WHERE effect_id=$1 AND attempt_id=$2 AND owner_id=$3 AND generation=$4 "+
+			"AND owner_kind=$5 AND target=$6 AND operation=$7 AND from_revision=$8 AND to_revision=$9 "+
+			"AND from_digest=$10 AND to_digest=$11 AND admission_binding=$12 AND authority_active=TRUE",
 		custody.EffectID,
 		custody.AttemptID,
 		custody.Owner.ID,
 		custody.Generation,
+		custody.Owner.Kind,
+		custody.Target,
+		transition.Operation,
+		transition.From.Revision,
+		transition.To.Revision,
+		transition.From.Digest,
+		transition.To.Digest,
+		a.req.Admission.BindingDigest,
 	).Scan(&effectCount); err != nil {
 		return gaRuntime.Observation{}, err
 	}
@@ -398,17 +428,17 @@ func setupPostgresNativeFence(t *testing.T) (*postgresNativeFenceAdapter, gaRunt
 		"CREATE TABLE " + nativeFenceTable("target_state") + " (" +
 			"target TEXT PRIMARY KEY, revision TEXT NOT NULL, digest TEXT NOT NULL)",
 		"CREATE TABLE " + nativeFenceTable("authority") + " (" +
-			"binding_digest TEXT PRIMARY KEY, active BOOLEAN NOT NULL)",
+			"binding_digest TEXT PRIMARY KEY, active BOOLEAN NOT NULL, epoch BIGINT NOT NULL DEFAULT 1 CHECK (epoch > 0), generation BIGINT NOT NULL DEFAULT 1 CHECK (generation > 0))",
 		"CREATE TABLE " + nativeFenceTable("custody") + " (" +
 			"effect_id TEXT NOT NULL, attempt_id TEXT NOT NULL, target TEXT NOT NULL, " +
 			"owner_id TEXT NOT NULL, owner_kind TEXT NOT NULL, generation BIGINT NOT NULL CHECK (generation > 0), " +
 			"phase TEXT NOT NULL CHECK (phase IN ('RESERVED','CROSSING','UNKNOWN','CLOSED')), " +
-			"expected_revision TEXT NOT NULL, expected_digest TEXT NOT NULL, admission_binding TEXT NOT NULL, " +
+			"expected_revision TEXT NOT NULL, expected_digest TEXT NOT NULL, admission_binding TEXT NOT NULL, authority_epoch BIGINT NOT NULL, authority_generation BIGINT NOT NULL, " +
 			"PRIMARY KEY (effect_id, attempt_id))",
 		"CREATE TABLE " + nativeFenceTable("effects") + " (" +
 			"effect_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, target TEXT NOT NULL, " +
 			"owner_id TEXT NOT NULL, owner_kind TEXT NOT NULL, generation BIGINT NOT NULL, " +
-			"operation TEXT NOT NULL, from_revision TEXT NOT NULL, to_revision TEXT NOT NULL, " +
+			"operation TEXT NOT NULL, from_revision TEXT NOT NULL, to_revision TEXT NOT NULL, from_digest TEXT NOT NULL, to_digest TEXT NOT NULL, admission_binding TEXT NOT NULL, authority_epoch BIGINT NOT NULL, authority_generation BIGINT NOT NULL, authority_active BOOLEAN NOT NULL, " +
 			"created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())",
 	} {
 		if _, err := db.Exec(statement); err != nil {

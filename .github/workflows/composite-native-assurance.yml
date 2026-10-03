@@ -1,0 +1,124 @@
+name: Composite native assurance and portable verifier
+
+on:
+  pull_request:
+    paths:
+      - 'evidenceverify/**'
+      - 'cmd/aegis-evidence-inspect/**'
+      - 'experiments/gosmig-simulation/**'
+      - 'governedaction/runtime/**'
+      - 'internal/journal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/composite-native-assurance.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'evidenceverify/**'
+      - 'cmd/aegis-evidence-inspect/**'
+      - 'experiments/gosmig-simulation/**'
+      - 'governedaction/runtime/**'
+      - 'internal/journal/**'
+      - '.github/workflows/composite-native-assurance.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  composite-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: gosmig_fixture
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gosmig_fixture"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      GOSMIG_SIM_ADMIN_DSN: postgres://postgres:fixture-only@localhost:5432/gosmig_fixture?sslmode=disable
+      NATIVE_FENCE_REQUIRE: '1'
+      COMPOSITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVIDENCE_VERIFY_BINARY: ${{ runner.temp }}/aegis-evidence-inspect
+      COMPOSITE_ARTIFACT_DIR: ${{ runner.temp }}/composite-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+
+      - name: Verify portable evaluator and build read-only consumer
+        run: |
+          set -euo pipefail
+          mkdir -p "$COMPOSITE_ARTIFACT_DIR"
+          test "$(git rev-parse HEAD)" = "$COMPOSITE_BUILD_SHA"
+          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/native_destination_fence_test.go)"
+          go test -race -mod=readonly -count=1 ./evidenceverify ./cmd/aegis-evidence-inspect | tee "$COMPOSITE_ARTIFACT_DIR/unit.log"
+          go build -mod=readonly -trimpath -o "$EVIDENCE_VERIFY_BINARY" ./cmd/aegis-evidence-inspect
+          # This production binary may depend only on the standard library and
+          # the evaluator, not the runtime, adapters or journal producer.
+          go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./cmd/aegis-evidence-inspect > "$COMPOSITE_ARTIFACT_DIR/verifier-dependencies.txt"
+          ! grep -E 'internal/|governedaction/|pgx|k8s.io' "$COMPOSITE_ARTIFACT_DIR/verifier-dependencies.txt"
+          sha256sum "$EVIDENCE_VERIFY_BINARY" > "$COMPOSITE_ARTIFACT_DIR/verifier-binary.sha256"
+
+      - name: Execute native crash, authority, recovery and causality corpus
+        working-directory: experiments/gosmig-simulation
+        run: |
+          set -euo pipefail
+          go mod download
+          go mod verify
+          go test -race -mod=readonly -count=1 -json -run '^TestPostgresComposite' . | tee "$COMPOSITE_ARTIFACT_DIR/native-tests.jsonl"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          rows = [json.loads(line) for line in Path(os.environ['COMPOSITE_ARTIFACT_DIR'], 'native-tests.jsonl').read_text().splitlines()]
+          assert not any(r['Action'] == 'skip' for r in rows), 'native case skipped'
+          expected = {
+              'TestPostgresCompositeLostAcknowledgementAuthorityChangeRecovery/CLOSED',
+              'TestPostgresCompositeLostAcknowledgementAuthorityChangeRecovery/UNKNOWN',
+              'TestPostgresCompositeAuthorityGenerationSwitchDoesNotReviveOldAdmission',
+              'TestPostgresCompositeMatchingStateAndForeignEffectDoNotProveCausality',
+          }
+          passed = {r.get('Test') for r in rows if r['Action'] == 'pass'}
+          assert expected <= passed, (expected - passed)
+          PY
+
+      - name: Preserve executable pre-fix authority counterexample
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        working-directory: experiments/gosmig-simulation
+        run: |
+          set -euo pipefail
+          # The same regression is run against the actual previous adapter.
+          # Once the invariant is already on main, the baseline is satisfied.
+          git show "$BASE_SHA:experiments/gosmig-simulation/native_destination_fence_test.go" > "$RUNNER_TEMP/base-native.go"
+          if grep -q 'expectedAuthorityGeneration' "$RUNNER_TEMP/base-native.go"; then
+            echo 'Baseline already enforces the authority-generation invariant.' > "$COMPOSITE_ARTIFACT_DIR/baseline.txt"
+            exit 0
+          fi
+          cp native_destination_fence_test.go "$RUNNER_TEMP/current-native.go"
+          trap 'cp "$RUNNER_TEMP/current-native.go" native_destination_fence_test.go' EXIT
+          cp "$RUNNER_TEMP/base-native.go" native_destination_fence_test.go
+          set +e
+          go test -race -mod=readonly -count=1 -v -run '^TestPostgresCompositeAuthorityGenerationSwitchDoesNotReviveOldAdmission$' . > "$COMPOSITE_ARTIFACT_DIR/baseline.log" 2>&1
+          result=$?
+          set -e
+          test "$result" -ne 0
+          grep -q 'old admission crossed a new authority generation: disposition=CLOSED effects=1' "$COMPOSITE_ARTIFACT_DIR/baseline.log"
+
+      - name: Preserve evidence and fixture-only policy channel
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: composite-native-evidence-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/composite-evidence/
