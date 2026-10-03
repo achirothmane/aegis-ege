@@ -38,14 +38,14 @@ func legacyTPMForbiddenHardwareSignerAttributes() legacytpm2.KeyProp {
 }
 
 type TPMRecoveryWitnessPublicEvidence struct {
-	PublicAreaSHA256    string `json:"public_area_sha256"`
-	NameHex             string `json:"name_hex"`
-	Type                uint16 `json:"type"`
-	NameAlgorithm       uint16 `json:"name_algorithm"`
-	Attributes          uint32 `json:"attributes"`
-	Curve               uint16 `json:"curve"`
-	SignatureAlgorithm  uint16 `json:"signature_algorithm"`
-	SignatureHash       uint16 `json:"signature_hash"`
+	PublicAreaSHA256   string `json:"public_area_sha256"`
+	NameHex            string `json:"name_hex"`
+	Type               uint16 `json:"type"`
+	NameAlgorithm      uint16 `json:"name_algorithm"`
+	Attributes         uint32 `json:"attributes"`
+	Curve              uint16 `json:"curve"`
+	SignatureAlgorithm uint16 `json:"signature_algorithm"`
+	SignatureHash      uint16 `json:"signature_hash"`
 }
 
 func NewTPMRecoveryWitnessSigner(
