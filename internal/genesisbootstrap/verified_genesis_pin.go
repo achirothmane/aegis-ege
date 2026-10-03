@@ -77,6 +77,21 @@ func (p VerifiedGenesisPin) ParseHistoryBinding(
 	)
 }
 
+func (p VerifiedGenesisPin) ParseHistoryEpoch(
+	capabilityEnvelope []byte,
+	purpose string,
+) (journal.GovernedHistoryEpoch, error) {
+	binding, err := p.ParseHistoryBinding(capabilityEnvelope, purpose)
+	if err != nil {
+		return journal.GovernedHistoryEpoch{}, err
+	}
+	return journal.NewGovernedHistoryEpoch(
+		binding,
+		p.genesisEpoch,
+		p.manifestPayloadHash,
+	)
+}
+
 func (p VerifiedGenesisPin) ParseEnrollmentSuccessorGovernanceBinding(
 	capabilityEnvelope []byte,
 ) (journal.GenesisEnrollmentSuccessorGovernanceBinding, error) {
