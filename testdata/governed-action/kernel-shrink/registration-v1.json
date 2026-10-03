@@ -1,0 +1,55 @@
+{
+  "schema_version": "aegis.kernel-shrink/v1",
+  "baseline_source_head": "4cb43bb779bf902734f7c675545a2b5a4807a184",
+  "constitutional_anchors": {
+    "composition_pr": 235,
+    "epistemic_boundary_pr": 236
+  },
+  "kernel_semantic_delta_expected": 0,
+  "historical_registration": {
+    "path": "testdata/governed-action/cross-domain/registration-v1.json",
+    "blob": "38e603083f40760671011c6639714529d364fe51"
+  },
+  "replacements": [
+    {
+      "path": "runtime/runtime.go",
+      "baseline_blob": "7e4b77757eb6490b18086d13fd22dbae02d277de",
+      "reduced_blob": "6b35b2b3c71a25d9c9ee56c21782c9fcac0b03e5"
+    },
+    {
+      "path": "runtime/recovery.go",
+      "baseline_blob": "e01368235473f1cf078960456729dbd691f141ac",
+      "reduced_blob": "fb19ad831de7c7c72488232ed029e2f1456c9d04"
+    },
+    {
+      "path": "runtime/fenced.go",
+      "baseline_blob": "bff1a1b1fc7524fd6cdebe5cad905bf9efb7be77",
+      "reduced_blob": "24e749efe7c45cc9ca39f7ddf1a28f19547126e1"
+    }
+  ],
+  "measurements": {
+    "source_bytes_before": 30657,
+    "source_bytes_after": 30047,
+    "source_lines_before": 987,
+    "source_lines_after": 955,
+    "public_surface_changed": false,
+    "imports_changed": false
+  },
+  "historical_native_results_upgraded": false,
+  "current_native_assurance_required": true,
+  "scope": "implementation deduplication; bounded semantic elimination experiments; no normative contract revision",
+  "historical_profiles": [
+    {
+      "path": "testdata/governed-action/complexity-dividend/terraform-v1.json",
+      "blob": "ab571e8bed395c78bfc9856f9208832419aaafee"
+    },
+    {
+      "path": "testdata/governed-action/native-destination-fence/postgresql-v1.json",
+      "blob": "0d665b395227c806e127ce08083c933a515af6a8"
+    },
+    {
+      "path": "testdata/governed-action/native-destination-fence/kubernetes-v1.json",
+      "blob": "32fb96d548c5ade49bc693742bb3e798567e7e86"
+    }
+  ]
+}

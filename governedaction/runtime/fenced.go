@@ -32,10 +32,10 @@ var (
 // Generation is a monotonic fencing token. Phase makes the crash boundary
 // explicit:
 //
-//   RESERVED -> no effect has been allowed to enter through this runtime path.
-//   CROSSING -> effect boundary entry may be in progress or may have happened.
-//   UNKNOWN  -> effect may have happened; exact closure is not yet established.
-//   CLOSED   -> exact trusted observation established the intended after-state.
+//	RESERVED -> no effect has been allowed to enter through this runtime path.
+//	CROSSING -> effect boundary entry may be in progress or may have happened.
+//	UNKNOWN  -> effect may have happened; exact closure is not yet established.
+//	CLOSED   -> exact trusted observation established the intended after-state.
 //
 // Only RESERVED may transfer execution ownership. CROSSING and UNKNOWN may be
 // observed/reconciled, but they may not be reopened as executable custody.
@@ -248,22 +248,8 @@ func ExecuteReservedFenced(ctx context.Context, req Request, custody FencedCusto
 		result.Cause = observeErr
 		return result
 	}
-	if !observation.State.Complete() || !observation.Attestation.Complete() {
-		result.Cause = ErrIncompleteObservation
-		return result
-	}
-
-	expectedObservation := ObservationBindingDigest(effectID, observation.State)
-	if observation.Attestation.BindingDigest != expectedObservation {
-		result.Cause = ErrObservationBinding
-		return result
-	}
-	if err := adapter.VerifyAttestation(ctx, observation.Attestation, expectedObservation); err != nil {
+	if err := verifyObservation(ctx, effectID, req.Transition.To, observation, adapter.VerifyAttestation); err != nil {
 		result.Cause = err
-		return result
-	}
-	if !observation.State.Equal(req.Transition.To) {
-		result.Cause = ErrObservedStateMismatch
 		return result
 	}
 

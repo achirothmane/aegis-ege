@@ -46,12 +46,12 @@ type RecoveryAdapter interface {
 //
 // The allowed path is:
 //
-//   exact original request
-//     -> derive exact EffectID
-//     -> load exact durable custody
-//     -> verify fresh recovery authorization
-//     -> observe
-//     -> CLOSED | UNKNOWN
+//	exact original request
+//	  -> derive exact EffectID
+//	  -> load exact durable custody
+//	  -> verify fresh recovery authorization
+//	  -> observe
+//	  -> CLOSED | UNKNOWN
 //
 // Missing/mismatched custody or recovery authorization is REJECTED. Once exact
 // custody is recovered, inability to prove the intended after-state remains
@@ -111,22 +111,8 @@ func Recover(ctx context.Context, req RecoveryRequest, adapter RecoveryAdapter) 
 		result.Cause = observeErr
 		return result
 	}
-	if !observation.State.Complete() || !observation.Attestation.Complete() {
-		result.Cause = ErrIncompleteObservation
-		return result
-	}
-
-	expectedObservation := ObservationBindingDigest(effectID, observation.State)
-	if observation.Attestation.BindingDigest != expectedObservation {
-		result.Cause = ErrObservationBinding
-		return result
-	}
-	if err := adapter.VerifyAttestation(ctx, observation.Attestation, expectedObservation); err != nil {
+	if err := verifyObservation(ctx, effectID, req.Original.Transition.To, observation, adapter.VerifyAttestation); err != nil {
 		result.Cause = err
-		return result
-	}
-	if !observation.State.Equal(req.Original.Transition.To) {
-		result.Cause = ErrObservedStateMismatch
 		return result
 	}
 

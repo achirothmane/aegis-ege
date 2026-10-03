@@ -6,6 +6,7 @@ on:
       - 'governedaction/**'
       - 'scripts/verify_cross_domain_kernel_tree.py'
       - 'scripts/test_verify_cross_domain_kernel_tree.py'
+      - 'scripts/*kernel_shrink.py'
       - 'internal/governedactionnormative/**'
       - 'internal/kubeadapter/**'
       - 'experiments/gosmig-simulation/**'
@@ -278,8 +279,8 @@ jobs:
         run: |
           set -euo pipefail
           registration=testdata/governed-action/cross-domain/registration-v1.json
-          python3 -m unittest discover -s scripts -p 'test_verify_cross_domain_kernel_tree.py' -v
-          python3 scripts/verify_cross_domain_kernel_tree.py
+          python3 -m unittest discover -s scripts -p 'test_verify*kernel*.py' -v
+          python3 scripts/verify_kernel_shrink.py
           test "$(git hash-object testdata/governed-action/v1/normative-cases.json)" = "$(jq -r '.pins.normative_oracle_blob' "$registration")"
           test "$(git rev-parse HEAD:testdata/governed-action/v1)" = "$(jq -r '.pins.normative_oracle_tree' "$registration")"
           test "$(git hash-object testdata/governed-action/k07/executable-cases.json)" = "$(jq -r '.pins.k07_fixture_blob' "$registration")"
@@ -331,8 +332,10 @@ jobs:
                   "postgresql": "PASS",
               },
               "kernel_semantic_delta": 0,
-              "kernel_semantic_delta_scope": "frozen contract source",
+              "kernel_semantic_delta_scope": "unchanged normative contract; registered implementation reduction",
               "reference_runtime_extension_native_proof": False,
+              "runtime_implementation_changed": True,
+              "runtime_reduction_registration": "testdata/governed-action/kernel-shrink/registration-v1.json",
               "unauthorized_effects_observed": 0,
               "blind_non_idempotent_replays_observed": 0,
               "false_successes_observed": 0,
@@ -388,11 +391,12 @@ jobs:
         run: |
           set -euo pipefail
           registration=testdata/governed-action/complexity-dividend/terraform-v1.json
-          python3 scripts/verify_cross_domain_kernel_tree.py --registration "$registration"
+          python3 scripts/verify_kernel_shrink.py
           frozen_tree="$(jq -r '.pins.governedaction_tree' "$registration")"
           test "$(git rev-parse "$frozen_tree:runtime")" = "$(jq -r '.pins.runtime_tree' "$registration")"
-          test "$(git hash-object governedaction/runtime/runtime.go)" = "$(jq -r '.pins.runtime_blob' "$registration")"
-          test "$(git hash-object governedaction/runtime/recovery.go)" = "$(jq -r '.pins.recovery_blob' "$registration")"
+          shrink_baseline="$(jq -r '.baseline_source_head' testdata/governed-action/kernel-shrink/registration-v1.json)"
+          test "$(git rev-parse "$shrink_baseline:governedaction/runtime/runtime.go")" = "$(jq -r '.pins.runtime_blob' "$registration")"
+          test "$(git rev-parse "$shrink_baseline:governedaction/runtime/recovery.go")" = "$(jq -r '.pins.recovery_blob' "$registration")"
           test "$(git hash-object testdata/governed-action/d03a/corpus-v1.json)" = "$(jq -r '.pins.d03a_corpus_blob' "$registration")"
           go test ./internal/governedactionnormative             -run '^TestD03ATerraformOrphanedEffectCaseRequiresPriorEffectReconciliation$'             -count=1 -v
 
@@ -459,11 +463,13 @@ jobs:
           core_changed = [p for p in changed if p.startswith("governedaction/")]
           extension_files = {"governedaction/" + item["path"] for item in
                              registration.get("reference_runtime_extension", {}).get("files", [])}
+          shrink = json.loads(Path("testdata/governed-action/kernel-shrink/registration-v1.json").read_text())
+          reduction_files = {"governedaction/" + item["path"] for item in shrink["replacements"]}
           frozen_core_changed = [p for p in core_changed if p not in extension_files]
-          if frozen_core_changed:
-              raise SystemExit(f"frozen core delta is not zero: {frozen_core_changed}")
-          subprocess.run(["python3", "scripts/verify_cross_domain_kernel_tree.py",
-                          "--registration", "testdata/governed-action/complexity-dividend/terraform-v1.json"], check=True)
+          unregistered_core_changed = [p for p in frozen_core_changed if p not in reduction_files]
+          if unregistered_core_changed:
+              raise SystemExit(f"unregistered core delta: {unregistered_core_changed}")
+          subprocess.run(["python3", "scripts/verify_kernel_shrink.py"], check=True)
 
           def loc(paths):
               total = 0
@@ -493,8 +499,11 @@ jobs:
               "baseline_head": base,
               "core_files_changed": len(core_changed),
               "frozen_core_files_changed": len(frozen_core_changed),
+              "unregistered_core_files_changed": len(unregistered_core_changed),
+              "registered_reduction_files_changed": sorted(p for p in core_changed if p in reduction_files),
+              "runtime_implementation_reduction": shrink["measurements"],
               "registered_extension_files_changed": sorted(p for p in core_changed if p in extension_files),
-              "core_semantic_delta_scope": "frozen contract source",
+              "core_semantic_delta_scope": "unchanged normative contract; registered implementation reduction",
               "reference_runtime_extension_native_proof": False,
               "core_semantic_delta": 0,
               "domain_adapter_files": adapter_paths,

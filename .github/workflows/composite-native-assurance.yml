@@ -6,6 +6,9 @@ on:
       - 'evidenceverify/**'
       - 'cmd/aegis-evidence-inspect/**'
       - 'experiments/gosmig-simulation/**'
+      - 'experiments/kernelshrink/**'
+      - 'scripts/*kernel_shrink.py'
+      - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/runtime/**'
       - 'internal/journal/**'
       - 'internal/genesisbootstrap/**'
@@ -18,6 +21,9 @@ on:
       - 'evidenceverify/**'
       - 'cmd/aegis-evidence-inspect/**'
       - 'experiments/gosmig-simulation/**'
+      - 'experiments/kernelshrink/**'
+      - 'scripts/*kernel_shrink.py'
+      - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/runtime/**'
       - 'internal/journal/**'
       - 'internal/genesisbootstrap/**'
@@ -27,6 +33,37 @@ permissions:
   contents: read
 
 jobs:
+  kernel-shrink:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - name: Verify immutable baselines and measured runtime reduction
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_verify*kernel*.py' -v
+          python3 scripts/verify_kernel_shrink.py
+          test -z "$(gofmt -l governedaction/runtime/runtime.go governedaction/runtime/recovery.go governedaction/runtime/fenced.go experiments/kernelshrink evidenceverify/shrink_test.go)"
+      - name: Differential replay and binding elimination counterexamples
+        run: |
+          set -euo pipefail
+          python3 scripts/run_kernel_shrink.py --out "$RUNNER_TEMP/kernel-shrink"
+          git diff --exit-code
+      - name: Preserve reduction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-shrink-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/kernel-shrink/
+
   composite-postgres:
     runs-on: ubuntu-latest
     timeout-minutes: 18
