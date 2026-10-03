@@ -29,18 +29,20 @@ const (
 	recoveryWitnessSecretNameIntegration     = "taint-recovery-witness-key"
 	recoveryWitnessConfigNameIntegration     = "taint-recovery-witness-config"
 	recoveryWitnessDeploymentNameIntegration = "taint-recovery-witness"
-	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v2"
+	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v3"
 )
 
 type recoveryControllerBundleIntegration struct {
-	Version              string                                             `json:"version"`
-	AuthorityPrivateKey  string                                             `json:"authority_private_key"`
-	SignedTrust          kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
-	SignedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
-	TrustSignerPublicKey string                                             `json:"trust_signer_public_key"`
-	WitnessCAPEM         string                                             `json:"witness_ca_pem"`
-	WitnessTLSServerName string                                             `json:"witness_tls_server_name"`
-	Policy               recoverywitnessprofile.StaticPolicy                `json:"policy"`
+	Version                       string                                             `json:"version"`
+	AuthorityPrivateKey           string                                             `json:"authority_private_key"`
+	SignedTrust                   kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
+	SignedWitnessProfile          kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
+	GenesisCapabilityEnvelope     json.RawMessage                                    `json:"genesis_capability_envelope"`
+	GenesisCapabilityEnvelopeHash string                                             `json:"genesis_capability_envelope_hash"`
+	TrustSignerPublicKey          string                                             `json:"trust_signer_public_key"`
+	WitnessCAPEM                  string                                             `json:"witness_ca_pem"`
+	WitnessTLSServerName          string                                             `json:"witness_tls_server_name"`
+	Policy                        recoverywitnessprofile.StaticPolicy                `json:"policy"`
 }
 
 func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
@@ -131,6 +133,9 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if _, exists := raw["witness_private_key"]; exists {
 		t.Fatal("controller bundle contains witness private key")
 	}
+	if _, exists := raw["profile_authority_private_key"]; exists {
+		t.Fatal("controller bundle contains external profile authority private key")
+	}
 
 	var bundle recoveryControllerBundleIntegration
 	if err := json.Unmarshal(bundlePayload, &bundle); err != nil {
@@ -161,12 +166,24 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+	genesisBinding, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
+		bundle.GenesisCapabilityEnvelope,
+		bundle.GenesisCapabilityEnvelopeHash,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesisBinding.Policy().ProfileAuthorityKeyID == bundle.SignedTrust.SignerKeyID {
+		t.Fatal("external profile authority unexpectedly reuses recovery trust signer")
+	}
+	if bundle.SignedWitnessProfile.SignerKeyID != genesisBinding.Policy().ProfileAuthorityKeyID {
+		t.Fatalf("profile signer=%q Genesis authority=%q",
+			bundle.SignedWitnessProfile.SignerKeyID,
+			genesisBinding.Policy().ProfileAuthorityKeyID)
+	}
+	witnessProfile, err := genesisBinding.VerifyProfile(
 		bundle.SignedWitnessProfile,
-		ed25519.PublicKey(trustSignerRaw),
 		root,
-		bundle.SignedWitnessProfile.Profile.ProfileEpoch,
-		bundle.SignedWitnessProfile.Profile.PolicyEpoch,
 	)
 	if err != nil {
 		t.Fatal(err)
