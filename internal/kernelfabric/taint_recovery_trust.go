@@ -18,12 +18,12 @@ const (
 )
 
 type TaintRecoveryTrustManifest struct {
-	Version            string `json:"version"`
-	TrustEpoch         uint64 `json:"trust_epoch"`
-	AuthorityPrincipal string `json:"authority_principal"`
-	AuthorityKeyID     string `json:"authority_key_id"`
-	AuthorityPublicKey string `json:"authority_public_key"`
-	WitnessPrincipal   string `json:"witness_principal"`
+	Version                   string `json:"version"`
+	TrustEpoch                uint64 `json:"trust_epoch"`
+	AuthorityPrincipal        string `json:"authority_principal"`
+	AuthorityKeyID            string `json:"authority_key_id"`
+	AuthorityPublicKey        string `json:"authority_public_key"`
+	WitnessPrincipal          string `json:"witness_principal"`
 	WitnessKeyID              string `json:"witness_key_id"`
 	WitnessPublicKey          string `json:"witness_public_key"`
 	WitnessSignatureAlgorithm string `json:"witness_signature_algorithm,omitempty"`
