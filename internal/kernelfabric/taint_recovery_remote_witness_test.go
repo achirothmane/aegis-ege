@@ -150,7 +150,6 @@ func TestRemoteTaintRecoveryWitnessPolicyCanDenyValidAuthority(t *testing.T) {
 func TestRemoteTaintRecoveryWitnessRejectsReplayedResponseNonce(t *testing.T) {
 	fixture := newTaintRecoveryTrustFixture(t, 6)
 	auth, _, _ := testTaintRecoveryAuthorization(t)
-	now := auth.NotBefore.Add(30 * time.Second)
 	partial, err := fixture.root.SignAuthorityRequest(auth, fixture.authorityPrivate)
 	if err != nil {
 		t.Fatal(err)
