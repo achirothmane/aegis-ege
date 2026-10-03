@@ -28,23 +28,23 @@ const (
 )
 
 type taintRebootProofState struct {
-	BootIDHash       string                           `json:"boot_id_hash"`
-	PublicKey        string                           `json:"public_key"`
-	PrivateKey       string                           `json:"private_key"`
-	Signed           SignedTaintRecoveryAuthorization `json:"signed"`
-	BootBIDHash      string                           `json:"boot_b_id_hash,omitempty"`
-	BootBSigned      SignedTaintRecoveryAuthorization `json:"boot_b_signed,omitempty"`
-	HistoryPublicKey string                           `json:"history_public_key"`
-	HistoryPrivateKey string                          `json:"history_private_key"`
-	HistoryDigest    string                           `json:"history_digest,omitempty"`
+	BootIDHash        string                           `json:"boot_id_hash"`
+	PublicKey         string                           `json:"public_key"`
+	PrivateKey        string                           `json:"private_key"`
+	Signed            SignedTaintRecoveryAuthorization `json:"signed"`
+	BootBIDHash       string                           `json:"boot_b_id_hash,omitempty"`
+	BootBSigned       SignedTaintRecoveryAuthorization `json:"boot_b_signed,omitempty"`
+	HistoryPublicKey  string                           `json:"history_public_key"`
+	HistoryPrivateKey string                           `json:"history_private_key"`
+	HistoryDigest     string                           `json:"history_digest,omitempty"`
 }
 
 type freshBootBProofResult struct {
-	PlanDigest       string
-	CgroupID         uint64
-	EnrollmentEpoch  uint64
-	DirtyGeneration  uint64
-	CleanGeneration  uint64
+	PlanDigest      string
+	CgroupID        uint64
+	EnrollmentEpoch uint64
+	DirtyGeneration uint64
+	CleanGeneration uint64
 }
 
 // TestNativeTaintHostRebootBoundary is intentionally executed three times by
