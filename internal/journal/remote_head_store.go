@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +27,28 @@ type RemoteHeadStore struct {
 	witnessKeyID   string
 	witnessKey     ed25519.PublicKey
 	client         *http.Client
+}
+
+
+type RemoteWitnessIdentity struct {
+	Endpoint             string `json:"endpoint"`
+	WitnessKeyID         string `json:"witness_key_id"`
+	WitnessPublicKeyHash string `json:"witness_public_key_hash"`
+}
+
+func (s *RemoteHeadStore) TrustIdentity() (RemoteWitnessIdentity, error) {
+	if s == nil {
+		return RemoteWitnessIdentity{}, errors.New("remote witness store is unavailable")
+	}
+	if s.endpoint == "" || s.witnessKeyID == "" || len(s.witnessKey) != ed25519.PublicKeySize {
+		return RemoteWitnessIdentity{}, errors.New("remote witness store has incomplete trust identity")
+	}
+	sum := sha256.Sum256(s.witnessKey)
+	return RemoteWitnessIdentity{
+		Endpoint:             s.endpoint,
+		WitnessKeyID:         s.witnessKeyID,
+		WitnessPublicKeyHash: "sha256:" + hex.EncodeToString(sum[:]),
+	}, nil
 }
 
 type remoteHeadWire struct {
