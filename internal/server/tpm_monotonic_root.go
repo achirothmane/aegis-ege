@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
+	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 )
@@ -44,6 +45,8 @@ type TPMNVMonotonicRoot struct {
 	cfg TPMNVMonotonicRootConfig
 	mu  sync.Mutex
 }
+
+var _ kernelfabric.PlatformMeasurementSource = (*TPMNVMonotonicRoot)(nil)
 
 type tpmNVRootState struct {
 	Version                      string                                           `json:"version"`
@@ -206,6 +209,28 @@ func (r *TPMNVMonotonicRoot) Current(ctx context.Context, scope CapabilityFenceS
 		return egeproto.CapabilityAuthoritySnapshot{}, fmt.Errorf("%w: %s", ErrTPMMonotonicRootScopeMissing, scopeKey)
 	}
 	return current, nil
+}
+
+// CurrentPlatformMeasurement exports the currently verified platform boot
+// measurement through the generic kernelfabric contract. recoverLocked performs
+// the TPM counter, device-identity, measured-boot, pending-state, and rollback
+// checks before any commitment is returned.
+func (r *TPMNVMonotonicRoot) CurrentPlatformMeasurement(
+	ctx context.Context,
+) (kernelfabric.PlatformMeasurementCommitment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	state, err := r.recoverLocked(ctx)
+	if err != nil {
+		return kernelfabric.PlatformMeasurementCommitment{}, err
+	}
+	return kernelfabric.NewPlatformMeasurementCommitment(
+		kernelfabric.PlatformMeasurementClassMeasuredBoot,
+		state.DeviceIdentity,
+		state.MeasuredBootIdentity,
+		state.Generation,
+	)
 }
 
 func (r *TPMNVMonotonicRoot) recoverLocked(ctx context.Context) (tpmNVRootState, error) {
