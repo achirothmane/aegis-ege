@@ -2,6 +2,9 @@
 set -euo pipefail
 
 STATE="${AEGIS_TAINT_REBOOT_STATE:-internal/kernelfabric/testdata/taint_host_reboot_state.json}"
+mkdir -p "$(dirname "$STATE")"
+STATE="$(realpath -m "$STATE")"
+
 KERNEL="${AEGIS_TAINT_REBOOT_KERNEL:-ghcr.io/cilium/ci-kernels:stable-selftests}"
 VIMTO="${VIMTO:-$(go env GOPATH)/bin/vimto}"
 
