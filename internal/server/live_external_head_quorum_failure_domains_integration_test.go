@@ -33,6 +33,7 @@ type independentQuorumFixture struct {
 	binding      journal.GenesisQuorumBinding
 	policy       journal.QuorumPolicyState
 	quorum       *journal.QuorumHeadStore
+	history      *journal.GenesisBoundHistoryStore
 	remoteStores map[string]*journal.RemoteHeadStore
 	members      map[string]liveQuorumMemberIntegration
 }
@@ -118,6 +119,20 @@ func loadIndependentQuorumFixture(t *testing.T) independentQuorumFixture {
 	if err != nil {
 		t.Fatalf("bind live quorum through verified Genesis pin: %v", err)
 	}
+	historyBinding, err := pin.ParseHistoryBinding(
+		envelope,
+		liveQuorumHistoryPurposeIntegration,
+	)
+	if err != nil {
+		t.Fatalf("bind live history through verified Genesis pin: %v", err)
+	}
+	if bundle.JournalID != historyBinding.JournalID() {
+		t.Fatalf(
+			"live bundle journal=%q differs from verified Genesis history=%q",
+			bundle.JournalID,
+			historyBinding.JournalID(),
+		)
+	}
 	tamperedEnvelope := append(append([]byte(nil), envelope...), '\n')
 	if _, err := pin.ParseQuorumBinding(tamperedEnvelope); err == nil {
 		t.Fatal("tampered live quorum envelope bypassed verified Genesis pin")
@@ -197,11 +212,22 @@ func loadIndependentQuorumFixture(t *testing.T) independentQuorumFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	history, err := journal.NewGenesisBoundHistoryStore(quorum, historyBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := history.Load(
+		ctx,
+		bundle.JournalID+"-replacement",
+	); !errors.Is(err, journal.ErrHistoryLineageMismatch) {
+		t.Fatalf("verified Genesis history accepted substituted lineage: %v", err)
+	}
 	return independentQuorumFixture{
 		bundle:       bundle,
 		binding:      binding,
 		policy:       policy,
 		quorum:       quorum,
+		history:      history,
 		remoteStores: remoteStores,
 		members:      members,
 	}
@@ -215,7 +241,7 @@ func proveIndependentQuorumBaseline(
 	ctx := context.Background()
 	assertIndependentChaosCredentials(t, fixture)
 
-	initial, err := fixture.quorum.Load(ctx, fixture.bundle.JournalID)
+	initial, err := fixture.history.Load(ctx, fixture.bundle.JournalID)
 	if err != nil {
 		t.Fatalf("load independent quorum baseline: %v", err)
 	}
@@ -229,7 +255,7 @@ func proveIndependentQuorumBaseline(
 		HeadHash:  integrationQuorumDigest("failure-domain-t1"),
 		KeyID:     initial.KeyID,
 	}
-	if _, err := fixture.quorum.CompareAndAdvance(ctx, initial, t1); err != nil {
+	if _, err := fixture.history.CompareAndAdvance(ctx, initial, t1); err != nil {
 		t.Fatalf("advance independent quorum to T1: %v", err)
 	}
 
@@ -282,7 +308,7 @@ func proveIndependentQuorumOneControlPlaneDown(
 ) {
 	t.Helper()
 	ctx := context.Background()
-	t1, err := fixture.quorum.Load(ctx, fixture.bundle.JournalID)
+	t1, err := fixture.history.Load(ctx, fixture.bundle.JournalID)
 	if err != nil {
 		t.Fatalf("2-of-3 load with control-plane C down: %v", err)
 	}
@@ -297,10 +323,10 @@ func proveIndependentQuorumOneControlPlaneDown(
 		HeadHash:  integrationQuorumDigest("failure-domain-t2"),
 		KeyID:     t1.KeyID,
 	}
-	if _, err := fixture.quorum.CompareAndAdvance(ctx, t1, t2); err != nil {
+	if _, err := fixture.history.CompareAndAdvance(ctx, t1, t2); err != nil {
 		t.Fatalf("advance via A+B while C control plane is down: %v", err)
 	}
-	current, err := fixture.quorum.Load(ctx, fixture.bundle.JournalID)
+	current, err := fixture.history.Load(ctx, fixture.bundle.JournalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +357,7 @@ func proveIndependentQuorumRestoredStaleMinority(
 		t.Fatalf("restored C is not the expected stale T1 witness: %+v", stale)
 	}
 
-	t2, err := fixture.quorum.Load(ctx, fixture.bundle.JournalID)
+	t2, err := fixture.history.Load(ctx, fixture.bundle.JournalID)
 	if err != nil {
 		t.Fatalf("load quorum with restored stale C: %v", err)
 	}
@@ -375,7 +401,7 @@ func proveIndependentQuorumTwoControlPlanesDown(
 ) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := fixture.quorum.Load(
+	if _, err := fixture.history.Load(
 		ctx,
 		fixture.bundle.JournalID,
 	); !errors.Is(err, journal.ErrExternalHeadQuorum) {
