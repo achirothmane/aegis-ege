@@ -362,6 +362,15 @@ func (s *RemoteHeadStore) CompareAndTransitionQuorumPolicy(
 	if journalID == "" {
 		return errors.New("journal id is required")
 	}
+	observedHead, err := s.ObserveQuorumRotationHead(ctx, journalID)
+	if err != nil {
+		return fmt.Errorf("observe witness head before policy transition: %w", err)
+	}
+	if !sameSemanticHead(observedHead, expectedHead) {
+		return ErrQuorumRotationContinuity
+	}
+	expectedHead = observedHead
+
 	nonce, err := newRemoteWitnessNonce()
 	if err != nil {
 		return err
