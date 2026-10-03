@@ -92,6 +92,7 @@ func main() {
 	workloadRuntimePath := requireEnv("WORKLOAD_RUNTIME_KUBECONFIG")
 	witnessRuntimePath := requireEnv("WITNESS_RUNTIME_KUBECONFIG")
 	controllerBundlePath := requireEnv("TAINT_RECOVERY_CONTROLLER_BUNDLE")
+	externalHeadBundlePath := requireEnv("EXTERNAL_HEAD_WITNESS_CLIENT_BUNDLE")
 	preparedBundlePath := requireEnv("TAINT_RECOVERY_PREPARED_BUNDLE")
 	signedProfilePath := requireEnv("SIGNED_WITNESS_PROFILE_PATH")
 
@@ -162,6 +163,11 @@ func main() {
 		witnessAdmin,
 		controllerBundlePath,
 		verifiedWitness,
+	))
+	must(activateExternalHeadWitness(
+		ctx,
+		witnessAdmin,
+		externalHeadBundlePath,
 	))
 
 	must(writeRuntimeKubeconfig(workloadRuntimePath, workloadConfig, workloadToken, workloadNamespace))
