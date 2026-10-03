@@ -66,7 +66,7 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	simA, err := simulator.Get()
+	simA, err := simulator.GetWithFixedSeedInsecure(601)
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
@@ -81,10 +81,6 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	if err := ProvisionTPMNVHistoryAnchor(ctx, deviceA, cfgA); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		undefineTPMHistoryAnchorNV(t, deviceA, cfgA)
-		_ = simA.Close()
-	})
 	localA, err := NewTPMNVHistoryAnchor(deviceA, cfgA)
 	if err != nil {
 		t.Fatal(err)
@@ -161,10 +157,14 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 		t.Fatalf("quorum changed after one witness outage: got=%+v want=%+v", quorumState, committed)
 	}
 
+	if err := simA.Close(); err != nil {
+		t.Fatalf("close TPM-A simulator before replacement: %v", err)
+	}
+
 	// Replace/reinitialize the local TPM root. The new local anchor legitimately
 	// starts at sequence zero, but the independent witness quorum still commits
 	// to H2. The pair must not accept the reset as a fresh history.
-	simB, err := simulator.Get()
+	simB, err := simulator.GetWithFixedSeedInsecure(602)
 	if err != nil {
 		t.Skipf("replacement TPM simulator unavailable: %v", err)
 	}
@@ -177,10 +177,7 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	if err := ProvisionTPMNVHistoryAnchor(ctx, deviceB, cfgB); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		undefineTPMHistoryAnchorNV(t, deviceB, cfgB)
-		_ = simB.Close()
-	})
+	defer simB.Close()
 	localB, err := NewTPMNVHistoryAnchor(deviceB, cfgB)
 	if err != nil {
 		t.Fatal(err)
