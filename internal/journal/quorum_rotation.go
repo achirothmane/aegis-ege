@@ -153,13 +153,6 @@ func NewQuorumRotationPlan(
 			newEpoch.genesisEpoch,
 		)
 	}
-	if oldEpoch.binding.policyHash == newEpoch.binding.policyHash {
-		return QuorumRotationPlan{}, fmt.Errorf(
-			"%w: old and new quorum policy hashes are identical",
-			ErrQuorumRotationUnsafe,
-		)
-	}
-
 	shared := make([]string, 0)
 	for id, oldTrustHash := range oldEpoch.binding.members {
 		newTrustHash, ok := newEpoch.binding.members[id]
@@ -486,9 +479,11 @@ func ValidateQuorumPolicyTransition(
 		if next.FromPolicyHash != current.PolicyHash {
 			return errors.New("joint transition does not bind current policy")
 		}
-		if next.ToPolicyHash == current.PolicyHash {
-			return errors.New("joint transition must target a different policy")
-		}
+		// A Genesis epoch may advance while retaining the exact same witness
+		// policy. The JOINT commitment still changes because it binds the old and
+		// new Genesis epochs/manifests, so ACTIVE(N,P) -> JOINT(N+1,P->P) ->
+		// ACTIVE(N+1,P) remains an explicit fenced transition rather than a direct
+		// epoch jump.
 		return nil
 
 	case current.Phase == QuorumPolicyPhaseJoint &&
