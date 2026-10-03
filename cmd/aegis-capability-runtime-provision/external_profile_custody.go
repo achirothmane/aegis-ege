@@ -186,29 +186,32 @@ func prepareTaintRecoveryWitness(
 	return writeJSONFile(unsignedProfilePath, unsignedProfile, 0o644)
 }
 
-func activateTaintRecoveryWitness(
-	ctx context.Context,
-	witnessAdmin kubernetes.Interface,
-	controllerBundlePath string,
+type verifiedPreparedTaintRecoveryWitness struct {
+	prepared                  preparedTaintRecoveryWitness
+	signedWitnessProfile      kernelfabric.SignedExternalRecoveryWitnessProfile
+	genesisCapabilityEnvelope []byte
+}
+
+func verifyPreparedTaintRecoveryWitness(
 	preparedBundlePath string,
 	signedProfilePath string,
-) error {
+) (*verifiedPreparedTaintRecoveryWitness, error) {
 	var prepared preparedTaintRecoveryWitness
 	if err := readJSONFile(preparedBundlePath, &prepared); err != nil {
-		return fmt.Errorf("read prepared recovery witness: %w", err)
+		return nil, fmt.Errorf("read prepared recovery witness: %w", err)
 	}
 	if prepared.Version != preparedTaintRecoveryWitnessVersion {
-		return fmt.Errorf("unsupported prepared recovery witness version %q", prepared.Version)
+		return nil, fmt.Errorf("unsupported prepared recovery witness version %q", prepared.Version)
 	}
 
 	var signedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile
 	if err := readJSONFile(signedProfilePath, &signedWitnessProfile); err != nil {
-		return fmt.Errorf("read externally signed witness profile: %w", err)
+		return nil, fmt.Errorf("read externally signed witness profile: %w", err)
 	}
 
 	trustSignerPublicRaw, err := base64.StdEncoding.DecodeString(prepared.TrustSignerPublicKey)
 	if err != nil || len(trustSignerPublicRaw) != ed25519.PublicKeySize {
-		return fmt.Errorf("invalid prepared trust signer public key")
+		return nil, fmt.Errorf("invalid prepared trust signer public key")
 	}
 	root, err := kernelfabric.NewTaintRecoveryTrustRoot(
 		prepared.SignedTrust,
@@ -216,60 +219,80 @@ func activateTaintRecoveryWitness(
 		prepared.SignedTrust.Manifest.TrustEpoch,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	genesisCapabilityEnvelope, err := base64.StdEncoding.DecodeString(
 		prepared.GenesisCapabilityEnvelopeBase64,
 	)
 	if err != nil {
-		return fmt.Errorf("decode prepared Genesis capability envelope: %w", err)
+		return nil, fmt.Errorf("decode prepared Genesis capability envelope: %w", err)
 	}
 	genesisBinding, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
 		genesisCapabilityEnvelope,
 		prepared.GenesisCapabilityEnvelopeHash,
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	verifiedProfile, err := genesisBinding.VerifyProfile(signedWitnessProfile, root)
 	if err != nil {
-		return fmt.Errorf("verify externally signed witness profile: %w", err)
+		return nil, fmt.Errorf("verify externally signed witness profile: %w", err)
 	}
 	if verifiedProfile.Profile() != prepared.UnsignedWitnessProfile {
-		return fmt.Errorf("externally signed witness profile differs from prepared activation request")
+		return nil, fmt.Errorf("externally signed witness profile differs from prepared activation request")
 	}
 	if genesisBinding.Policy().TLSServerName != prepared.WitnessTLSServerName {
-		return fmt.Errorf("prepared TLS server name differs from Genesis")
+		return nil, fmt.Errorf("prepared TLS server name differs from Genesis")
 	}
 	if err := genesisBinding.VerifyMountedTLSCertificate(
 		[]byte(prepared.WitnessCAPEM),
 		verifiedProfile,
 	); err != nil {
-		return err
+		return nil, err
 	}
 	policyHash, err := prepared.Policy.RecoveryWitnessPolicyHash()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if verifiedProfile.Profile().PolicyEpoch != prepared.Policy.PolicyEpoch ||
 		verifiedProfile.Profile().PolicyHash != policyHash {
-		return fmt.Errorf("prepared witness policy differs from externally signed profile")
+		return nil, fmt.Errorf("prepared witness policy differs from externally signed profile")
 	}
 
 	witnessPrivateRaw, err := base64.StdEncoding.DecodeString(prepared.WitnessPrivateKey)
 	if err != nil || len(witnessPrivateRaw) != ed25519.PrivateKeySize {
-		return fmt.Errorf("invalid prepared witness private key")
+		return nil, fmt.Errorf("invalid prepared witness private key")
 	}
 	witnessKeyID, err := kernelfabric.BootstrapKeyID(
 		ed25519.PrivateKey(witnessPrivateRaw).Public().(ed25519.PublicKey),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if witnessKeyID != prepared.SignedTrust.Manifest.WitnessKeyID {
-		return fmt.Errorf("prepared witness private key differs from recovery trust manifest")
+		return nil, fmt.Errorf("prepared witness private key differs from recovery trust manifest")
 	}
+
+	return &verifiedPreparedTaintRecoveryWitness{
+		prepared:                  prepared,
+		signedWitnessProfile:      signedWitnessProfile,
+		genesisCapabilityEnvelope: genesisCapabilityEnvelope,
+	}, nil
+}
+
+func activateVerifiedTaintRecoveryWitness(
+	ctx context.Context,
+	witnessAdmin kubernetes.Interface,
+	controllerBundlePath string,
+	verified *verifiedPreparedTaintRecoveryWitness,
+) error {
+	if verified == nil {
+		return fmt.Errorf("verified prepared recovery witness is required")
+	}
+	prepared := verified.prepared
+	signedWitnessProfile := verified.signedWitnessProfile
+	genesisCapabilityEnvelope := verified.genesisCapabilityEnvelope
 
 	trustPayload, err := json.Marshal(prepared.SignedTrust)
 	if err != nil {
