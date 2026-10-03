@@ -58,6 +58,7 @@ func signHistoryTransferDestinationAttestationForTest(
 	transferID string,
 	deviceIdentity string,
 	measuredBootIdentity string,
+	destinationGeneration uint64,
 	now time.Time,
 	privateKey ed25519.PrivateKey,
 ) SignedTPMRootMigrationDestinationAttestation {
@@ -70,10 +71,14 @@ func signHistoryTransferDestinationAttestationForTest(
 			EnrolledDeviceID:                "replacement-history-device",
 			DestinationDeviceIdentity:       deviceIdentity,
 			DestinationMeasuredBootIdentity: measuredBootIdentity,
+			DestinationGeneration:           destinationGeneration,
+			RemoteDecisionID:                "history-transfer-remote-decision-" + transferID,
+			RemoteChallengeID:               "history-transfer-remote-challenge-" + transferID,
 			RemoteDecisionDigest:            "sha256:" + strings.Repeat("d", 64),
+			RemoteDecisionVerifiedAt:        now.Add(-30 * time.Second),
 			Decision:                        "ALLOW",
-			VerifiedAt:                      now.Add(-time.Minute),
-			ExpiresAt:                       now.Add(5 * time.Minute),
+			VerifiedAt:                      now.Add(-20 * time.Second),
+			ExpiresAt:                       now.Add(30 * time.Second),
 			VerifierID:                      "independent-history-transfer-attestor",
 		},
 		privateKey,
@@ -236,6 +241,7 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		transferID,
 		destinationIdentity,
 		destinationBoot,
+		destinationState.Generation,
 		now,
 		attestationPriv,
 	)
@@ -329,6 +335,7 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 			transferID,
 			destinationIdentity,
 			destinationBoot,
+			destinationState.Generation,
 			now,
 			transferPriv,
 		)
@@ -598,6 +605,7 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		transferID,
 		destIdentity,
 		destBoot,
+		destState.Generation,
 		now,
 		attestationPriv,
 	)
