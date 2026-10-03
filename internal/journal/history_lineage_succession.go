@@ -133,24 +133,6 @@ func NewHistoryLineageSuccessionPlan(
 	}, nil
 }
 
-type historyLineageSuccessionCommitment struct {
-	Version                   string
-	Purpose                   string
-	OldGenesisEpoch           uint64
-	OldGenesisManifestHash    string
-	OldCapabilityEnvelopeHash string
-	OldHistoryPolicyHash      string
-	OldJournalID              string
-	OldSequence               uint64
-	OldHeadHash               string
-	OldKeyID                  string
-	NewGenesisEpoch           uint64
-	NewGenesisManifestHash    string
-	NewCapabilityEnvelopeHash string
-	NewHistoryPolicyHash      string
-	NewJournalID              string
-}
-
 type HistoryLineageSuccessionResult struct {
 	PredecessorHead ExternalHead
 	SuccessorHead   ExternalHead
@@ -276,32 +258,24 @@ func historyLineageSuccessionDigest(
 	plan HistoryLineageSuccessionPlan,
 	predecessorHead ExternalHead,
 ) (string, error) {
-	commitment := historyLineageSuccessionCommitment{
-		Version:                   HistoryLineageSuccessionVersion,
-		Purpose:                   plan.oldEpoch.binding.purpose,
-		OldGenesisEpoch:           plan.oldEpoch.genesisEpoch,
-		OldGenesisManifestHash:    plan.oldEpoch.genesisManifestHash,
-		OldCapabilityEnvelopeHash: plan.oldEpoch.binding.capabilityEnvelopeHash,
-		OldHistoryPolicyHash:      plan.oldEpoch.binding.policyHash,
-		OldJournalID:              plan.oldEpoch.binding.journalID,
-		OldSequence:               predecessorHead.Sequence,
-		OldHeadHash:               predecessorHead.HeadHash,
-		OldKeyID:                  predecessorHead.KeyID,
-		NewGenesisEpoch:           plan.newEpoch.genesisEpoch,
-		NewGenesisManifestHash:    plan.newEpoch.genesisManifestHash,
-		NewCapabilityEnvelopeHash: plan.newEpoch.binding.capabilityEnvelopeHash,
-		NewHistoryPolicyHash:      plan.newEpoch.binding.policyHash,
-		NewJournalID:              plan.newEpoch.binding.journalID,
+	commitment := map[string]any{
+		"version":                      HistoryLineageSuccessionVersion,
+		"purpose":                      plan.oldEpoch.binding.purpose,
+		"old_genesis_epoch":            plan.oldEpoch.genesisEpoch,
+		"old_genesis_manifest_hash":    plan.oldEpoch.genesisManifestHash,
+		"old_capability_envelope_hash": plan.oldEpoch.binding.capabilityEnvelopeHash,
+		"old_history_policy_hash":      plan.oldEpoch.binding.policyHash,
+		"old_journal_id":               plan.oldEpoch.binding.journalID,
+		"old_sequence":                 predecessorHead.Sequence,
+		"old_head_hash":                predecessorHead.HeadHash,
+		"old_key_id":                   predecessorHead.KeyID,
+		"new_genesis_epoch":            plan.newEpoch.genesisEpoch,
+		"new_genesis_manifest_hash":    plan.newEpoch.genesisManifestHash,
+		"new_capability_envelope_hash": plan.newEpoch.binding.capabilityEnvelopeHash,
+		"new_history_policy_hash":      plan.newEpoch.binding.policyHash,
+		"new_journal_id":               plan.newEpoch.binding.journalID,
 	}
-	raw, err := json.Marshal(commitment)
-	if err != nil {
-		return "", err
-	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", err
-	}
-	canonical, err := jcs.Format(value)
+	canonical, err := jcs.Format(commitment)
 	if err != nil {
 		return "", err
 	}
