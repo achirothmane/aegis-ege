@@ -283,8 +283,8 @@ func TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite(t *testing.T) {
 
 	dir := t.TempDir()
 	cfg := TPMNVHistoryAnchorConfig{
-		NVIndex:       tpm2.TPMHandle(0x0180A153),
-		HeadNVIndex:   tpm2.TPMHandle(0x0180A163),
+		NVIndex:       tpm2.TPMHandle(0x0180A155),
+		HeadNVIndex:   tpm2.TPMHandle(0x0180A165),
 		StatePath:     filepath.Join(dir, "history-anchor.json"),
 		IndexAuth:     []byte("aegis-history-anchor-same-generation"),
 		HeadIndexAuth: []byte("aegis-history-head-same-generation"),
