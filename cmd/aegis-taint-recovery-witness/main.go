@@ -35,15 +35,34 @@ func main() {
 		signedTrust.Manifest.TrustEpoch,
 	)
 	must(err)
+	var signedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile
+	mustJSONFile("EXTERNAL_WITNESS_PROFILE_PATH", &signedWitnessProfile)
+	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+		signedWitnessProfile,
+		trustSignerPublic,
+		root,
+		1,
+		1,
+	)
+	must(err)
+	tlsCertPath := requireEnv("TLS_CERT_PATH")
+	tlsCertPEM, err := os.ReadFile(tlsCertPath)
+	must(err)
+	tlsHash, err := kernelfabric.TLSCertificatePEMSHA256(tlsCertPEM)
+	must(err)
+	if tlsHash != witnessProfile.Profile().TLSTrustAnchorSHA256 {
+		log.Fatalf("mounted TLS certificate does not match signed external witness profile")
+	}
 
 	var policy recoverywitnessprofile.StaticPolicy
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)
 	must(policy.Validate())
 
-	handler, err := kernelfabric.NewTaintRecoveryWitnessHandler(
+	handler, err := kernelfabric.NewProfiledTaintRecoveryWitnessHandler(
 		root,
 		witnessPrivate,
 		policy,
+		witnessProfile,
 		time.Now,
 	)
 	must(err)
@@ -61,7 +80,7 @@ func main() {
 	if addr == "" {
 		addr = ":8443"
 	}
-	certPath := requireEnv("TLS_CERT_PATH")
+	certPath := tlsCertPath
 	keyPath := requireEnv("TLS_KEY_PATH")
 	server := &http.Server{
 		Addr:              addr,

@@ -2,6 +2,7 @@ package recoverywitnessprofile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,6 +13,7 @@ const StaticPolicyVersion = "aegis.ege/taint-recovery-witness-policy/v1"
 
 type StaticPolicy struct {
 	Version       string `json:"version"`
+	PolicyEpoch   uint64 `json:"policy_epoch"`
 	PlanDigest    string `json:"plan_digest"`
 	CgroupID      uint64 `json:"cgroup_id"`
 	BPFFSRoot     string `json:"bpffs_root"`
@@ -24,6 +26,9 @@ type StaticPolicy struct {
 func (p StaticPolicy) Validate() error {
 	if p.Version != StaticPolicyVersion {
 		return fmt.Errorf("unsupported witness policy version %q", p.Version)
+	}
+	if p.PolicyEpoch == 0 {
+		return fmt.Errorf("witness policy epoch must be non-zero")
 	}
 	auth := kernelfabric.TaintRecoveryAuthorization{
 		Version:         kernelfabric.TaintRecoveryAuthorizationVersion,
@@ -62,4 +67,17 @@ func (p StaticPolicy) AdmitTaintRecoveryWitness(
 
 func testPolicyTime() time.Time {
 	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+}
+
+
+func (p StaticPolicy) RecoveryWitnessPolicyEpoch() uint64 {
+	return p.PolicyEpoch
+}
+
+func (p StaticPolicy) RecoveryWitnessPolicyHash() (string, error) {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return "", err
+	}
+	return kernelfabric.CanonicalJSONSHA256(raw)
 }

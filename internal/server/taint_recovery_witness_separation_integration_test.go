@@ -29,17 +29,18 @@ const (
 	recoveryWitnessSecretNameIntegration     = "taint-recovery-witness-key"
 	recoveryWitnessConfigNameIntegration     = "taint-recovery-witness-config"
 	recoveryWitnessDeploymentNameIntegration = "taint-recovery-witness"
-	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v1"
+	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v2"
 )
 
 type recoveryControllerBundleIntegration struct {
-	Version              string                                         `json:"version"`
-	AuthorityPrivateKey  string                                         `json:"authority_private_key"`
-	SignedTrust          kernelfabric.SignedTaintRecoveryTrustManifest `json:"signed_trust"`
-	TrustSignerPublicKey string                                         `json:"trust_signer_public_key"`
-	WitnessCAPEM         string                                         `json:"witness_ca_pem"`
-	WitnessTLSServerName string                                         `json:"witness_tls_server_name"`
-	Policy               recoverywitnessprofile.StaticPolicy            `json:"policy"`
+	Version              string                                             `json:"version"`
+	AuthorityPrivateKey  string                                             `json:"authority_private_key"`
+	SignedTrust          kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
+	SignedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
+	TrustSignerPublicKey string                                             `json:"trust_signer_public_key"`
+	WitnessCAPEM         string                                             `json:"witness_ca_pem"`
+	WitnessTLSServerName string                                             `json:"witness_tls_server_name"`
+	Policy               recoverywitnessprofile.StaticPolicy                `json:"policy"`
 }
 
 func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
@@ -160,6 +161,27 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+		bundle.SignedWitnessProfile,
+		ed25519.PublicKey(trustSignerRaw),
+		root,
+		bundle.SignedWitnessProfile.Profile.ProfileEpoch,
+		bundle.SignedWitnessProfile.Profile.PolicyEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if witnessProfile.Profile().Endpoint != endpoint {
+		t.Fatalf("profile endpoint=%q runtime endpoint=%q", witnessProfile.Profile().Endpoint, endpoint)
+	}
+	policyHash, err := bundle.Policy.RecoveryWitnessPolicyHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if witnessProfile.Profile().PolicyEpoch != bundle.Policy.PolicyEpoch ||
+		witnessProfile.Profile().PolicyHash != policyHash {
+		t.Fatalf("controller policy continuity does not match signed witness profile")
+	}
 
 	roots := x509.NewCertPool()
 	if ok := roots.AppendCertsFromPEM([]byte(bundle.WitnessCAPEM)); !ok {
@@ -175,7 +197,13 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 		},
 		Timeout: 10 * time.Second,
 	}
-	remote, err := kernelfabric.NewRemoteTaintRecoveryWitness(endpoint, root, httpClient)
+	remote, err := kernelfabric.NewProfiledRemoteTaintRecoveryWitness(
+		endpoint,
+		root,
+		witnessProfile,
+		[]byte(bundle.WitnessCAPEM),
+		httpClient,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,12 +226,19 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	joint, err := remote.CoSign(ctx, partial)
+	joint, receipt, err := remote.CoSignWithReceipt(ctx, partial)
 	if err != nil {
 		t.Fatalf("remote witness rejected allowed authorization: %v", err)
 	}
 	if err := root.Verify(joint, now); err != nil {
 		t.Fatalf("remote witness returned untrusted joint authorization: %v", err)
+	}
+	if receipt.WitnessID != witnessProfile.Profile().WitnessID ||
+		receipt.ProfileEpoch != witnessProfile.Profile().ProfileEpoch ||
+		receipt.PolicyEpoch != witnessProfile.Profile().PolicyEpoch ||
+		receipt.PolicyHash != witnessProfile.Profile().PolicyHash ||
+		receipt.TLSTrustAnchorSHA256 != witnessProfile.Profile().TLSTrustAnchorSHA256 {
+		t.Fatalf("witness receipt continuity does not match pinned external profile")
 	}
 
 	denied := allowed
@@ -216,7 +251,7 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := remote.CoSign(ctx, partialDenied); err == nil ||
+	if _, _, err := remote.CoSignWithReceipt(ctx, partialDenied); err == nil ||
 		!strings.Contains(err.Error(), "HTTP 403") {
 		t.Fatalf("witness policy bypass result=%v, want HTTP 403", err)
 	}

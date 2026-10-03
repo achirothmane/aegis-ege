@@ -34,11 +34,18 @@ type RemoteTaintRecoveryWitness struct {
 	endpoint     string
 	witnessKeyID string
 	witnessKey   ed25519.PublicKey
+	profile      *VerifiedExternalRecoveryWitnessProfile
 	client       *http.Client
 }
 
 type TaintRecoveryWitnessPolicy interface {
 	AdmitTaintRecoveryWitness(context.Context, TaintRecoveryAuthorization) error
+}
+
+type ProfiledTaintRecoveryWitnessPolicy interface {
+	TaintRecoveryWitnessPolicy
+	RecoveryWitnessPolicyEpoch() uint64
+	RecoveryWitnessPolicyHash() (string, error)
 }
 
 type TaintRecoveryWitnessPolicyFunc func(context.Context, TaintRecoveryAuthorization) error
@@ -63,6 +70,7 @@ type remoteTaintRecoveryWitnessResponse struct {
 	Nonce               string                                `json:"nonce"`
 	WitnessKeyID        string                                `json:"witness_key_id"`
 	SignedAuthorization JointSignedTaintRecoveryAuthorization `json:"signed_authorization"`
+	Receipt             *WitnessRecoveryReceipt               `json:"receipt,omitempty"`
 	ResponseSignature   string                                `json:"response_signature"`
 }
 
@@ -113,6 +121,38 @@ func (r *TaintRecoveryTrustRoot) SignAuthorityRequest(
 	}, nil
 }
 
+func NewProfiledRemoteTaintRecoveryWitness(
+	endpoint string,
+	trustRoot *TaintRecoveryTrustRoot,
+	profile *VerifiedExternalRecoveryWitnessProfile,
+	tlsTrustAnchorPEM []byte,
+	client *http.Client,
+) (*RemoteTaintRecoveryWitness, error) {
+	remote, err := NewRemoteTaintRecoveryWitness(endpoint, trustRoot, client)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil {
+		return nil, fmt.Errorf("%w: external witness profile is required", ErrTaintRecoveryAuthorization)
+	}
+	expected := profile.profile
+	if remote.endpoint != expected.Endpoint {
+		return nil, fmt.Errorf("%w: external witness endpoint changed", ErrTaintRecoveryAuthorization)
+	}
+	if remote.witnessKeyID != expected.WitnessKeyID {
+		return nil, fmt.Errorf("%w: external witness key changed", ErrTaintRecoveryAuthorization)
+	}
+	tlsDigest, err := TLSCertificatePEMSHA256(tlsTrustAnchorPEM)
+	if err != nil {
+		return nil, err
+	}
+	if tlsDigest != expected.TLSTrustAnchorSHA256 {
+		return nil, fmt.Errorf("%w: external witness TLS trust anchor changed", ErrTaintRecoveryAuthorization)
+	}
+	remote.profile = profile
+	return remote, nil
+}
+
 func NewRemoteTaintRecoveryWitness(
 	endpoint string,
 	trustRoot *TaintRecoveryTrustRoot,
@@ -144,32 +184,57 @@ func (w *RemoteTaintRecoveryWitness) CoSign(
 	ctx context.Context,
 	partial AuthoritySignedTaintRecoveryAuthorization,
 ) (JointSignedTaintRecoveryAuthorization, error) {
+	joint, _, err := w.coSign(ctx, partial)
+	return joint, err
+}
+
+func (w *RemoteTaintRecoveryWitness) CoSignWithReceipt(
+	ctx context.Context,
+	partial AuthoritySignedTaintRecoveryAuthorization,
+) (JointSignedTaintRecoveryAuthorization, WitnessRecoveryReceipt, error) {
+	joint, receipt, err := w.coSign(ctx, partial)
+	if err != nil {
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, err
+	}
+	if w.profile == nil {
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf(
+			"%w: profiled remote witness is required for receipt verification",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	return joint, receipt, nil
+}
+
+func (w *RemoteTaintRecoveryWitness) coSign(
+	ctx context.Context,
+	partial AuthoritySignedTaintRecoveryAuthorization,
+) (JointSignedTaintRecoveryAuthorization, WitnessRecoveryReceipt, error) {
 	if w == nil || w.client == nil {
-		return JointSignedTaintRecoveryAuthorization{}, errors.New("remote recovery witness is unavailable")
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, errors.New("remote recovery witness is unavailable")
 	}
 	if partial.Version != JointTaintRecoveryAuthorizationVersion {
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf(
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf(
 			"%w: unsupported authority request version %q",
 			ErrTaintRecoveryAuthorization,
 			partial.Version,
 		)
 	}
 	if partial.WitnessKeyID != w.witnessKeyID {
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf(
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf(
 			"%w: authority request targets an unpinned witness",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
 	nonce, err := newTaintRecoveryWitnessNonce()
 	if err != nil {
-		return JointSignedTaintRecoveryAuthorization{}, err
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, err
 	}
 	body, err := json.Marshal(remoteTaintRecoveryWitnessRequest{
 		Protocol:      remoteTaintRecoveryWitnessProtocolV1,
 		Authorization: partial,
 	})
 	if err != nil {
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf("encode recovery witness request: %w", err)
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf("encode recovery witness request: %w", err)
 	}
 	request, err := http.NewRequestWithContext(
 		ctx,
@@ -178,19 +243,19 @@ func (w *RemoteTaintRecoveryWitness) CoSign(
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf("build recovery witness request: %w", err)
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf("build recovery witness request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(remoteTaintRecoveryWitnessNonceHeader, nonce)
 
 	response, err := w.client.Do(request)
 	if err != nil {
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf("remote recovery witness request: %w", err)
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf("remote recovery witness request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf(
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf(
 			"remote recovery witness returned HTTP %d: %s",
 			response.StatusCode,
 			strings.TrimSpace(string(payload)),
@@ -200,18 +265,76 @@ func (w *RemoteTaintRecoveryWitness) CoSign(
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64*1024))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
-		return JointSignedTaintRecoveryAuthorization{}, fmt.Errorf("decode recovery witness response: %w", err)
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf("decode recovery witness response: %w", err)
 	}
 	if err := w.verifyResponse(partial, nonce, result); err != nil {
-		return JointSignedTaintRecoveryAuthorization{}, err
+		return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, err
 	}
-	return result.SignedAuthorization, nil
+	if w.profile != nil {
+		if result.Receipt == nil {
+			return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, fmt.Errorf(
+				"%w: external witness receipt is missing",
+				ErrTaintRecoveryAuthorization,
+			)
+		}
+		if err := VerifyWitnessRecoveryReceipt(
+			*result.Receipt,
+			w.profile,
+			result.SignedAuthorization,
+			nonce,
+			w.witnessKey,
+		); err != nil {
+			return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, err
+		}
+		return result.SignedAuthorization, *result.Receipt, nil
+	}
+	return result.SignedAuthorization, WitnessRecoveryReceipt{}, nil
+}
+
+func NewProfiledTaintRecoveryWitnessHandler(
+	trustRoot *TaintRecoveryTrustRoot,
+	witnessPrivateKey ed25519.PrivateKey,
+	policy ProfiledTaintRecoveryWitnessPolicy,
+	profile *VerifiedExternalRecoveryWitnessProfile,
+	now func() time.Time,
+) (http.Handler, error) {
+	if profile == nil {
+		return nil, fmt.Errorf("%w: external witness profile is required", ErrTaintRecoveryAuthorization)
+	}
+	if trustRoot == nil {
+		return nil, fmt.Errorf("%w: recovery trust root is required", ErrTaintRecoveryAuthorization)
+	}
+	if profile.profile.WitnessKeyID != trustRoot.manifest.WitnessKeyID {
+		return nil, fmt.Errorf("%w: external witness profile key does not match trust root", ErrTaintRecoveryAuthorization)
+	}
+	if policy == nil {
+		return nil, fmt.Errorf("%w: profiled witness policy is required", ErrTaintRecoveryAuthorization)
+	}
+	policyHash, err := policy.RecoveryWitnessPolicyHash()
+	if err != nil {
+		return nil, fmt.Errorf("%w: compute witness policy hash: %v", ErrTaintRecoveryAuthorization, err)
+	}
+	if policy.RecoveryWitnessPolicyEpoch() != profile.profile.PolicyEpoch ||
+		policyHash != profile.profile.PolicyHash {
+		return nil, fmt.Errorf("%w: witness policy continuity does not match external profile", ErrTaintRecoveryAuthorization)
+	}
+	return newTaintRecoveryWitnessHandler(trustRoot, witnessPrivateKey, policy, profile, now)
 }
 
 func NewTaintRecoveryWitnessHandler(
 	trustRoot *TaintRecoveryTrustRoot,
 	witnessPrivateKey ed25519.PrivateKey,
 	policy TaintRecoveryWitnessPolicy,
+	now func() time.Time,
+) (http.Handler, error) {
+	return newTaintRecoveryWitnessHandler(trustRoot, witnessPrivateKey, policy, nil, now)
+}
+
+func newTaintRecoveryWitnessHandler(
+	trustRoot *TaintRecoveryTrustRoot,
+	witnessPrivateKey ed25519.PrivateKey,
+	policy TaintRecoveryWitnessPolicy,
+	profile *VerifiedExternalRecoveryWitnessProfile,
 	now func() time.Time,
 ) (http.Handler, error) {
 	if trustRoot == nil {
@@ -297,6 +420,21 @@ func NewTaintRecoveryWitnessHandler(
 			Nonce:               nonce,
 			WitnessKeyID:        trustRoot.manifest.WitnessKeyID,
 			SignedAuthorization: joint,
+		}
+		if profile != nil {
+			receipt, err := signWitnessRecoveryReceipt(
+				profile.profile,
+				joint.Authorization.AuthorizationID,
+				commitment,
+				nonce,
+				current,
+				witnessPrivateKey,
+			)
+			if err != nil {
+				http.Error(rw, "cannot sign recovery witness receipt", http.StatusInternalServerError)
+				return
+			}
+			result.Receipt = &receipt
 		}
 		statement, err := remoteTaintRecoveryWitnessResponsePayload(result, commitment)
 		if err != nil {
