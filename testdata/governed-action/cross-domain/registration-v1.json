@@ -1,0 +1,41 @@
+{
+  "schema_version": "governed-action.cross-domain-kernel-proof/v1",
+  "source_head": "bf282f27333fea88be73d798ba9944aadaddc60e",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "kernel_semantic_delta_expected": 0,
+  "pins": {
+    "governedaction_tree": "ce855f44eedf0525e37c001c2c3027c057207308",
+    "normative_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+    "normative_oracle_tree": "134b2b553fad70e5a5dc909131fb6019b64c31f3",
+    "k07_fixture_blob": "89b971ab136d7b2c889c586429a803fec9587c0d",
+    "k07_fixture_tree": "7657a12814163c4f68121cb497aee2271f78c5a9",
+    "k07_evaluator_blob": "4336f85b096e58d136112518a9c588b4a9d3cd7a",
+    "d02_fault_schedule_blob": "13f16231857257df1c10c1d9e6fab5ed9b0776e1",
+    "gosmig_registration_blob": "1942ec24e31f849e07177d14bb244003ccd8b51e"
+  },
+  "domains": {
+    "github_ci": {
+      "effect": "rerun failed GitHub Actions workflow",
+      "required_final_state": "CLOSED",
+      "required_observed_attempt_delta": 1,
+      "recovery_mutation": false
+    },
+    "kubernetes": {
+      "effect": "native KinD cordon/eviction recovery",
+      "required_test": "TestKindD02CrashTakeoverAndClosureExercise"
+    },
+    "postgresql": {
+      "effect": "native gosmig PostgreSQL migration schedules",
+      "required_registration_cases": 13,
+      "independent_participation_claimed": false
+    }
+  },
+  "success_criteria": {
+    "unauthorized_effects": 0,
+    "blind_non_idempotent_replays": 0,
+    "false_successes": 0,
+    "restart_or_takeover_recovery": true,
+    "unknown_preservation": true,
+    "kernel_semantic_delta": 0
+  }
+}
