@@ -12,6 +12,7 @@ import (
 	"io"
 	"regexp"
 	"time"
+	"unicode/utf8"
 )
 
 const MaxInputBytes = 8 << 20
@@ -21,6 +22,9 @@ const MaxInputBytes = 8 << 20
 func Decode(data []byte, out any) error {
 	if len(data) > MaxInputBytes {
 		return fmt.Errorf("input exceeds %d bytes", MaxInputBytes)
+	}
+	if !utf8.Valid(data) {
+		return fmt.Errorf("JSON is not valid UTF-8")
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
@@ -77,7 +81,9 @@ func scanValue(d *json.Decoder, depth int) error {
 	return err
 }
 
-// Seal signs exact payload bytes with role and schema separation. Public keys
+// Seal signs compact JSON value bytes with role and schema separation. Only
+// transport whitespace outside strings is removed; values, escapes and key
+// ordering remain signed. Public keys
 // deliberately remain outside the bundle.
 func Seal(role, keyID string, privateKey ed25519.PrivateKey, value any) (Envelope, error) {
 	if len(privateKey) != ed25519.PrivateKeySize {
@@ -92,7 +98,18 @@ func Seal(role, keyID string, privateKey ed25519.PrivateKey, value any) (Envelop
 }
 
 func signingBytes(role string, payload []byte) []byte {
-	return append([]byte(Schema+"\x00"+role+"\x00"), payload...)
+	return append([]byte(Schema+"\x00"+role+"\x00"), compactPayload(payload)...)
+}
+
+// Embedding RawMessage in an indented outer JSON document adds whitespace.
+// Normalize that transport formatting for both signatures and history links.
+// Decode rejects ambiguous keys before a statement reaches signature checking.
+func compactPayload(payload []byte) []byte {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, payload); err != nil {
+		return nil
+	}
+	return compact.Bytes()
 }
 
 func RelationDigest(parts ...string) string {
@@ -114,9 +131,9 @@ func ContentDigest(data []byte) string {
 func BundleHistoryBinding(b Bundle) string {
 	dest := ""
 	if b.Destination != nil {
-		dest = string(b.Destination.Payload)
+		dest = string(compactPayload(b.Destination.Payload))
 	}
-	return RelationDigest("composite-history-v1", string(b.Admission.Payload), string(b.Execution.Payload), dest)
+	return RelationDigest("composite-history-v1", string(compactPayload(b.Admission.Payload)), string(compactPayload(b.Execution.Payload)), dest)
 }
 
 type assessment struct {

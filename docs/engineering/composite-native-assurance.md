@@ -59,7 +59,10 @@ the baseline false closure with one unauthorized-by-new-generation effect.
 `evidenceverify` uses only the standard library. It independently implements
 relation digests, role-separated Ed25519 checks, strict JSON decoding, journal
 v2 hashing and anchor verification. Producer-generated journal records test
-encoding compatibility. Exact signed payloads are bound to the final journal
+encoding compatibility. Signatures and history binding use compact JSON values;
+outer transport indentation is ignored, while values, escapes and key ordering
+remain bound. A native export exposed this transport failure and now has a
+permanent positive/tampering regression. Signed payloads are bound to the final journal
 outcome; a valid unrelated history cannot bless an unrelated bundle. The
 checkpoint comes from policy, not the bundle. Invalid history never rewrites
 an otherwise proven operational CLOSED result.

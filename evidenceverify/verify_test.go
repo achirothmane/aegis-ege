@@ -128,6 +128,29 @@ func TestExactCommittedEffectClosesAfterAuthorityRevocation(t *testing.T) {
 	}
 }
 
+func TestIndentedTransportPreservesSignedValuesAndHistory(t *testing.T) {
+	f := newFixture(t)
+	f.addHistory(t)
+	bundle, err := json.MarshalIndent(f.b, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := json.MarshalIndent(f.p, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := v.Verify(bundle, policy)
+	if !r.ClaimsSupported || r.Signatures != "VALID" || r.HistoricalTrust != "TRUSTED_HISTORY" {
+		t.Fatalf("transport formatting invalidated signed evidence: %+v", r)
+	}
+	// Formatting tolerance must never erase whitespace inside a signed value.
+	tampered := bytes.Replace(bundle, []byte("intent-1"), []byte("intent- 1"), 1)
+	r = v.Verify(tampered, policy)
+	if r.ClaimsSupported || r.Signatures != "INVALID" {
+		t.Fatalf("value mutation escaped signature checking: %+v", r)
+	}
+}
+
 func TestSignedFalseClaimsAreNotAutomaticallyTrue(t *testing.T) {
 	cases := map[string]func(*fixture){
 		"foreign-attempt":                func(f *fixture) { f.d.Commit.AttemptID = "another-attempt" },
