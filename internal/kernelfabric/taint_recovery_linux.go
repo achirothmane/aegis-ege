@@ -87,8 +87,8 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	if err != nil {
 		return TaintRecoveryResult{}, fmt.Errorf("capture taint recovery host snapshot: %w", err)
 	}
-	if host.BootIDHash != auth.BootIDHash {
-		return TaintRecoveryResult{}, errors.New("taint recovery authorization boot identity mismatch")
+	if err := ValidateTaintRecoveryAuthorizationBootBinding(auth, host.BootIDHash); err != nil {
+		return TaintRecoveryResult{}, err
 	}
 
 	mapDir := filepath.Join(root, "maps")
