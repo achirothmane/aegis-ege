@@ -18,9 +18,18 @@ var (
 	ErrHistoryGenesisBindingMismatch = errors.New("history witness does not share the Genesis capability binding")
 )
 
+type GovernedHistoryPredecessor struct {
+	GenesisEpoch         uint64 `json:"genesis_epoch"`
+	GenesisManifestHash  string `json:"genesis_manifest_hash"`
+	HistoryPolicyHash    string `json:"history_policy_hash"`
+	CapabilityEnvelopeHash string `json:"capability_envelope_hash"`
+	JournalID            string `json:"journal_id"`
+}
+
 type GovernedHistoryIdentity struct {
-	Purpose   string `json:"purpose"`
-	JournalID string `json:"journal_id"`
+	Purpose     string                      `json:"purpose"`
+	JournalID   string                      `json:"journal_id"`
+	Predecessor *GovernedHistoryPredecessor `json:"predecessor,omitempty"`
 }
 
 type GovernedHistoryTrustPolicy struct {
@@ -35,6 +44,7 @@ type GenesisHistoryBinding struct {
 	policyHash             string
 	purpose                string
 	journalID              string
+	predecessor            *GovernedHistoryPredecessor
 }
 
 type governedHistoriesCapabilityEnvelope struct {
@@ -101,6 +111,7 @@ func ParseGenesisHistoryBinding(
 				policyHash:             policyHash,
 				purpose:                history.Purpose,
 				journalID:              history.JournalID,
+				predecessor:            cloneGovernedHistoryPredecessor(history.Predecessor),
 			}, nil
 		}
 	}
@@ -124,6 +135,10 @@ func (b GenesisHistoryBinding) Purpose() string {
 
 func (b GenesisHistoryBinding) JournalID() string {
 	return b.journalID
+}
+
+func (b GenesisHistoryBinding) Predecessor() *GovernedHistoryPredecessor {
+	return cloneGovernedHistoryPredecessor(b.predecessor)
 }
 
 func validateGenesisHistoryBinding(b GenesisHistoryBinding) error {
@@ -166,6 +181,36 @@ func normalizeGovernedHistoryTrustPolicy(
 				"duplicate governed history purpose %q",
 				history.Purpose,
 			)
+		}
+		if history.Predecessor != nil {
+			predecessor := *history.Predecessor
+			predecessor.JournalID = strings.TrimSpace(predecessor.JournalID)
+			predecessor.GenesisManifestHash = strings.TrimSpace(
+				predecessor.GenesisManifestHash,
+			)
+			predecessor.HistoryPolicyHash = strings.TrimSpace(
+				predecessor.HistoryPolicyHash,
+			)
+			predecessor.CapabilityEnvelopeHash = strings.TrimSpace(
+				predecessor.CapabilityEnvelopeHash,
+			)
+			if predecessor.GenesisEpoch == 0 ||
+				predecessor.JournalID == "" ||
+				!validSHA256Digest(predecessor.GenesisManifestHash) ||
+				!validSHA256Digest(predecessor.HistoryPolicyHash) ||
+				!validSHA256Digest(predecessor.CapabilityEnvelopeHash) {
+				return GovernedHistoryTrustPolicy{}, fmt.Errorf(
+					"governed history predecessor for purpose %q is incomplete",
+					history.Purpose,
+				)
+			}
+			if predecessor.JournalID == history.JournalID {
+				return GovernedHistoryTrustPolicy{}, fmt.Errorf(
+					"governed history predecessor for purpose %q must name a different journal",
+					history.Purpose,
+				)
+			}
+			history.Predecessor = &predecessor
 		}
 		seenPurpose[history.Purpose] = struct{}{}
 		histories = append(histories, history)
@@ -296,4 +341,15 @@ func (s *GenesisBoundHistoryStore) CompareAndAdvance(
 		)
 	}
 	return head, nil
+}
+
+
+func cloneGovernedHistoryPredecessor(
+	predecessor *GovernedHistoryPredecessor,
+) *GovernedHistoryPredecessor {
+	if predecessor == nil {
+		return nil
+	}
+	copy := *predecessor
+	return &copy
 }
