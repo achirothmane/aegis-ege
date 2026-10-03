@@ -4,12 +4,16 @@ set -euo pipefail
 STATE="${AEGIS_TAINT_REBOOT_STATE:-internal/kernelfabric/testdata/taint_host_reboot_state.json}"
 mkdir -p "$(dirname "$STATE")"
 STATE="$(realpath -m "$STATE")"
+HISTORY="${AEGIS_TAINT_REBOOT_HISTORY:-$(dirname "$STATE")/taint_host_reboot_history}"
+HISTORY="$(realpath -m "$HISTORY")"
 
 KERNEL="${AEGIS_TAINT_REBOOT_KERNEL:-ghcr.io/cilium/ci-kernels:stable-selftests}"
 VIMTO="${VIMTO:-$(go env GOPATH)/bin/vimto}"
 
 mkdir -p "$(dirname "$STATE")"
 rm -f "$STATE"
+rm -rf "$HISTORY"
+mkdir -p "$HISTORY/receipts"
 
 run_phase() {
   local phase="$1"
@@ -19,6 +23,7 @@ run_phase() {
     "CGO_ENABLED=0" \
     "AEGIS_TAINT_REBOOT_PHASE=$phase" \
     "AEGIS_TAINT_REBOOT_STATE=$STATE" \
+    "AEGIS_TAINT_REBOOT_HISTORY=$HISTORY" \
     "$VIMTO" \
       -kernel "$KERNEL" -- \
       go test -count=1 -tags=taintnative \
@@ -34,9 +39,18 @@ if [[ ! -s "$STATE" ]]; then
   exit 1
 fi
 
-echo "== boot B: reset old authority, re-enroll fresh source, and restore effect authority =="
+echo "== boot B: reset old authority, re-enroll fresh source, restore effect authority, and persist history =="
 run_phase after
 
-rm -f "$STATE"
+if [[ ! -s "$HISTORY/head.json" ]]; then
+  echo "boot B did not persist durable recovery history" >&2
+  exit 1
+fi
 
-echo "host reboot trust-reset and fresh re-enrollment proof passed"
+echo "== boot C: verify durable history without resurrecting Boot-B authority =="
+run_phase history
+
+rm -f "$STATE"
+rm -rf "$HISTORY"
+
+echo "host reboot trust-reset, fresh re-enrollment, and durable recovery history proof passed"

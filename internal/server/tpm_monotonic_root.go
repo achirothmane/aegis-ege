@@ -18,14 +18,17 @@ import (
 	"github.com/google/go-tpm/tpm2/transport"
 )
 
-const tpmNVRootStateVersion = "aegis.ege/tpm-nv-monotonic-root/v2"
+const tpmNVRootStateVersion = "aegis.ege/tpm-nv-monotonic-root/v3"
+
+var tpmRootMeasuredBootPCRs = []uint{0, 2, 4, 7}
 
 var (
 	ErrTPMMonotonicRootUnprovisioned = errors.New("TPM monotonic root is not provisioned")
 	ErrTPMMonotonicRootScopeMissing  = errors.New("TPM monotonic root scope is not initialized")
 	ErrTPMMonotonicRootRollback      = errors.New("TPM monotonic root rollback detected")
-	ErrTPMMonotonicRootDeviceChanged = errors.New("TPM monotonic root device identity changed")
-	ErrTPMMonotonicRootInvalid       = errors.New("TPM monotonic root state is invalid")
+	ErrTPMMonotonicRootDeviceChanged       = errors.New("TPM monotonic root device identity changed")
+	ErrTPMMonotonicRootMeasuredBootChanged = errors.New("TPM monotonic root measured boot identity changed")
+	ErrTPMMonotonicRootInvalid             = errors.New("TPM monotonic root state is invalid")
 )
 
 type TPMNVMonotonicRootConfig struct {
@@ -43,9 +46,10 @@ type TPMNVMonotonicRoot struct {
 }
 
 type tpmNVRootState struct {
-	Version            string                                           `json:"version"`
-	DeviceIdentity     string                                           `json:"device_identity"`
-	Generation         uint64                                           `json:"generation"`
+	Version              string                                           `json:"version"`
+	DeviceIdentity       string                                           `json:"device_identity"`
+	MeasuredBootIdentity string                                           `json:"measured_boot_identity"`
+	Generation           uint64                                           `json:"generation"`
 	PreviousGeneration uint64                                           `json:"previous_generation,omitempty"`
 	Scopes             map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
 	Digest              string                                           `json:"digest"`
@@ -98,14 +102,19 @@ func ProvisionTPMNVMonotonicRoot(ctx context.Context, device transport.TPM, cfg 
 	if err != nil {
 		return fmt.Errorf("bind TPM monotonic root device identity: %w", err)
 	}
+	measuredBootIdentity, err := root.measuredBootIdentity(ctx)
+	if err != nil {
+		return fmt.Errorf("bind TPM monotonic root measured boot identity: %w", err)
+	}
 	generation, err := root.incrementCounter(ctx)
 	if err != nil {
 		return fmt.Errorf("initialize TPM NV counter: %w", err)
 	}
 	return writeTPMNVRootStateAtomic(cfg.StatePath, tpmNVRootState{
-		Version:        tpmNVRootStateVersion,
-		DeviceIdentity: deviceIdentity,
-		Generation:     generation,
+		Version:              tpmNVRootStateVersion,
+		DeviceIdentity:       deviceIdentity,
+		MeasuredBootIdentity: measuredBootIdentity,
+		Generation:           generation,
 		Scopes:         map[string]egeproto.CapabilityAuthoritySnapshot{},
 	})
 }
@@ -214,6 +223,13 @@ func (r *TPMNVMonotonicRoot) recoverLocked(ctx context.Context) (tpmNVRootState,
 	if committed.DeviceIdentity != deviceIdentity {
 		return tpmNVRootState{}, fmt.Errorf("%w: enrolled=%s observed=%s", ErrTPMMonotonicRootDeviceChanged, committed.DeviceIdentity, deviceIdentity)
 	}
+	measuredBootIdentity, err := r.measuredBootIdentity(ctx)
+	if err != nil {
+		return tpmNVRootState{}, fmt.Errorf("read TPM root measured boot identity: %w", err)
+	}
+	if committed.MeasuredBootIdentity != measuredBootIdentity {
+		return tpmNVRootState{}, fmt.Errorf("%w: enrolled=%s observed=%s", ErrTPMMonotonicRootMeasuredBootChanged, committed.MeasuredBootIdentity, measuredBootIdentity)
+	}
 	pendingPath := r.cfg.StatePath + ".pending"
 	pending, pendingOK, err := readTPMNVRootState(pendingPath)
 	if err != nil {
@@ -221,6 +237,9 @@ func (r *TPMNVMonotonicRoot) recoverLocked(ctx context.Context) (tpmNVRootState,
 	}
 	if pendingOK && pending.DeviceIdentity != committed.DeviceIdentity {
 		return tpmNVRootState{}, fmt.Errorf("%w: committed=%s pending=%s", ErrTPMMonotonicRootDeviceChanged, committed.DeviceIdentity, pending.DeviceIdentity)
+	}
+	if pendingOK && pending.MeasuredBootIdentity != committed.MeasuredBootIdentity {
+		return tpmNVRootState{}, fmt.Errorf("%w: committed=%s pending=%s", ErrTPMMonotonicRootMeasuredBootChanged, committed.MeasuredBootIdentity, pending.MeasuredBootIdentity)
 	}
 
 	if committed.Generation == generation {
@@ -275,6 +294,40 @@ func (r *TPMNVMonotonicRoot) deviceIdentity(ctx context.Context) (string, error)
 	}
 	sum := sha256.Sum256(response.Name.Buffer)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func (r *TPMNVMonotonicRoot) measuredBootIdentity(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	selection := tpm2.TPMLPCRSelection{
+		PCRSelections: []tpm2.TPMSPCRSelection{
+			{
+				Hash:      tpm2.TPMAlgSHA256,
+				PCRSelect: tpm2.PCClientCompatible.PCRs(tpmRootMeasuredBootPCRs...),
+			},
+		},
+	}
+	response, err := (tpm2.PCRRead{PCRSelectionIn: selection}).Execute(r.tpm)
+	if err != nil {
+		return "", err
+	}
+	if len(response.PCRValues.Digests) != len(tpmRootMeasuredBootPCRs) {
+		return "", fmt.Errorf("%w: measured boot PCR count=%d want=%d", ErrTPMMonotonicRootInvalid, len(response.PCRValues.Digests), len(tpmRootMeasuredBootPCRs))
+	}
+	h := sha256.New()
+	_, _ = h.Write([]byte("aegis.ege/tpm-measured-boot/v1\x00"))
+	for i, pcr := range tpmRootMeasuredBootPCRs {
+		digest := response.PCRValues.Digests[i].Buffer
+		if len(digest) != sha256.Size {
+			return "", fmt.Errorf("%w: PCR %d digest size=%d", ErrTPMMonotonicRootInvalid, pcr, len(digest))
+		}
+		var index [4]byte
+		binary.BigEndian.PutUint32(index[:], uint32(pcr))
+		_, _ = h.Write(index[:])
+		_, _ = h.Write(digest)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (r *TPMNVMonotonicRoot) readCounter(ctx context.Context) (uint64, error) {
@@ -465,7 +518,11 @@ func sealTPMNVRootState(state tpmNVRootState) (tpmNVRootState, error) {
 }
 
 func verifyTPMNVRootState(state tpmNVRootState) error {
-	if state.Version != tpmNVRootStateVersion || strings.TrimSpace(state.DeviceIdentity) == "" || state.Generation == 0 || state.Scopes == nil {
+	if state.Version != tpmNVRootStateVersion ||
+		strings.TrimSpace(state.DeviceIdentity) == "" ||
+		strings.TrimSpace(state.MeasuredBootIdentity) == "" ||
+		state.Generation == 0 ||
+		state.Scopes == nil {
 		return ErrTPMMonotonicRootInvalid
 	}
 	expected := state.Digest
