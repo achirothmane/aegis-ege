@@ -52,6 +52,16 @@ jobs:
           fi
           grep -q "Unsigned BPF loading" "$RUNNER_TEMP/legacy-loader.out"
       - run: go test ./...
+      - name: Prove all three TPM crash windows without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run '^TestTPMRoot(Crash|CounterAhead)' -count=1 | tee "$RUNNER_TEMP/tpm-crash-proof.log"
+          test "$(grep -c '^--- PASS: TestTPMRoot' "$RUNNER_TEMP/tpm-crash-proof.log")" -eq 3
+          if grep -q '^--- SKIP:' "$RUNNER_TEMP/tpm-crash-proof.log"; then
+            exit 1
+          fi
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
 
