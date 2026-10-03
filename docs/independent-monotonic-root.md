@@ -403,20 +403,19 @@ SHA-256 device identity
 
 On every recovery and Effect Boundary revalidation, Aegis recreates the same endorsement primary from the live TPM and compares the observed identity with the identity enrolled in the root state.
 
-The executable proof keeps the NV counter and companion state unchanged, rotates the TPM endorsement primary seed, and then presents a permit that was valid before the rotation:
+The executable proof uses two independent TPM simulator instances with different fixed hierarchy seeds. TPM-A creates the authorized root state and permit. TPM-B is provisioned at the same NV handle and its counter is advanced to the exact same generation. The companion state from TPM-A is then copied onto TPM-B:
 
 ```text
-counter = C
-state.device_identity = TPM-A
-permit = valid under TPM-A
+TPM-A counter = C
+TPM-A state.device_identity = A
+permit = valid under A
         |
+        | copy companion state
         v
-TPM2_ChangeEPS
-        |
-        v
-counter still = C
-companion state unchanged
-live endorsement identity = TPM-B
+TPM-B counter = C
+same NV handle
+same generation
+TPM-B live endorsement identity = B
         |
         v
 CAPABILITY_ROOT_DEVICE_CHANGED
@@ -424,6 +423,8 @@ CAPABILITY_ROOT_DEVICE_CHANGED
         v
 mutation controller calls = 0
 ```
+
+The test deliberately equalizes the mutable generation coordinate so a counter-only check cannot distinguish the two devices. The remaining discriminator is the enrolled endorsement identity.
 
 This distinguishes a monotonic-state failure from a device-root replacement. A device identity change is not treated as rollback and is not repaired implicitly.
 
