@@ -117,6 +117,17 @@ func TestTwoPrincipalWitnessTrustManifestAcceptsJointAuthorization(t *testing.T)
 		string(store.witnessKey) != string(keys.runtimePublic) {
 		t.Fatal("remote head store was not bound to verified manifest")
 	}
+	wantTrustManifestHash, err := WitnessTrustManifestDigest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.QuorumTrustManifestHash() != wantTrustManifestHash {
+		t.Fatalf(
+			"remote store trust manifest hash = %s, want verified %s",
+			store.QuorumTrustManifestHash(),
+			wantTrustManifestHash,
+		)
+	}
 }
 
 func TestTwoPrincipalWitnessTrustManifestRejectsWorkloadOnlyRotation(t *testing.T) {
