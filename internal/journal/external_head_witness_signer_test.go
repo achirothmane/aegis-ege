@@ -6,10 +6,29 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+
+type failingExternalHeadWitnessSigner struct {
+	keyID string
+}
+
+func (s failingExternalHeadWitnessSigner) KeyID() string {
+	return s.keyID
+}
+
+func (s failingExternalHeadWitnessSigner) Sign(
+	context.Context,
+	string,
+	string,
+	[]byte,
+) ([]byte, error) {
+	return nil, errors.New("custody unavailable")
+}
 
 func TestExternalHeadWitnessSignerScopesHeadAndPolicyPayloads(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -234,5 +253,57 @@ func TestRemoteExternalHeadWitnessSignerRejectsWrongKeyResponse(t *testing.T) {
 		payload,
 	); err == nil {
 		t.Fatal("remote signer accepted signature under wrong key")
+	}
+}
+
+
+func TestGovernedWitnessFailsClosedWhenExternalSignerUnavailable(t *testing.T) {
+	const keyID = "external-head-key/unavailable"
+	policy := QuorumPolicyState{
+		Phase:        QuorumPolicyPhaseActive,
+		GenesisEpoch: 10,
+		PolicyHash:   sha256Digest([]byte("signer-unavailable-policy")),
+	}
+	stateStore := &memoryGovernedWitnessStateStore{}
+	if _, err := stateStore.CompareAndSwap(
+		context.Background(),
+		"",
+		GovernedWitnessState{
+			Protocol: GovernedWitnessStateVersion,
+			Policy:   policy,
+			Heads: map[string]ExternalHead{
+				"capability-root": {
+					JournalID: "capability-root",
+					Sequence:  1,
+					HeadHash:  sha256Digest([]byte("capability-root-1")),
+					KeyID:     "head-key",
+				},
+			},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, err := NewGovernedRemoteWitnessHandlerWithSigner(
+		stateStore,
+		keyID,
+		failingExternalHeadWitnessSigner{keyID: keyID},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/quorum-policy", nil)
+	request.Header.Set(remoteWitnessNonceHeader, "nonce-unavailable")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf(
+			"signer outage returned HTTP %d want %d body=%q",
+			recorder.Code,
+			http.StatusServiceUnavailable,
+			recorder.Body.String(),
+		)
 	}
 }
