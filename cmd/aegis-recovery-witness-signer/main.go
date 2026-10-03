@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -87,5 +86,3 @@ func must(err error) {
 		log.Fatal(fmt.Errorf("recovery witness signer: %w", err))
 	}
 }
-
-var _ = json.Valid
