@@ -342,6 +342,10 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		reason := decision.ReasonCode("CAPABILITY_FENCE_UNAVAILABLE")
 
 		switch {
+		case errors.Is(err, ErrTPMMonotonicRootDeviceChanged):
+			status = http.StatusConflict
+			code = "CAPABILITY_ROOT_DEVICE_CHANGED"
+			reason = "CAPABILITY_ROOT_DEVICE_CHANGED"
 		case errors.Is(err, ErrTPMMonotonicRootRollback):
 			status = http.StatusConflict
 			code = "CAPABILITY_ROOT_ROLLBACK_DETECTED"

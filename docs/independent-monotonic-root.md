@@ -381,3 +381,55 @@ The TPM root recovery protocol is exercised at the three consequential interrupt
 ```
 
 The third case is deliberately fail-closed. A counter value proves that a newer root transition occurred, but without the durable pending snapshot Aegis does not invent or infer which authority snapshot was committed.
+
+## TPM device identity binding
+
+A monotonic counter is not sufficient if the application can silently attach an old companion state to a different TPM whose counter happens to match. The TPM root now binds every committed state to the deterministic endorsement-primary identity derived from the TPM endorsement hierarchy.
+
+At provisioning:
+
+```text
+TPM endorsement primary
+        |
+        v
+stable TPM object Name
+        |
+        v
+SHA-256 device identity
+        |
+        +-- stored inside sealed root state
+        +-- covered by the state digest
+```
+
+On every recovery and Effect Boundary revalidation, Aegis recreates the same endorsement primary from the live TPM and compares the observed identity with the identity enrolled in the root state.
+
+The executable proof uses two independent TPM simulator instances with different fixed hierarchy seeds. TPM-A creates the authorized root state and permit. TPM-B is provisioned at the same NV handle and its counter is advanced to the exact same generation. The companion state from TPM-A is then copied onto TPM-B:
+
+```text
+TPM-A counter = C
+TPM-A state.device_identity = A
+permit = valid under A
+        |
+        | copy companion state
+        v
+TPM-B counter = C
+same NV handle
+same generation
+TPM-B live endorsement identity = B
+        |
+        v
+CAPABILITY_ROOT_DEVICE_CHANGED
+        |
+        v
+mutation controller calls = 0
+```
+
+The test deliberately equalizes the mutable generation coordinate so a counter-only check cannot distinguish the two devices. The remaining discriminator is the enrolled endorsement identity.
+
+This distinguishes a monotonic-state failure from a device-root replacement. A device identity change is not treated as rollback and is not repaired implicitly.
+
+The root-state format is now `aegis.ege/tpm-nv-monotonic-root/v2`. Existing v1 companion state does not silently migrate because it contains no device binding. It fails closed and requires an explicit migration or reprovisioning procedure.
+
+### Claim boundary
+
+This proves software-visible binding to the TPM endorsement hierarchy in the TPM2 simulator model. It does not claim resistance to a compromised TPM implementation that reproduces the enrolled endorsement identity, nor does it define a cross-device root migration protocol. Legitimate TPM replacement therefore requires an explicit separately authorized migration path rather than automatic reset.
