@@ -1,0 +1,41 @@
+{
+  "schema_version": "aegis.terraform-complexity-dividend/v1",
+  "source_head": "34b52342f451a60fa2f7d898aedd1fd4455506da",
+  "domain": "terraform",
+  "terraform_version": "1.14.6",
+  "held_out_incident": "D03A-TFAWS-49231",
+  "pins": {
+    "governedaction_tree": "ce855f44eedf0525e37c001c2c3027c057207308",
+    "runtime_tree": "39d7a75227b8c0aca8e20bc1d06121e8985c88f9",
+    "runtime_blob": "7e4b77757eb6490b18086d13fd22dbae02d277de",
+    "recovery_blob": "e01368235473f1cf078960456729dbd691f141ac",
+    "d03a_corpus_blob": "f0d934c43c1afdc2baf662b569f170fa644f8ac9"
+  },
+  "inherited_primitives": [
+    "exact state binding",
+    "trusted admission attestation",
+    "custody before effect",
+    "effect identity",
+    "single effect boundary entry",
+    "trusted observation",
+    "CLOSED | UNKNOWN disposition",
+    "observation-only recovery",
+    "stale replay rejection"
+  ],
+  "new_domain_surface": [
+    "Terraform current-state observer",
+    "Terraform apply executor",
+    "Terraform output observer",
+    "durable local custody adapter",
+    "Terraform policy/evidence bindings"
+  ],
+  "success_criteria": {
+    "core_files_changed": 0,
+    "effect_log_lines": 1,
+    "recovery_boundary_entered": false,
+    "replay_boundary_entered": false,
+    "recovery_disposition": "CLOSED",
+    "replay_disposition": "REJECTED",
+    "held_out_terraform_mapping": "PASS"
+  }
+}
