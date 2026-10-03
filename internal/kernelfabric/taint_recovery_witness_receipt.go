@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ucarion/jcs"
 )
 
 const WitnessRecoveryReceiptVersion = "aegis.ege/witness-recovery-receipt/v1"
@@ -102,6 +104,11 @@ func VerifyWitnessRecoveryReceipt(
 	if receipt.EvaluatedAt.IsZero() {
 		return fmt.Errorf("%w: witness receipt evaluation time is missing", ErrTaintRecoveryAuthorization)
 	}
+	if receipt.EvaluatedAt.Before(joint.Authorization.NotBefore.UTC()) ||
+		!receipt.EvaluatedAt.Before(joint.Authorization.ExpiresAt.UTC()) {
+		return fmt.Errorf("%w: witness receipt evaluation time is outside authorization window",
+			ErrTaintRecoveryAuthorization)
+	}
 	signature, err := decodeTaintRecoverySignature(receipt.Signature)
 	if err != nil {
 		return ErrBootstrapSignatureInvalid
@@ -124,5 +131,13 @@ func canonicalWitnessRecoveryReceiptPayload(receipt WitnessRecoveryReceipt) ([]b
 	if err != nil {
 		return nil, err
 	}
-	return append([]byte("aegis-ege/witness-recovery-receipt/v1\x00"), raw...), nil
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	canonical, err := jcs.Format(value)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte("aegis-ege/witness-recovery-receipt/v1\x00"), canonical...), nil
 }
