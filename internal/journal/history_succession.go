@@ -170,8 +170,10 @@ func ExecuteGovernedHistorySuccession(
 	if oldStore == nil || newStore == nil {
 		return HistorySuccessionResult{}, errors.New("old and new quorum stores are required")
 	}
-	oldBound, err := NewGenesisBoundHistoryStore(oldStore, plan.oldEpoch.binding)
-	if err != nil {
+	if _, err := NewGenesisBoundHistoryStore(
+		oldStore,
+		plan.oldEpoch.binding,
+	); err != nil {
 		return HistorySuccessionResult{}, fmt.Errorf(
 			"%w: old history composition: %v",
 			ErrHistorySuccessionUnsafe,
@@ -188,13 +190,31 @@ func ExecuteGovernedHistorySuccession(
 	}
 
 	journalID := plan.oldEpoch.binding.journalID
-	before, err := oldBound.Load(ctx, journalID)
+	sharedStores, err := plan.quorumPlan.sharedPolicyStores(oldStore, newStore)
+	if err != nil {
+		return HistorySuccessionResult{}, err
+	}
+	before, err := observeSharedRotationHead(ctx, sharedStores, journalID)
 	if err != nil {
 		return HistorySuccessionResult{}, fmt.Errorf(
-			"%w: old governed history is not authoritative: %v",
+			"%w: stable succession head is unavailable: %v",
 			ErrHistorySuccessionContinuity,
 			err,
 		)
+	}
+	_, expectedQuorumTransitionHash, err := plan.quorumPlan.jointPolicy(
+		journalID,
+		before,
+	)
+	if err != nil {
+		return HistorySuccessionResult{}, err
+	}
+	expectedTransitionHash, err := plan.transitionHash(
+		before,
+		expectedQuorumTransitionHash,
+	)
+	if err != nil {
+		return HistorySuccessionResult{}, err
 	}
 
 	rotation, err := ExecuteQuorumRotation(
@@ -207,9 +227,10 @@ func ExecuteGovernedHistorySuccession(
 	if err != nil {
 		return HistorySuccessionResult{}, err
 	}
-	if !sameSemanticHead(rotation.Head, before) {
+	if !sameSemanticHead(rotation.Head, before) ||
+		rotation.TransitionHash != expectedQuorumTransitionHash {
 		return HistorySuccessionResult{}, fmt.Errorf(
-			"%w: quorum transition changed governed history head",
+			"%w: quorum transition changed the frozen succession commitment",
 			ErrHistorySuccessionContinuity,
 		)
 	}
@@ -231,14 +252,10 @@ func ExecuteGovernedHistorySuccession(
 		)
 	}
 
-	transitionHash, err := plan.transitionHash(after, rotation.TransitionHash)
-	if err != nil {
-		return HistorySuccessionResult{}, err
-	}
 	return HistorySuccessionResult{
 		Head:                 after,
-		TransitionHash:       transitionHash,
-		QuorumTransitionHash: rotation.TransitionHash,
+		TransitionHash:       expectedTransitionHash,
+		QuorumTransitionHash: expectedQuorumTransitionHash,
 	}, nil
 }
 
