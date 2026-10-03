@@ -75,6 +75,10 @@ func main() {
 			requireEnv("TAINT_RECOVERY_PREPARED_BUNDLE"),
 			requireEnv("UNSIGNED_WITNESS_PROFILE_PATH"),
 			requireEnv("PROFILE_AUTHORITY_PUBLIC_KEY_PATH"),
+			requireEnv("WITNESS_SIGNER_PUBLIC_KEY_PATH"),
+			requireEnv("WITNESS_SIGNER_ENDPOINT_PATH"),
+			requireEnv("WITNESS_SIGNER_TLS_CERT_PATH"),
+			requireEnv("WITNESS_SIGNER_TLS_SERVER_NAME_PATH"),
 		))
 		return
 	case "activate":
