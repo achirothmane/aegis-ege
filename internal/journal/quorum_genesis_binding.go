@@ -93,7 +93,11 @@ func ParseGenesisQuorumBinding(
 }
 
 func WitnessTrustManifestDigest(manifest WitnessTrustManifest) (string, error) {
-	payload, err := CanonicalWitnessTrustManifestPayload(manifest)
+	normalized, err := normalizeWitnessTrustManifest(manifest)
+	if err != nil {
+		return "", err
+	}
+	payload, err := CanonicalWitnessTrustManifestPayload(normalized)
 	if err != nil {
 		return "", err
 	}
