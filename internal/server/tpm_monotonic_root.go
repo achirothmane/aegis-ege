@@ -18,20 +18,22 @@ import (
 	"github.com/google/go-tpm/tpm2/transport"
 )
 
-const tpmNVRootStateVersion = "aegis.ege/tpm-nv-monotonic-root/v1"
+const tpmNVRootStateVersion = "aegis.ege/tpm-nv-monotonic-root/v2"
 
 var (
 	ErrTPMMonotonicRootUnprovisioned = errors.New("TPM monotonic root is not provisioned")
 	ErrTPMMonotonicRootScopeMissing  = errors.New("TPM monotonic root scope is not initialized")
 	ErrTPMMonotonicRootRollback      = errors.New("TPM monotonic root rollback detected")
+	ErrTPMMonotonicRootDeviceChanged = errors.New("TPM monotonic root device identity changed")
 	ErrTPMMonotonicRootInvalid       = errors.New("TPM monotonic root state is invalid")
 )
 
 type TPMNVMonotonicRootConfig struct {
-	NVIndex   tpm2.TPMHandle
-	StatePath string
-	OwnerAuth []byte
-	IndexAuth []byte
+	NVIndex          tpm2.TPMHandle
+	StatePath        string
+	OwnerAuth        []byte
+	EndorsementAuth  []byte
+	IndexAuth        []byte
 }
 
 type TPMNVMonotonicRoot struct {
@@ -42,6 +44,7 @@ type TPMNVMonotonicRoot struct {
 
 type tpmNVRootState struct {
 	Version            string                                           `json:"version"`
+	DeviceIdentity     string                                           `json:"device_identity"`
 	Generation         uint64                                           `json:"generation"`
 	PreviousGeneration uint64                                           `json:"previous_generation,omitempty"`
 	Scopes             map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
@@ -91,14 +94,19 @@ func ProvisionTPMNVMonotonicRoot(ctx context.Context, device transport.TPM, cfg 
 	if err != nil {
 		return err
 	}
+	deviceIdentity, err := root.deviceIdentity(ctx)
+	if err != nil {
+		return fmt.Errorf("bind TPM monotonic root device identity: %w", err)
+	}
 	generation, err := root.incrementCounter(ctx)
 	if err != nil {
 		return fmt.Errorf("initialize TPM NV counter: %w", err)
 	}
 	return writeTPMNVRootStateAtomic(cfg.StatePath, tpmNVRootState{
-		Version:    tpmNVRootStateVersion,
-		Generation: generation,
-		Scopes:     map[string]egeproto.CapabilityAuthoritySnapshot{},
+		Version:        tpmNVRootStateVersion,
+		DeviceIdentity: deviceIdentity,
+		Generation:     generation,
+		Scopes:         map[string]egeproto.CapabilityAuthoritySnapshot{},
 	})
 }
 
@@ -108,6 +116,7 @@ func NewTPMNVMonotonicRoot(device transport.TPM, cfg TPMNVMonotonicRootConfig) (
 	}
 	cfg.StatePath = filepath.Clean(cfg.StatePath)
 	cfg.OwnerAuth = append([]byte(nil), cfg.OwnerAuth...)
+	cfg.EndorsementAuth = append([]byte(nil), cfg.EndorsementAuth...)
 	cfg.IndexAuth = append([]byte(nil), cfg.IndexAuth...)
 	return &TPMNVMonotonicRoot{tpm: device, cfg: cfg}, nil
 }
@@ -198,10 +207,20 @@ func (r *TPMNVMonotonicRoot) recoverLocked(ctx context.Context) (tpmNVRootState,
 	if !committedOK {
 		return tpmNVRootState{}, fmt.Errorf("%w: state=%s counter=%d", ErrTPMMonotonicRootUnprovisioned, r.cfg.StatePath, generation)
 	}
+	deviceIdentity, err := r.deviceIdentity(ctx)
+	if err != nil {
+		return tpmNVRootState{}, fmt.Errorf("read TPM root device identity: %w", err)
+	}
+	if committed.DeviceIdentity != deviceIdentity {
+		return tpmNVRootState{}, fmt.Errorf("%w: enrolled=%s observed=%s", ErrTPMMonotonicRootDeviceChanged, committed.DeviceIdentity, deviceIdentity)
+	}
 	pendingPath := r.cfg.StatePath + ".pending"
 	pending, pendingOK, err := readTPMNVRootState(pendingPath)
 	if err != nil {
 		return tpmNVRootState{}, err
+	}
+	if pendingOK && pending.DeviceIdentity != committed.DeviceIdentity {
+		return tpmNVRootState{}, fmt.Errorf("%w: committed=%s pending=%s", ErrTPMMonotonicRootDeviceChanged, committed.DeviceIdentity, pending.DeviceIdentity)
 	}
 
 	if committed.Generation == generation {
@@ -231,6 +250,31 @@ func (r *TPMNVMonotonicRoot) recoverLocked(ctx context.Context) (tpmNVRootState,
 	}
 
 	return tpmNVRootState{}, fmt.Errorf("%w: committed=%d pending=%d counter=%d", ErrTPMMonotonicRootRollback, committed.Generation, pending.Generation, generation)
+}
+
+func (r *TPMNVMonotonicRoot) deviceIdentity(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	response, err := (tpm2.CreatePrimary{
+		PrimaryHandle: tpm2.AuthHandle{
+			Handle: tpm2.TPMRHEndorsement,
+			Name:   tpm2.HandleName(tpm2.TPMRHEndorsement),
+			Auth:   tpm2.PasswordAuth(r.cfg.EndorsementAuth),
+		},
+		InPublic: tpm2.New2B(tpm2.ECCEKTemplate),
+	}).Execute(r.tpm)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_, _ = (tpm2.FlushContext{FlushHandle: response.ObjectHandle}).Execute(r.tpm)
+	}()
+	if len(response.Name.Buffer) == 0 {
+		return "", fmt.Errorf("%w: empty endorsement primary name", ErrTPMMonotonicRootInvalid)
+	}
+	sum := sha256.Sum256(response.Name.Buffer)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func (r *TPMNVMonotonicRoot) readCounter(ctx context.Context) (uint64, error) {
@@ -421,7 +465,7 @@ func sealTPMNVRootState(state tpmNVRootState) (tpmNVRootState, error) {
 }
 
 func verifyTPMNVRootState(state tpmNVRootState) error {
-	if state.Version != tpmNVRootStateVersion || state.Generation == 0 || state.Scopes == nil {
+	if state.Version != tpmNVRootStateVersion || strings.TrimSpace(state.DeviceIdentity) == "" || state.Generation == 0 || state.Scopes == nil {
 		return ErrTPMMonotonicRootInvalid
 	}
 	expected := state.Digest
