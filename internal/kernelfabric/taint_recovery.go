@@ -186,23 +186,42 @@ func VerifyJointTaintRecoveryAuthorization(
 	witnessPublicKey ed25519.PublicKey,
 	now time.Time,
 ) error {
+	verifier, err := NewRecoveryWitnessVerifier(
+		RecoveryWitnessSignatureEd25519,
+		base64.StdEncoding.EncodeToString(witnessPublicKey),
+	)
+	if err != nil {
+		return ErrBootstrapSignatureInvalid
+	}
+	return VerifyJointTaintRecoveryAuthorizationWithWitnessVerifier(
+		signed,
+		authorityPublicKey,
+		verifier,
+		now,
+	)
+}
+
+func VerifyJointTaintRecoveryAuthorizationWithWitnessVerifier(
+	signed JointSignedTaintRecoveryAuthorization,
+	authorityPublicKey ed25519.PublicKey,
+	witnessVerifier RecoveryWitnessVerifier,
+	now time.Time,
+) error {
 	if signed.Version != JointTaintRecoveryAuthorizationVersion {
 		return fmt.Errorf("%w: unsupported joint authorization version %q", ErrTaintRecoveryAuthorization, signed.Version)
 	}
 	if err := ValidateTaintRecoveryAuthorization(signed.Authorization); err != nil {
 		return err
 	}
-	if len(authorityPublicKey) != ed25519.PublicKeySize || len(witnessPublicKey) != ed25519.PublicKeySize {
+	if len(authorityPublicKey) != ed25519.PublicKeySize ||
+		strings.TrimSpace(witnessVerifier.KeyID()) == "" {
 		return ErrBootstrapSignatureInvalid
 	}
 	authorityKeyID, err := BootstrapKeyID(authorityPublicKey)
 	if err != nil {
 		return err
 	}
-	witnessKeyID, err := BootstrapKeyID(witnessPublicKey)
-	if err != nil {
-		return err
-	}
+	witnessKeyID := witnessVerifier.KeyID()
 	if authorityKeyID == witnessKeyID {
 		return fmt.Errorf("%w: recovery authority and witness must be distinct principals", ErrTaintRecoveryAuthorization)
 	}
@@ -213,7 +232,7 @@ func VerifyJointTaintRecoveryAuthorization(
 	if err != nil {
 		return ErrBootstrapSignatureInvalid
 	}
-	witnessSignature, err := decodeTaintRecoverySignature(signed.WitnessSignature)
+	witnessSignature, err := decodeRecoveryWitnessSignature(signed.WitnessSignature)
 	if err != nil {
 		return ErrBootstrapSignatureInvalid
 	}
@@ -222,7 +241,7 @@ func VerifyJointTaintRecoveryAuthorization(
 		return err
 	}
 	if !ed25519.Verify(authorityPublicKey, payload, authoritySignature) ||
-		!ed25519.Verify(witnessPublicKey, payload, witnessSignature) {
+		!witnessVerifier.Verify(payload, witnessSignature) {
 		return ErrBootstrapSignatureInvalid
 	}
 	now = now.UTC()
@@ -281,6 +300,14 @@ func canonicalJointTaintRecoveryAuthorizationPayload(auth TaintRecoveryAuthoriza
 func decodeTaintRecoverySignature(encoded string) ([]byte, error) {
 	signature, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(signature) != ed25519.SignatureSize {
+		return nil, ErrBootstrapSignatureInvalid
+	}
+	return signature, nil
+}
+
+func decodeRecoveryWitnessSignature(encoded string) ([]byte, error) {
+	signature, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(signature) == 0 {
 		return nil, ErrBootstrapSignatureInvalid
 	}
 	return signature, nil
