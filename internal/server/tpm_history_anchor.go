@@ -22,10 +22,10 @@ import (
 const tpmNVHistoryAnchorStateVersion = "aegis.ege/tpm-nv-history-anchor/v1"
 
 var (
-	ErrTPMHistoryAnchorUnprovisioned      = errors.New("TPM history anchor is not provisioned")
-	ErrTPMHistoryAnchorRollback           = errors.New("TPM history anchor rollback detected")
-	ErrTPMHistoryAnchorInvalid            = errors.New("TPM history anchor state is invalid")
-	ErrTPMHistoryAnchorDeviceChanged      = errors.New("TPM history anchor device identity changed")
+	ErrTPMHistoryAnchorUnprovisioned       = errors.New("TPM history anchor is not provisioned")
+	ErrTPMHistoryAnchorRollback            = errors.New("TPM history anchor rollback detected")
+	ErrTPMHistoryAnchorInvalid             = errors.New("TPM history anchor state is invalid")
+	ErrTPMHistoryAnchorDeviceChanged       = errors.New("TPM history anchor device identity changed")
 	ErrTPMHistoryAnchorMeasuredBootChanged = errors.New("TPM history anchor measured boot identity changed")
 )
 
@@ -49,6 +49,8 @@ type tpmNVHistoryAnchorState struct {
 	MeasuredBootIdentity string `json:"measured_boot_identity"`
 	Generation           uint64 `json:"generation"`
 	PreviousGeneration   uint64 `json:"previous_generation,omitempty"`
+	Sequence             uint64 `json:"sequence"`
+	PreviousSequence     uint64 `json:"previous_sequence,omitempty"`
 	HeadDigest           string `json:"head_digest,omitempty"`
 	PreviousHeadDigest   string `json:"previous_head_digest,omitempty"`
 	Digest                string `json:"digest"`
@@ -122,6 +124,7 @@ func ProvisionTPMNVHistoryAnchor(
 		DeviceIdentity:       deviceIdentity,
 		MeasuredBootIdentity: measuredBootIdentity,
 		Generation:           generation,
+		Sequence:             0,
 	})
 }
 
@@ -141,18 +144,43 @@ func NewTPMNVHistoryAnchor(
 	return &TPMNVHistoryAnchor{helper: helper, cfg: cfg}, nil
 }
 
-func (a *TPMNVHistoryAnchor) Advance(
+func (a *TPMNVHistoryAnchor) Current(
 	ctx context.Context,
-	previousDigest,
-	nextDigest string,
-) error {
-	if previousDigest != "" {
-		if err := validateTPMHistoryHeadDigest(previousDigest); err != nil {
-			return err
-		}
+) (kernelfabric.TaintRecoveryHistoryAnchorState, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	state, err := a.recoverLocked(ctx)
+	if err != nil {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, err
 	}
-	if err := validateTPMHistoryHeadDigest(nextDigest); err != nil {
-		return err
+	return publicTPMHistoryAnchorState(state), nil
+}
+
+func (a *TPMNVHistoryAnchor) CompareAndAdvance(
+	ctx context.Context,
+	expected,
+	next kernelfabric.TaintRecoveryHistoryAnchorState,
+) (kernelfabric.TaintRecoveryHistoryAnchorState, error) {
+	if err := validateTPMHistoryAnchorPublicState(expected); err != nil {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, err
+	}
+	if err := validateTPMHistoryAnchorPublicState(next); err != nil {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, err
+	}
+	if next.Sequence != expected.Sequence+1 {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"%w: non-successor sequence expected=%d next=%d",
+			ErrTPMHistoryAnchorInvalid,
+			expected.Sequence,
+			next.Sequence,
+		)
+	}
+	if next.HeadDigest == "" {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"%w: successor head digest is required",
+			ErrTPMHistoryAnchorInvalid,
+		)
 	}
 
 	a.mu.Lock()
@@ -160,72 +188,82 @@ func (a *TPMNVHistoryAnchor) Advance(
 
 	state, err := a.recoverLocked(ctx)
 	if err != nil {
-		return err
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, err
 	}
-	if state.HeadDigest == nextDigest {
-		if state.PreviousHeadDigest != previousDigest {
-			return fmt.Errorf(
-				"%w: idempotent predecessor mismatch: got=%s want=%s",
+	current := publicTPMHistoryAnchorState(state)
+
+	if current == next {
+		if state.PreviousSequence != expected.Sequence ||
+			state.PreviousHeadDigest != expected.HeadDigest {
+			return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+				"%w: idempotent predecessor mismatch",
 				ErrTPMHistoryAnchorInvalid,
-				previousDigest,
-				state.PreviousHeadDigest,
 			)
 		}
-		return nil
+		return current, nil
 	}
-	if state.HeadDigest != previousDigest {
-		return fmt.Errorf(
-			"%w: predecessor mismatch: anchor=%s expected=%s next=%s",
+	if current != expected {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"%w: current=(%d,%s) expected=(%d,%s) next=(%d,%s)",
 			ErrTPMHistoryAnchorRollback,
-			state.HeadDigest,
-			previousDigest,
-			nextDigest,
+			current.Sequence,
+			current.HeadDigest,
+			expected.Sequence,
+			expected.HeadDigest,
+			next.Sequence,
+			next.HeadDigest,
 		)
 	}
 	if state.Generation == ^uint64(0) {
-		return fmt.Errorf("%w: generation exhausted", ErrTPMHistoryAnchorInvalid)
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"%w: generation exhausted",
+			ErrTPMHistoryAnchorInvalid,
+		)
 	}
 
-	next := state
-	next.PreviousGeneration = state.Generation
-	next.Generation = state.Generation + 1
-	next.PreviousHeadDigest = state.HeadDigest
-	next.HeadDigest = nextDigest
-	next.Digest = ""
+	pending := state
+	pending.PreviousGeneration = state.Generation
+	pending.Generation = state.Generation + 1
+	pending.PreviousSequence = state.Sequence
+	pending.Sequence = next.Sequence
+	pending.PreviousHeadDigest = state.HeadDigest
+	pending.HeadDigest = next.HeadDigest
+	pending.Digest = ""
 
 	pendingPath := a.cfg.StatePath + ".pending"
-	if err := writeTPMNVHistoryAnchorStateAtomic(pendingPath, next); err != nil {
-		return fmt.Errorf("persist pending TPM history anchor: %w", err)
+	if err := writeTPMNVHistoryAnchorStateAtomic(pendingPath, pending); err != nil {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"persist pending TPM history anchor: %w",
+			err,
+		)
 	}
 	generation, err := a.helper.incrementCounter(ctx)
 	if err != nil {
-		return fmt.Errorf("increment TPM history counter: %w", err)
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"increment TPM history counter: %w",
+			err,
+		)
 	}
-	if generation != next.Generation {
-		return fmt.Errorf(
+	if generation != pending.Generation {
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
 			"%w: counter=%d expected=%d",
 			ErrTPMHistoryAnchorRollback,
 			generation,
-			next.Generation,
+			pending.Generation,
 		)
 	}
 	if err := promoteTPMNVHistoryAnchorPending(pendingPath, a.cfg.StatePath); err != nil {
-		return fmt.Errorf("promote TPM history anchor: %w", err)
+		return kernelfabric.TaintRecoveryHistoryAnchorState{}, fmt.Errorf(
+			"promote TPM history anchor: %w",
+			err,
+		)
 	}
-	return nil
+	return next, nil
 }
 
-func (a *TPMNVHistoryAnchor) Current(ctx context.Context) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	state, err := a.recoverLocked(ctx)
-	if err != nil {
-		return "", err
-	}
-	return state.HeadDigest, nil
-}
-
-func (a *TPMNVHistoryAnchor) recoverLocked(ctx context.Context) (tpmNVHistoryAnchorState, error) {
+func (a *TPMNVHistoryAnchor) recoverLocked(
+	ctx context.Context,
+) (tpmNVHistoryAnchorState, error) {
 	generation, err := a.helper.readCounter(ctx)
 	if err != nil {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf("read TPM history counter: %w", err)
@@ -257,7 +295,10 @@ func (a *TPMNVHistoryAnchor) recoverLocked(ctx context.Context) (tpmNVHistoryAnc
 	}
 	measuredBootIdentity, err := a.helper.measuredBootIdentity(ctx)
 	if err != nil {
-		return tpmNVHistoryAnchorState{}, fmt.Errorf("read TPM history measured boot identity: %w", err)
+		return tpmNVHistoryAnchorState{}, fmt.Errorf(
+			"read TPM history measured boot identity: %w",
+			err,
+		)
 	}
 	if committed.MeasuredBootIdentity != measuredBootIdentity {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf(
@@ -294,9 +335,7 @@ func (a *TPMNVHistoryAnchor) recoverLocked(ctx context.Context) (tpmNVHistoryAnc
 		if !pendingOK {
 			return committed, nil
 		}
-		if pending.PreviousGeneration == committed.Generation &&
-			pending.Generation == committed.Generation+1 &&
-			pending.PreviousHeadDigest == committed.HeadDigest {
+		if isTPMHistoryAnchorPendingSuccessor(committed, pending) {
 			if err := os.Remove(pendingPath); err != nil && !os.IsNotExist(err) {
 				return tpmNVHistoryAnchorState{}, err
 			}
@@ -316,9 +355,7 @@ func (a *TPMNVHistoryAnchor) recoverLocked(ctx context.Context) (tpmNVHistoryAnc
 
 	if pendingOK &&
 		pending.Generation == generation &&
-		pending.PreviousGeneration == committed.Generation &&
-		committed.Generation+1 == pending.Generation &&
-		pending.PreviousHeadDigest == committed.HeadDigest {
+		isTPMHistoryAnchorPendingSuccessor(committed, pending) {
 		if err := promoteTPMNVHistoryAnchorPending(pendingPath, a.cfg.StatePath); err != nil {
 			return tpmNVHistoryAnchorState{}, err
 		}
@@ -334,6 +371,27 @@ func (a *TPMNVHistoryAnchor) recoverLocked(ctx context.Context) (tpmNVHistoryAnc
 	)
 }
 
+func isTPMHistoryAnchorPendingSuccessor(
+	committed,
+	pending tpmNVHistoryAnchorState,
+) bool {
+	return pending.PreviousGeneration == committed.Generation &&
+		pending.Generation == committed.Generation+1 &&
+		pending.PreviousSequence == committed.Sequence &&
+		pending.Sequence == committed.Sequence+1 &&
+		pending.PreviousHeadDigest == committed.HeadDigest &&
+		pending.HeadDigest != ""
+}
+
+func publicTPMHistoryAnchorState(
+	state tpmNVHistoryAnchorState,
+) kernelfabric.TaintRecoveryHistoryAnchorState {
+	return kernelfabric.TaintRecoveryHistoryAnchorState{
+		Sequence:   state.Sequence,
+		HeadDigest: state.HeadDigest,
+	}
+}
+
 func historyAnchorRootConfig(cfg TPMNVHistoryAnchorConfig) TPMNVMonotonicRootConfig {
 	return TPMNVMonotonicRootConfig{
 		NVIndex:         cfg.NVIndex,
@@ -342,6 +400,27 @@ func historyAnchorRootConfig(cfg TPMNVHistoryAnchorConfig) TPMNVMonotonicRootCon
 		EndorsementAuth: append([]byte(nil), cfg.EndorsementAuth...),
 		IndexAuth:       append([]byte(nil), cfg.IndexAuth...),
 	}
+}
+
+func validateTPMHistoryAnchorPublicState(
+	state kernelfabric.TaintRecoveryHistoryAnchorState,
+) error {
+	if state.Sequence == 0 {
+		if state.HeadDigest != "" {
+			return fmt.Errorf(
+				"%w: sequence zero cannot carry a head digest",
+				ErrTPMHistoryAnchorInvalid,
+			)
+		}
+		return nil
+	}
+	if state.HeadDigest == "" {
+		return fmt.Errorf(
+			"%w: nonzero sequence requires a head digest",
+			ErrTPMHistoryAnchorInvalid,
+		)
+	}
+	return validateTPMHistoryHeadDigest(state.HeadDigest)
 }
 
 func validateTPMHistoryHeadDigest(digest string) error {
@@ -389,7 +468,10 @@ func readTPMNVHistoryAnchorState(path string) (tpmNVHistoryAnchorState, bool, er
 	return state, true, nil
 }
 
-func writeTPMNVHistoryAnchorStateAtomic(path string, state tpmNVHistoryAnchorState) error {
+func writeTPMNVHistoryAnchorStateAtomic(
+	path string,
+	state tpmNVHistoryAnchorState,
+) error {
 	sealed, err := sealTPMNVHistoryAnchorState(state)
 	if err != nil {
 		return err
@@ -445,14 +527,26 @@ func sealTPMNVHistoryAnchorState(
 		state.Generation == 0 {
 		return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 	}
-	if state.HeadDigest != "" {
+	if state.Sequence == 0 {
+		if state.HeadDigest != "" ||
+			state.PreviousSequence != 0 ||
+			state.PreviousHeadDigest != "" {
+			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
+		}
+	} else {
+		if state.PreviousSequence+1 != state.Sequence {
+			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
+		}
 		if err := validateTPMHistoryHeadDigest(state.HeadDigest); err != nil {
 			return tpmNVHistoryAnchorState{}, err
 		}
-	}
-	if state.PreviousHeadDigest != "" {
-		if err := validateTPMHistoryHeadDigest(state.PreviousHeadDigest); err != nil {
-			return tpmNVHistoryAnchorState{}, err
+		if state.Sequence > 1 && state.PreviousHeadDigest == "" {
+			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
+		}
+		if state.PreviousHeadDigest != "" {
+			if err := validateTPMHistoryHeadDigest(state.PreviousHeadDigest); err != nil {
+				return tpmNVHistoryAnchorState{}, err
+			}
 		}
 	}
 	state.Digest = ""
