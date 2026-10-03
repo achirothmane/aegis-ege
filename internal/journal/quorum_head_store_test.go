@@ -305,3 +305,59 @@ func TestQuorumHeadStoreInitializesAbsentMajority(t *testing.T) {
 		t.Fatalf("initialized head = %+v, want %+v", initialized, zero)
 	}
 }
+
+
+func TestQuorumHeadStoreConvergesAuthorizedSplitTransition(t *testing.T) {
+	source := quorumTestHead(20, "a")
+	quiesced := quorumTestHead(21, "b")
+	final := quorumTestHead(22, "c")
+
+	a := newQuorumTestStore(&source)
+	b := newQuorumTestStore(&quiesced)
+	cStore := newQuorumTestStore(&final)
+	store := quorumStoreForTest(t, a, b, cStore)
+
+	if _, err := store.Load(context.Background(), "capability-root"); !errors.Is(err, ErrExternalHeadQuorum) {
+		t.Fatalf("split transition unexpectedly had quorum truth: %v", err)
+	}
+
+	recovered, err := store.ConvergeAuthorizedTransition(
+		context.Background(),
+		[]ExternalHead{source, quiesced, final},
+		final,
+	)
+	if err != nil {
+		t.Fatalf("authorized split convergence failed: %v", err)
+	}
+	if !sameSemanticHead(recovered, final) {
+		t.Fatalf("recovered head=%+v want=%+v", recovered, final)
+	}
+
+	current, err := store.Load(context.Background(), "capability-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameSemanticHead(current, final) {
+		t.Fatalf("quorum did not converge to final state: %+v", current)
+	}
+}
+
+func TestQuorumHeadStoreAuthorizedConvergenceRejectsThirdState(t *testing.T) {
+	source := quorumTestHead(30, "a")
+	quiesced := quorumTestHead(31, "b")
+	final := quorumTestHead(32, "c")
+	rogue := quorumTestHead(99, "f")
+
+	a := newQuorumTestStore(&source)
+	b := newQuorumTestStore(&quiesced)
+	cStore := newQuorumTestStore(&rogue)
+	store := quorumStoreForTest(t, a, b, cStore)
+
+	if _, err := store.ConvergeAuthorizedTransition(
+		context.Background(),
+		[]ExternalHead{source, quiesced, final},
+		final,
+	); !errors.Is(err, ErrExternalHeadConflict) {
+		t.Fatalf("unauthorized third state was not rejected: %v", err)
+	}
+}
