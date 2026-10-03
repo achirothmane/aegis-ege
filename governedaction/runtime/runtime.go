@@ -20,14 +20,14 @@ import (
 )
 
 var (
-	ErrMissingAdapter            = errors.New("reference runtime adapter is required")
-	ErrIncompleteRequest         = errors.New("reference runtime request is incomplete")
-	ErrTransitionBinding         = errors.New("transition is not bound to the exact current state")
-	ErrAdmissionBinding          = errors.New("admission attestation binding does not match the request")
-	ErrStateChanged              = errors.New("current state changed at the effect boundary")
-	ErrObservationBinding        = errors.New("observation attestation binding does not match the observed state")
-	ErrObservedStateMismatch     = errors.New("trusted observation does not match the intended after-state")
-	ErrIncompleteObservation     = errors.New("observation is incomplete")
+	ErrMissingAdapter        = errors.New("reference runtime adapter is required")
+	ErrIncompleteRequest     = errors.New("reference runtime request is incomplete")
+	ErrTransitionBinding     = errors.New("transition is not bound to the exact current state")
+	ErrAdmissionBinding      = errors.New("admission attestation binding does not match the request")
+	ErrStateChanged          = errors.New("current state changed at the effect boundary")
+	ErrObservationBinding    = errors.New("observation attestation binding does not match the observed state")
+	ErrObservedStateMismatch = errors.New("trusted observation does not match the intended after-state")
+	ErrIncompleteObservation = errors.New("observation is incomplete")
 )
 
 // Identity is an opaque principal identity. Subject and executor are separate
@@ -92,12 +92,12 @@ func (t Transition) Complete() bool {
 // Request is a composite relation built only from the four primitive types.
 // AttemptID is runtime bookkeeping, not a fifth semantic primitive.
 type Request struct {
-	Subject     Identity
-	Executor    Identity
-	Current     State
-	Admission   Attestation
-	Transition  Transition
-	AttemptID   string
+	Subject    Identity
+	Executor   Identity
+	Current    State
+	Admission  Attestation
+	Transition Transition
+	AttemptID  string
 }
 
 // Custody is a composite runtime record. Durable cardinality, atomic reservation
@@ -255,22 +255,8 @@ func Run(ctx context.Context, req Request, adapter Adapter) Result {
 		result.Cause = observeErr
 		return result
 	}
-	if !observation.State.Complete() || !observation.Attestation.Complete() {
-		result.Cause = ErrIncompleteObservation
-		return result
-	}
-
-	expectedObservation := ObservationBindingDigest(effectID, observation.State)
-	if observation.Attestation.BindingDigest != expectedObservation {
-		result.Cause = ErrObservationBinding
-		return result
-	}
-	if err := adapter.VerifyAttestation(ctx, observation.Attestation, expectedObservation); err != nil {
+	if err := verifyObservation(ctx, effectID, req.Transition.To, observation, adapter.VerifyAttestation); err != nil {
 		result.Cause = err
-		return result
-	}
-	if !observation.State.Equal(req.Transition.To) {
-		result.Cause = ErrObservedStateMismatch
 		return result
 	}
 
@@ -306,6 +292,20 @@ func validateRequest(req Request) error {
 // deliberately excluding the authorization path. Two trusted attestations for
 // the same logical effect therefore do not manufacture two effect identities.
 func EffectIdentity(req Request) (string, error) {
+	return requestBinding(req, "effect-v0")
+}
+
+// AdmissionBindingDigest is the statement a trusted admission producer signs or
+// otherwise attests. Executor identity is intentionally not implied by subject
+// authority; adapters may require an additional executor binding in their
+// attestation verifier when their profile demands it.
+func AdmissionBindingDigest(req Request) (string, error) {
+	return requestBinding(req, "admission-v0")
+}
+
+// The two bindings share an exact request projection, but retain distinct
+// domains: an effect identity cannot serve as an admission statement.
+func requestBinding(req Request, domain string) (string, error) {
 	if !req.Subject.Complete() ||
 		!req.Current.Complete() ||
 		!req.Transition.Complete() ||
@@ -314,7 +314,7 @@ func EffectIdentity(req Request) (string, error) {
 		return "", ErrTransitionBinding
 	}
 	return digest(
-		"effect-v0",
+		domain,
 		req.Subject.ID,
 		req.Subject.Kind,
 		req.Current.Target,
@@ -326,29 +326,25 @@ func EffectIdentity(req Request) (string, error) {
 	), nil
 }
 
-// AdmissionBindingDigest is the statement a trusted admission producer signs or
-// otherwise attests. Executor identity is intentionally not implied by subject
-// authority; adapters may require an additional executor binding in their
-// attestation verifier when their profile demands it.
-func AdmissionBindingDigest(req Request) (string, error) {
-	if !req.Subject.Complete() ||
-		!req.Current.Complete() ||
-		!req.Transition.Complete() ||
-		!req.Transition.From.Equal(req.Current) ||
-		req.Transition.To.Target != req.Current.Target {
-		return "", ErrTransitionBinding
+// This verifies the existing adapter observation contract. Its epistemic
+// strength still depends on that contract; matching state alone is not an
+// independent proof of effect causality. Run, Recover and RunFenced use the
+// same checks, in the same order, before their respective closure transitions.
+func verifyObservation(ctx context.Context, effectID string, expected State, observation Observation, verify func(context.Context, Attestation, string) error) error {
+	if !observation.State.Complete() || !observation.Attestation.Complete() {
+		return ErrIncompleteObservation
 	}
-	return digest(
-		"admission-v0",
-		req.Subject.ID,
-		req.Subject.Kind,
-		req.Current.Target,
-		req.Current.Revision,
-		req.Current.Digest,
-		req.Transition.Operation,
-		req.Transition.To.Revision,
-		req.Transition.To.Digest,
-	), nil
+	binding := ObservationBindingDigest(effectID, observation.State)
+	if observation.Attestation.BindingDigest != binding {
+		return ErrObservationBinding
+	}
+	if err := verify(ctx, observation.Attestation, binding); err != nil {
+		return err
+	}
+	if !observation.State.Equal(expected) {
+		return ErrObservedStateMismatch
+	}
+	return nil
 }
 
 // ObservationBindingDigest binds one trusted observation to the exact logical
