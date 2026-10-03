@@ -206,7 +206,9 @@ original checker against its exact historical baseline, then accepts only the
 registered smaller implementation. It rejects unrelated deltas, imports/public
 surface changes, repins of historical profiles and growth disguised as shrinkage.
 Current native tests reprove the changed implementation; old native results
-retain their original source scope. Proof results expose physical source changes
+retain their original source scope. The older encoding regression replays the actual
+codec from its pinned commit inside the current runtime shape, so shared recovery
+definitions remain buildable; all three original negative witnesses remain required. Proof results expose physical source changes
 rather than claiming zero frozen-source byte delta.
 
 Runtime TCB source shrinks; no runtime/verifier/adapter dependency or privilege
