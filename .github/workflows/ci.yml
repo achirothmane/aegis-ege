@@ -67,8 +67,8 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           set -o pipefail
-          go test -v ./internal/server -run TestTPMRootEndorsementIdentityRotationBlocksExistingPermit -count=1 | tee "$RUNNER_TEMP/tpm-device-binding-proof.log"
-          grep -q -- "--- PASS: TestTPMRootEndorsementIdentityRotationBlocksExistingPermit" "$RUNNER_TEMP/tpm-device-binding-proof.log"
+          go test -v ./internal/server -run TestTPMRootRejectsCopiedStateOnDifferentEndorsementIdentity -count=1 | tee "$RUNNER_TEMP/tpm-device-binding-proof.log"
+          grep -q -- "--- PASS: TestTPMRootRejectsCopiedStateOnDifferentEndorsementIdentity" "$RUNNER_TEMP/tpm-device-binding-proof.log"
           if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-device-binding-proof.log"; then
             exit 1
           fi
