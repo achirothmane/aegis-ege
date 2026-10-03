@@ -37,6 +37,7 @@ func externalWitnessGenesisEnvelopeForTest(
 			ProfileAuthorityKeyID:     keyID,
 			ProfileAuthorityPublicKey: base64.StdEncoding.EncodeToString(authorityPublic),
 			RequiredWitnessID:         requiredWitnessID,
+			TLSServerName:             "witness.example",
 			MinimumProfileEpoch:       minimumProfileEpoch,
 			MinimumPolicyEpoch:        minimumPolicyEpoch,
 		},
