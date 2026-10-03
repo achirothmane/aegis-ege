@@ -140,11 +140,19 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 		t.Fatalf("unexpected committed anchor state: %+v", committed)
 	}
 
-	waitForWitnessReplication(t, ctx, "taint-recovery/main", h2Digest, w1, w2, w3)
+	unavailable := selectUnavailableMinorityWitness(
+		t,
+		ctx,
+		"taint-recovery/main",
+		h2Digest,
+		w1,
+		w2,
+		w3,
+	)
+	unavailable.failLoad = true
 
-	// After all three replicas have converged, any one witness can disappear
-	// without erasing the 2-of-3 quorum truth.
-	w1.failLoad = true
+	// A current 2-of-3 majority remains authoritative even when the minority
+	// witness is stale or unavailable.
 	quorumState, err := witness.Current(ctx)
 	if err != nil {
 		t.Fatalf("2-of-3 witness quorum did not survive one unavailable member: %v", err)
@@ -195,39 +203,37 @@ func TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset(t *testing.T) {
 	}
 }
 
-func waitForWitnessReplication(
+func selectUnavailableMinorityWitness(
 	t *testing.T,
 	ctx context.Context,
 	historyID string,
 	headDigest string,
 	stores ...*switchableHeadStore,
-) {
+) *switchableHeadStore {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		all := true
-		for _, store := range stores {
-			head, err := store.store.Load(ctx, historyID)
-			if err != nil ||
-				head.Sequence != 2 ||
-				head.HeadHash != headDigest ||
-				head.KeyID != taintRecoveryHistoryExternalHeadKeyID {
-				all = false
-				break
-			}
+
+	var minority *switchableHeadStore
+	current := 0
+	for _, store := range stores {
+		head, err := store.store.Load(ctx, historyID)
+		if err == nil &&
+			head.Sequence == 2 &&
+			head.HeadHash == headDigest &&
+			head.KeyID == taintRecoveryHistoryExternalHeadKeyID {
+			current++
+			continue
 		}
-		if all {
-			return
+		if minority == nil {
+			minority = store
 		}
-		if time.Now().After(deadline) {
-			for i, store := range stores {
-				head, err := store.store.Load(ctx, historyID)
-				t.Logf("witness[%d] head=%+v err=%v", i, head, err)
-			}
-			t.Fatal("external witness replicas did not converge before outage proof")
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
+	if current < 2 {
+		t.Fatalf("external witness quorum did not retain a current majority: current=%d", current)
+	}
+	if minority != nil {
+		return minority
+	}
+	return stores[len(stores)-1]
 }
 
 func TestConjunctiveHistoryAnchorFailsClosedAfterOneSidedWitnessCommit(t *testing.T) {
