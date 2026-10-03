@@ -89,19 +89,17 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           set -o pipefail
-          go test -v ./internal/server -run TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-positive.log"
-          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay" "$RUNNER_TEMP/tpm-root-migration-positive.log"
-          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-positive.log"; then
-            exit 1
-          fi
-          go test -v ./internal/server -run TestTPMRootMigrationRejectsExpiredAndForgedAuthorization -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-negative.log"
-          grep -q -- "--- PASS: TestTPMRootMigrationRejectsExpiredAndForgedAuthorization" "$RUNNER_TEMP/tpm-root-migration-negative.log"
-          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-negative.log"; then
-            exit 1
-          fi
-          go test -v ./internal/server -run TestTPMRootMigrationRequiresIndependentLiveDestinationAttestation -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-attestation.log"
-          grep -q -- "--- PASS: TestTPMRootMigrationRequiresIndependentLiveDestinationAttestation" "$RUNNER_TEMP/tpm-root-migration-attestation.log"
-          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-attestation.log"; then
+          go test -v ./internal/server -run TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/same_authority_rejected" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/measured_boot_mismatch_rejected" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/expired_authorization_rejected" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/forged_authorization_rejected" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/wrong_destination_rejected" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/authorized_migration_succeeds" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/replay_rejected" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/continuity_preserved" "$RUNNER_TEMP/tpm-root-migration-proof.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-proof.log"; then
             exit 1
           fi
 
