@@ -22,7 +22,7 @@ const (
 	TaintRecoveryHistoryReceiptVersion = "aegis.ege/taint-recovery-history/v1"
 
 	TaintRecoveryHistoryEventRecoveryCommitted = "RECOVERY_COMMITTED"
-	TaintRecoveryHistoryEventReenrolled         = "FRESH_REENROLLMENT_COMMITTED"
+	TaintRecoveryHistoryEventReenrolled        = "FRESH_REENROLLMENT_COMMITTED"
 
 	taintRecoveryHistoryHeadVersion = "aegis.ege/taint-recovery-history-head/v1"
 )
