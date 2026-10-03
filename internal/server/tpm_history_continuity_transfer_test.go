@@ -272,6 +272,94 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 		t.Fatal(err)
 	}
 
+	destinationCounterBefore, err := localB.helper.readCounter(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownershipBefore, err := ownership.Current(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoTransferMutation := func(t *testing.T) {
+		t.Helper()
+		counter, err := localB.helper.readCounter(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if counter != destinationCounterBefore {
+			t.Fatalf("rejected transfer changed destination TPM counter: before=%d after=%d", destinationCounterBefore, counter)
+		}
+		currentOwnership, err := ownership.Current(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if currentOwnership != ownershipBefore {
+			t.Fatalf("rejected transfer changed ownership: before=%+v after=%+v", ownershipBefore, currentOwnership)
+		}
+	}
+
+	t.Run("history_quorum_policy_substitution_rejected", func(t *testing.T) {
+		badAuth := auth
+		badAuth.HistoryWitnessPolicyHash = "sha256:" + strings.Repeat("9", 64)
+		badSigned, err := SignTPMHistoryContinuityTransferAuthorization(badAuth, transferPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = TransferTPMNVHistoryContinuity(
+			ctx,
+			cfgA.StatePath,
+			localB,
+			historyWitness,
+			ownership,
+			badSigned,
+			transferPub,
+			destinationAttestation,
+			attestationPub,
+			now,
+		)
+		if !errors.Is(err, ErrTPMHistoryContinuityAuthorization) {
+			t.Fatalf("history quorum policy substitution was not rejected: %v", err)
+		}
+		assertNoTransferMutation(t)
+	})
+
+	t.Run("same_transfer_and_attestation_authority_rejected", func(t *testing.T) {
+		sameAuthorityAttestation := signHistoryTransferDestinationAttestationForTest(
+			t,
+			transferID,
+			destinationIdentity,
+			destinationBoot,
+			now,
+			transferPriv,
+		)
+		digest, err := TPMRootMigrationDestinationAttestationDigest(sameAuthorityAttestation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sameAuth := auth
+		sameAuth.DestinationAttestationDigest = digest
+		sameSigned, err := SignTPMHistoryContinuityTransferAuthorization(sameAuth, transferPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = TransferTPMNVHistoryContinuity(
+			ctx,
+			cfgA.StatePath,
+			localB,
+			historyWitness,
+			ownership,
+			sameSigned,
+			transferPub,
+			sameAuthorityAttestation,
+			transferPub,
+			now,
+		)
+		if !errors.Is(err, ErrTPMHistoryContinuityAuthorization) {
+			t.Fatalf("collapsed transfer/attestation authority was not rejected: %v", err)
+		}
+		assertNoTransferMutation(t)
+	})
+
 	if err := TransferTPMNVHistoryContinuity(
 		ctx,
 		cfgA.StatePath,
@@ -311,6 +399,15 @@ func TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource(t *
 	}
 	if currentB.Sequence != 2 || currentB.HeadDigest != h2Digest {
 		t.Fatalf("destination continuity mismatch: %+v", currentB)
+	}
+	migratedState, ok, err := readTPMNVHistoryAnchorState(cfgB.StatePath)
+	if err != nil || !ok {
+		t.Fatalf("read migrated destination state: ok=%t err=%v", ok, err)
+	}
+	if migratedState.MigrationDestinationAttestationDigest != auth.DestinationAttestationDigest ||
+		migratedState.MigrationHistoryWitnessPolicyHash != auth.HistoryWitnessPolicyHash ||
+		migratedState.MigrationOwnershipWitnessPolicyHash != auth.OwnershipWitnessPolicyHash {
+		t.Fatalf("destination TPM lost transfer trust lineage: %+v", migratedState)
 	}
 
 	staleSource := &staticDeviceHistoryAnchor{
