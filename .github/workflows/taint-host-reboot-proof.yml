@@ -3,8 +3,9 @@ name: Host reboot taint proof
 on:
   pull_request:
     paths:
-      - "internal/kernelfabric/taint_recovery*.go"
-      - "internal/kernelfabric/taint_host_reboot_native_linux_test.go"
+      - "kernel/bpf/aegis_taint.bpf.c"
+      - "kernel/bpf/include/aegis_taint_abi.h"
+      - "internal/kernelfabric/taint_*.go"
       - "scripts/taint-host-reboot-proof.sh"
       - ".github/workflows/taint-host-reboot-proof.yml"
   workflow_dispatch:
@@ -32,6 +33,16 @@ jobs:
           if [ -e /dev/kvm ]; then
             sudo chmod 0666 /dev/kvm
           fi
+      - name: Compile taint BPF object for reboot proof
+        shell: bash
+        run: |
+          mkdir -p internal/kernelfabric/testdata
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o internal/kernelfabric/testdata/aegis_taint.bpf.o
       - name: Execute two independent Linux boots
         shell: bash
         env:
