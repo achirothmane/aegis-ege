@@ -63,7 +63,7 @@ func TestR02NativeFactsProjectOntoFrozenRelations(t *testing.T) {
 	for caseID, want := range map[string]string{
 		"CE6-R1-stale-worker-after-takeover":       "REJECT_TAKEOVER_EFFECT",
 		"CE7-R1-unrelated-change-as-success":       "REJECT_FALSE_VERIFIED",
-		"CE10-R1-required-independence-unknown":    "ESCALATE_INSUFFICIENT_INDEPENDENCE",
+		"CE10-R1-required-independence-unknown":    "DEFER_INSUFFICIENT_INDEPENDENCE",
 	} {
 		tc, ok := byID[caseID]
 		if !ok {
