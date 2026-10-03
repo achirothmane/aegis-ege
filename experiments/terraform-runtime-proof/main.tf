@@ -18,7 +18,7 @@ resource "terraform_data" "governed" {
     command = "printf '%s\\n' \"$PROOF_VALUE\" >> \"$EFFECT_LOG\""
 
     environment = {
-      PROOF_VALUE = self.output
+      PROOF_VALUE = var.proof_value
       EFFECT_LOG  = var.effect_log
     }
   }
