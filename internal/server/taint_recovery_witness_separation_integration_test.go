@@ -34,8 +34,8 @@ type recoveryControllerBundleIntegration struct {
 	AuthorityPrivateKey           string                                             `json:"authority_private_key"`
 	SignedTrust                   kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
 	SignedWitnessProfile          kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
-	GenesisCapabilityEnvelope     json.RawMessage                                    `json:"genesis_capability_envelope"`
-	GenesisCapabilityEnvelopeHash string                                             `json:"genesis_capability_envelope_hash"`
+	GenesisCapabilityEnvelopeBase64 string                                            `json:"genesis_capability_envelope_base64"`
+	GenesisCapabilityEnvelopeHash   string                                            `json:"genesis_capability_envelope_hash"`
 	TrustSignerPublicKey          string                                             `json:"trust_signer_public_key"`
 	WitnessCAPEM                  string                                             `json:"witness_ca_pem"`
 	WitnessTLSServerName          string                                             `json:"witness_tls_server_name"`
@@ -163,8 +163,14 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	genesisCapabilityEnvelope, err := base64.StdEncoding.DecodeString(
+		bundle.GenesisCapabilityEnvelopeBase64,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	genesisBinding, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
-		bundle.GenesisCapabilityEnvelope,
+		genesisCapabilityEnvelope,
 		bundle.GenesisCapabilityEnvelopeHash,
 	)
 	if err != nil {
