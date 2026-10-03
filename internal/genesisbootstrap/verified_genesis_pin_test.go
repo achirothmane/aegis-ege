@@ -131,6 +131,20 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 			historyBinding.CapabilityEnvelopeHash(),
 		)
 	}
+	historyEpoch, err := pin.ParseHistoryEpoch(envelope, "production-history")
+	if err != nil {
+		t.Fatalf("derive governed history epoch: %v", err)
+	}
+	if historyEpoch.GenesisEpoch() != pin.GenesisEpoch() ||
+		historyEpoch.GenesisManifestHash() != pin.ManifestPayloadHash() ||
+		historyEpoch.Binding().JournalID() != historyBinding.JournalID() {
+		t.Fatalf(
+			"unexpected governed history epoch: epoch=%d manifest=%q journal=%q",
+			historyEpoch.GenesisEpoch(),
+			historyEpoch.GenesisManifestHash(),
+			historyEpoch.Binding().JournalID(),
+		)
+	}
 	store := &verifiedPinTestStore{
 		trustManifestHash: memberTrustHash,
 		policy: journal.QuorumPolicyState{
@@ -265,6 +279,12 @@ func TestProductionGenesisLockedDoesNotEmitVerifiedPin(t *testing.T) {
 		"production-history",
 	); err == nil || !strings.Contains(err.Error(), "verified Genesis pin is unavailable") {
 		t.Fatalf("zero pin history parse = %v, want unavailable", err)
+	}
+	if _, err := pin.ParseHistoryEpoch(
+		[]byte("{}"),
+		"production-history",
+	); err == nil || !strings.Contains(err.Error(), "verified Genesis pin is unavailable") {
+		t.Fatalf("zero pin history epoch = %v, want unavailable", err)
 	}
 }
 
