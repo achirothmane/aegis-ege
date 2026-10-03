@@ -15,19 +15,19 @@ import (
 const WitnessRecoveryReceiptVersion = "aegis.ege/witness-recovery-receipt/v1"
 
 type WitnessRecoveryReceipt struct {
-	Version               string    `json:"version"`
-	WitnessID             string    `json:"witness_id"`
-	WitnessKeyID          string    `json:"witness_key_id"`
-	ProfileEpoch          uint64    `json:"profile_epoch"`
-	Endpoint              string    `json:"endpoint"`
-	TLSTrustAnchorSHA256  string    `json:"tls_trust_anchor_sha256"`
-	PolicyEpoch           uint64    `json:"policy_epoch"`
-	PolicyHash            string    `json:"policy_hash"`
-	AuthorizationID       string    `json:"authorization_id"`
-	JointCommitmentHash   string    `json:"joint_commitment_hash"`
-	Nonce                 string    `json:"nonce"`
-	EvaluatedAt           time.Time `json:"evaluated_at"`
-	Signature             string    `json:"signature"`
+	Version              string    `json:"version"`
+	WitnessID            string    `json:"witness_id"`
+	WitnessKeyID         string    `json:"witness_key_id"`
+	ProfileEpoch         uint64    `json:"profile_epoch"`
+	Endpoint             string    `json:"endpoint"`
+	TLSTrustAnchorSHA256 string    `json:"tls_trust_anchor_sha256"`
+	PolicyEpoch          uint64    `json:"policy_epoch"`
+	PolicyHash           string    `json:"policy_hash"`
+	AuthorizationID      string    `json:"authorization_id"`
+	JointCommitmentHash  string    `json:"joint_commitment_hash"`
+	Nonce                string    `json:"nonce"`
+	EvaluatedAt          time.Time `json:"evaluated_at"`
+	Signature            string    `json:"signature"`
 }
 
 func signWitnessRecoveryReceipt(
