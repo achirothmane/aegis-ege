@@ -216,6 +216,94 @@ func (w *TaintRecoveryHistoryOwnershipWitness) CompleteTransfer(
 	return got, nil
 }
 
+func (w *TaintRecoveryHistoryOwnershipWitness) RecoverAuthorizedTransfer(
+	ctx context.Context,
+	source,
+	quiesced,
+	final TaintRecoveryHistoryOwnershipState,
+) (TaintRecoveryHistoryOwnershipState, error) {
+	if w == nil || w.store == nil {
+		return TaintRecoveryHistoryOwnershipState{}, errors.New("recovery history ownership witness is unavailable")
+	}
+	if err := validateTaintRecoveryHistoryOwnershipState(source); err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if err := validateTaintRecoveryHistoryOwnershipState(quiesced); err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if err := validateTaintRecoveryHistoryOwnershipState(final); err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if quiesced.Epoch != source.Epoch+1 ||
+		final.Epoch != quiesced.Epoch+1 ||
+		quiesced.AuthorizationDigest == "" ||
+		final.AuthorizationDigest != quiesced.AuthorizationDigest ||
+		quiesced.ActiveDeviceIdentity != quiescedRecoveryHistoryOwnershipIdentity(quiesced.AuthorizationDigest) ||
+		final.ActiveDeviceIdentity == source.ActiveDeviceIdentity {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: invalid authorized ownership recovery chain",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+		)
+	}
+
+	converger, ok := w.store.(interface {
+		ConvergeAuthorizedTransition(
+			context.Context,
+			[]journal.ExternalHead,
+			journal.ExternalHead,
+		) (journal.ExternalHead, error)
+	})
+	if !ok {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: ownership store does not support authorized split recovery",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+		)
+	}
+
+	sourceHead := w.encodeState(source)
+	quiescedHead := w.encodeState(quiesced)
+	finalHead := w.encodeState(final)
+	recovered, err := converger.ConvergeAuthorizedTransition(
+		ctx,
+		[]journal.ExternalHead{sourceHead, quiescedHead, finalHead},
+		finalHead,
+	)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"recover authorized ownership transition: %w",
+			err,
+		)
+	}
+	got, err := w.decode(recovered)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if got != final {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: recovered ownership=%+v expected=%+v",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+			got,
+			final,
+		)
+	}
+	return got, nil
+}
+
+func (w *TaintRecoveryHistoryOwnershipWitness) encodeState(
+	state TaintRecoveryHistoryOwnershipState,
+) journal.ExternalHead {
+	keyID := state.AuthorizationDigest
+	if state.Epoch == 0 {
+		keyID = taintRecoveryHistoryOwnershipGenesisKeyID
+	}
+	return journal.ExternalHead{
+		JournalID: w.witnessID,
+		Sequence:  state.Epoch,
+		HeadHash:  state.ActiveDeviceIdentity,
+		KeyID:     keyID,
+	}
+}
+
 func quiescedRecoveryHistoryOwnershipIdentity(authorizationDigest string) string {
 	sum := sha256.Sum256([]byte("aegis-ege/recovery-history-ownership-quiesced/v1\x00" + authorizationDigest))
 	return "sha256:" + hex.EncodeToString(sum[:])
