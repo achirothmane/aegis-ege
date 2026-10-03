@@ -6,12 +6,17 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/achirothmane/aegis-ege/internal/journal"
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 )
 
@@ -25,6 +30,7 @@ func TestVCS12GovernedSuccessorEnrollmentDrivesSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	governanceBinding := vcs13GovernanceBinding(t, 13, governancePub)
 
 	store := vcs11Store(t)
 	predecessorEK := "sha256:" + strings.Repeat("a", 64)
@@ -37,7 +43,7 @@ func TestVCS12GovernedSuccessorEnrollmentDrivesSettlement(t *testing.T) {
 	}
 
 	successor := vcs11Identity(live.state.DeviceID, successorEK, live.now.Add(-time.Minute))
-	auth := vcs12SuccessorAuthorization(live.now, live.state.DeviceID, d1, predecessorEK, successorEK)
+	auth := vcs12SuccessorAuthorization(live.now, live.state.DeviceID, d1, predecessorEK, successorEK, governanceBinding)
 	auth.NotBefore = successor.EnrolledAt.Add(-time.Minute)
 	auth.ExpiresAt = live.now.Add(-30 * time.Second)
 	signedAuth, err := kernelfabric.SignEnrollmentIdentitySuccessorAuthorization(auth, governancePriv)
@@ -96,7 +102,7 @@ func TestVCS12GovernedSuccessorEnrollmentDrivesSettlement(t *testing.T) {
 		store,
 		enrollmentPub,
 		signedAuth,
-		governancePub,
+		governanceBinding,
 		live.now,
 	)
 	if err != nil {
@@ -141,6 +147,7 @@ func TestVCS12LegacySignedSuccessorReceiptCannotSatisfyGovernedRoot(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	governanceBinding := vcs13GovernanceBinding(t, 13, governancePub)
 	store := vcs11Store(t)
 	predecessorEK := "sha256:" + strings.Repeat("a", 64)
 	successorEK := "sha256:" + strings.Repeat("b", 64)
@@ -155,7 +162,7 @@ func TestVCS12LegacySignedSuccessorReceiptCannotSatisfyGovernedRoot(t *testing.T
 	if _, err := store.Append(context.Background(), legacyR2, enrollmentPub); err != nil {
 		t.Fatal(err)
 	}
-	auth := vcs12SuccessorAuthorization(live.now, live.state.DeviceID, d1, predecessorEK, successorEK)
+	auth := vcs12SuccessorAuthorization(live.now, live.state.DeviceID, d1, predecessorEK, successorEK, governanceBinding)
 	signedAuth, err := kernelfabric.SignEnrollmentIdentitySuccessorAuthorization(auth, governancePriv)
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +186,7 @@ func TestVCS12LegacySignedSuccessorReceiptCannotSatisfyGovernedRoot(t *testing.T
 		store,
 		enrollmentPub,
 		signedAuth,
-		governancePub,
+		governanceBinding,
 		live.now,
 	)
 	if err == nil {
@@ -197,6 +204,7 @@ func TestVCS12DifferentSuccessorAuthorizationCannotSatisfyCurrentReceipt(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	governanceBinding := vcs13GovernanceBinding(t, 13, governancePub)
 	store := vcs11Store(t)
 	predecessorEK := "sha256:" + strings.Repeat("a", 64)
 	successorEK := "sha256:" + strings.Repeat("b", 64)
@@ -207,7 +215,7 @@ func TestVCS12DifferentSuccessorAuthorizationCannotSatisfyCurrentReceipt(t *test
 		t.Fatal(err)
 	}
 	successor := vcs11Identity(live.state.DeviceID, successorEK, live.now.Add(-time.Minute))
-	auth := vcs12SuccessorAuthorization(live.now, live.state.DeviceID, d1, predecessorEK, successorEK)
+	auth := vcs12SuccessorAuthorization(live.now, live.state.DeviceID, d1, predecessorEK, successorEK, governanceBinding)
 	signedAuth, err := kernelfabric.SignEnrollmentIdentitySuccessorAuthorization(auth, governancePriv)
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +276,7 @@ func TestVCS12DifferentSuccessorAuthorizationCannotSatisfyCurrentReceipt(t *test
 		store,
 		enrollmentPub,
 		signedOther,
-		governancePub,
+		governanceBinding,
 		live.now,
 	)
 	if err == nil || errors.Is(err, kernelfabric.ErrEnrollmentIdentitySignatureInvalid) {
@@ -282,9 +290,10 @@ func vcs12SuccessorAuthorization(
 	predecessorDigest,
 	predecessorEK,
 	successorEK string,
+	governance journal.GenesisEnrollmentSuccessorGovernanceBinding,
 ) kernelfabric.EnrollmentIdentitySuccessorAuthorization {
 	return kernelfabric.EnrollmentIdentitySuccessorAuthorization{
-		Version:                                kernelfabric.EnrollmentIdentitySuccessorAuthorizationVersion,
+		Version:                                kernelfabric.EnrollmentIdentitySuccessorAuthorizationVersionV2,
 		AuthorizationID:                        "vcs12-governed-successor",
 		DeviceID:                               deviceID,
 		PredecessorReceiptDigest:               predecessorDigest,
@@ -301,7 +310,40 @@ func vcs12SuccessorAuthorization(
 		DestinationGeneration:                  7,
 		HistoryWitnessPolicyHash:               "sha256:" + strings.Repeat("7", 64),
 		OwnershipWitnessPolicyHash:             "sha256:" + strings.Repeat("8", 64),
+		GovernanceGenesisEpoch:                 governance.GenesisEpoch(),
+		GovernanceCapabilityEnvelopeHash:       governance.CapabilityEnvelopeHash(),
+		GovernancePolicyHash:                   governance.PolicyHash(),
 		NotBefore:                              now.Add(-time.Minute),
 		ExpiresAt:                              now.Add(time.Minute),
 	}
+}
+
+
+func vcs13GovernanceBinding(
+	t *testing.T,
+	genesisEpoch uint64,
+	publicKey ed25519.PublicKey,
+) journal.GenesisEnrollmentSuccessorGovernanceBinding {
+	t.Helper()
+	envelope, err := json.Marshal(map[string]any{
+		"enrollment_successor_governance": journal.EnrollmentSuccessorGovernancePolicy{
+			Protocol:        journal.EnrollmentSuccessorGovernancePolicyVersion,
+			AuthorityID:     "vcs13-successor-governance",
+			PublicKeyBase64: base64.StdEncoding.EncodeToString(publicKey),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(envelope)
+	envelopeHash := "sha256:" + hex.EncodeToString(sum[:])
+	binding, err := journal.ParseGenesisEnrollmentSuccessorGovernanceBinding(
+		envelope,
+		envelopeHash,
+		genesisEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding
 }

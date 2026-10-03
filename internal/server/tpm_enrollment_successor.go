@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/achirothmane/aegis-ege/internal/journal"
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 )
 
@@ -33,7 +34,7 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 	store kernelfabric.AnchoredEnrollmentIdentityStore,
 	enrollmentAuthorityKey ed25519.PrivateKey,
 	signedSuccessor kernelfabric.SignedEnrollmentIdentitySuccessorAuthorization,
-	successorGovernancePublicKey ed25519.PublicKey,
+	successorGovernance journal.GenesisEnrollmentSuccessorGovernanceBinding,
 	signedTransfer SignedTPMHistoryContinuityTransferAuthorization,
 	transferPublicKey ed25519.PublicKey,
 	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
@@ -64,9 +65,12 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 		return kernelfabric.EnrolledTPMIdentity{}, kernelfabric.SignedEnrollmentIdentityReceipt{}, "", err
 	}
 	if len(enrollmentAuthorityKey) != ed25519.PrivateKeySize ||
-		len(successorGovernancePublicKey) != ed25519.PublicKeySize ||
 		len(transferPublicKey) != ed25519.PublicKeySize {
-		return fail("all enrollment, governance, and transfer keys are required")
+		return fail("enrollment and transfer keys are required")
+	}
+	successorGovernancePublicKey, err := successorGovernance.PublicKey()
+	if err != nil {
+		return fail("Genesis-bound successor governance trust is required: %v", err)
 	}
 	if err := attestationTrust.validate(); err != nil {
 		return fail("Genesis-bound destination attestation trust is required: %v", err)
@@ -85,12 +89,20 @@ func CompleteAndCommitGovernedTPMEnrollmentSuccessor(
 	if now.IsZero() {
 		effectiveNow = time.Now().UTC()
 	}
+	if signedSuccessor.Authorization.Version != kernelfabric.EnrollmentIdentitySuccessorAuthorizationVersionV2 {
+		return fail("VCS-13 requires Genesis-bound successor authorization v2")
+	}
 	if err := kernelfabric.VerifySignedEnrollmentIdentitySuccessorAuthorization(
 		signedSuccessor,
 		successorGovernancePublicKey,
 		effectiveNow,
 	); err != nil {
 		return fail("verify successor governance authorization: %v", err)
+	}
+	if signedSuccessor.Authorization.GovernanceGenesisEpoch != successorGovernance.GenesisEpoch() ||
+		signedSuccessor.Authorization.GovernanceCapabilityEnvelopeHash != successorGovernance.CapabilityEnvelopeHash() ||
+		signedSuccessor.Authorization.GovernancePolicyHash != successorGovernance.PolicyHash() {
+		return fail("successor governance authorization does not match verified Genesis binding")
 	}
 	if err := VerifySignedTPMHistoryContinuityTransferAuthorization(
 		signedTransfer,

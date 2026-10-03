@@ -2,6 +2,9 @@ package genesisbootstrap
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"os"
@@ -147,6 +150,58 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 	}
 }
 
+func TestProductionGenesisPinBindsSuccessorGovernanceAuthority(t *testing.T) {
+	fixture := buildProductionFixture(t)
+	governancePub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := installSuccessorGovernanceCapabilityEnvelope(t, fixture, governancePub)
+
+	runtime, result, pin, err := BootstrapProductionWithSubjectPin(
+		t.Context(),
+		fixture.manifestPath,
+		fixture.bundlePath,
+		7,
+		3,
+		genesis.ConformanceC3,
+		fixture.currentSubject,
+		fixture.now,
+	)
+	if err != nil {
+		t.Fatalf("production Genesis with successor-governance envelope: %v result=%+v", err, result)
+	}
+	if runtime == nil || result.State != genesis.StateReady {
+		t.Fatalf("expected BOOTSTRAP_READY, got runtime=%v result=%+v", runtime, result)
+	}
+
+	binding, err := pin.ParseEnrollmentSuccessorGovernanceBinding(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundKey, err := binding.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(boundKey) != string(governancePub) ||
+		binding.GenesisEpoch() != pin.GenesisEpoch() ||
+		binding.CapabilityEnvelopeHash() != pin.CapabilityEnvelopeHash() ||
+		binding.PolicyHash() == "" {
+		t.Fatalf("unexpected Genesis successor-governance binding: epoch=%d envelope=%s policy=%s",
+			binding.GenesisEpoch(),
+			binding.CapabilityEnvelopeHash(),
+			binding.PolicyHash(),
+		)
+	}
+
+	tampered := append([]byte(nil), envelope...)
+	tampered = append(tampered, byte(10))
+	if _, err := pin.ParseEnrollmentSuccessorGovernanceBinding(tampered); err == nil ||
+		!strings.Contains(err.Error(), "capability envelope hash mismatch") {
+		t.Fatalf("tampered successor-governance envelope = %v, want exact Genesis hash rejection", err)
+	}
+}
+
 func TestProductionGenesisLockedDoesNotEmitVerifiedPin(t *testing.T) {
 	fixture := buildProductionFixture(t)
 	manifest, err := LoadManifest(fixture.manifestPath)
@@ -209,6 +264,57 @@ func installQuorumCapabilityEnvelope(
 		t.Fatal(err)
 	}
 	path := filepath.Join(filepath.Dir(fixture.manifestPath), "quorum-capability-envelope.json")
+	if err := os.WriteFile(path, envelope, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := fileDigest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest, err := LoadManifest(fixture.manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ThreatModel.CapabilityEnvelopeHash = digest
+	manifest, err = SignManifest(manifest, fixture.manifestSigner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeJSONFile(t, fixture.manifestPath, manifest)
+	payloadHash, err := ManifestPayloadHash(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := LoadVerificationBundle(fixture.bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle.Artifacts.CapabilityEnvelope = path
+	bundle.RelyingContext.ExpectedManifestPayloadHash = payloadHash
+	writeJSONFile(t, fixture.bundlePath, bundle)
+	return envelope
+}
+
+
+func installSuccessorGovernanceCapabilityEnvelope(
+	t *testing.T,
+	fixture productionFixture,
+	publicKey ed25519.PublicKey,
+) []byte {
+	t.Helper()
+	envelope, err := json.Marshal(map[string]any{
+		"enrollment_successor_governance": journal.EnrollmentSuccessorGovernancePolicy{
+			Protocol:        journal.EnrollmentSuccessorGovernancePolicyVersion,
+			AuthorityID:     "vcs13-production-authority",
+			PublicKeyBase64: base64.StdEncoding.EncodeToString(publicKey),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(filepath.Dir(fixture.manifestPath), "successor-governance-capability-envelope.json")
 	if err := os.WriteFile(path, envelope, 0o600); err != nil {
 		t.Fatal(err)
 	}
