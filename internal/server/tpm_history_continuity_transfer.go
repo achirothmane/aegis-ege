@@ -135,9 +135,7 @@ func SignTPMHistoryContinuityTransferAuthorization(
 
 func VerifySignedTPMHistoryContinuityTransferAuthorization(
 	signed SignedTPMHistoryContinuityTransferAuthorization,
-	transferPublicKey ed25519.PublicKey,
-	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
-	attestationPublicKey ed25519.PublicKey,
+	publicKey ed25519.PublicKey,
 	now time.Time,
 ) error {
 	if err := ValidateTPMHistoryContinuityTransferAuthorization(signed.Authorization); err != nil {
@@ -211,7 +209,9 @@ func TransferTPMNVHistoryContinuity(
 	historyWitness *ExternalHeadTaintRecoveryHistoryAnchor,
 	ownership *TaintRecoveryHistoryOwnershipWitness,
 	signed SignedTPMHistoryContinuityTransferAuthorization,
-	publicKey ed25519.PublicKey,
+	transferPublicKey ed25519.PublicKey,
+	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
+	attestationPublicKey ed25519.PublicKey,
 	now time.Time,
 ) error {
 	if destination == nil || historyWitness == nil || ownership == nil {
