@@ -218,6 +218,15 @@ func NewRecoveryWitnessSignerHandler(
 	if err != nil {
 		return nil, err
 	}
+	return NewRecoveryWitnessSignerHandlerWithSigner(signer)
+}
+
+func NewRecoveryWitnessSignerHandlerWithSigner(
+	signer RecoveryWitnessSigner,
+) (http.Handler, error) {
+	if signer == nil || strings.TrimSpace(signer.KeyID()) == "" {
+		return nil, errors.New("recovery witness signer is unavailable")
+	}
 	return http.HandlerFunc(func(rw http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != recoveryWitnessSignerPath {
 			http.NotFound(rw, request)
