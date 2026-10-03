@@ -49,6 +49,10 @@ type historyAnchor struct {
 
 func (a *assessment) history(b Bundle, e Execution) {
 	h := b.History
+	if (b.Succession != nil || a.p.Succession != nil) && a.r.SuccessionValidity != "VALID" {
+		a.uncertain("Succession is unproven; a new signer cannot establish trusted continuation")
+		return
+	}
 	if a.p.Checkpoint == nil || a.p.HistoryID == "" {
 		a.uncertain("No independently supplied history identity and checkpoint; local signatures cannot establish continuity")
 		return
@@ -109,6 +113,10 @@ func (a *assessment) history(b Bundle, e Execution) {
 			return
 		}
 		prev, last = expected, entry.Event
+		if a.p.Succession != nil && entry.Sequence == a.p.Succession.OldCheckpoint.Sequence && expected != a.p.Succession.OldCheckpoint.HeadHash {
+			a.uncertain("Succession rewrote the independently retained predecessor history")
+			return
+		}
 	}
 	if prev != anchor.HeadHash {
 		a.uncertain("History chain does not reach the independently pinned head")

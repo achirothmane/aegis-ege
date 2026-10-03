@@ -133,7 +133,13 @@ func BundleHistoryBinding(b Bundle) string {
 	if b.Destination != nil {
 		dest = string(compactPayload(b.Destination.Payload))
 	}
-	return RelationDigest("composite-history-v1", string(compactPayload(b.Admission.Payload)), string(compactPayload(b.Execution.Payload)), dest)
+	parts := []string{"composite-history-v1", string(compactPayload(b.Admission.Payload)), string(compactPayload(b.Execution.Payload)), dest}
+	if s := b.Succession; s != nil {
+		// The immutable predecessor/authorization is bound before the final
+		// outcome is appended. A final-head observation cannot bind itself.
+		parts = append(parts, "succession-v1", ContentDigest(s.OldGenesis.Payload), ContentDigest(s.NewGenesis.Payload), string(compactPayload(s.AuthorityRotation)), string(compactPayload(s.BeforeAnchor)))
+	}
+	return RelationDigest(parts...)
 }
 
 type assessment struct {
@@ -183,7 +189,7 @@ var gradeRank = map[string]int{"unit": 1, "simulation": 2, "native": 3}
 // Verify separates operational closure from historical trust and causality.
 // Supporting an UNKNOWN claim grants no permission to retry.
 func Verify(bundleJSON, policyJSON []byte) Report {
-	a := assessment{r: Report{Schema: Schema, Structure: "VALID", Signatures: "NOT_CHECKED", TrustRoots: "NOT_CHECKED", AuthorityAtCommit: "UNPROVEN", EffectEvidence: "NONE", Causality: "UNPROVEN", Closure: "UNKNOWN", HistoricalTrust: "UNTRUSTED_HISTORY", Uncertainty: []string{}, Errors: []string{}}}
+	a := assessment{r: Report{Schema: Schema, Structure: "VALID", Signatures: "NOT_CHECKED", TrustRoots: "NOT_CHECKED", AuthorityAtCommit: "UNPROVEN", EffectEvidence: "NONE", Causality: "UNPROVEN", Closure: "UNKNOWN", HistoricalTrust: "UNTRUSTED_HISTORY", SuccessionValidity: "NOT_PROVIDED", CustodianAuthority: "UNPROVEN", Uncertainty: []string{}, Errors: []string{}}}
 	var b Bundle
 	if err := Decode(bundleJSON, &b); err != nil {
 		a.r.Structure = "INVALID"
@@ -245,10 +251,20 @@ func Verify(bundleJSON, policyJSON []byte) Report {
 			a.destination(e, d)
 		}
 	}
+	if b.Succession != nil || a.p.Succession != nil {
+		a.succession(b, e)
+	} else if e.EvidenceGrades != nil {
+		a.fail("component grades require the succession profile")
+	}
 	if b.History == nil {
 		a.uncertain("No external history checkpoint and chain")
 	} else {
 		a.history(b, e)
+	}
+	if a.r.SuccessionValidity == "VALID" && a.r.HistoricalTrust != "TRUSTED_HISTORY" {
+		a.r.CustodianAuthority = "UNPROVEN"
+		a.r.CurrentCustodian = nil
+		a.fail("right to continue this history requires verified predecessor continuity")
 	}
 	if e.ClaimedClosure != a.r.Closure {
 		a.fail("closure claim exceeds derived evidence")

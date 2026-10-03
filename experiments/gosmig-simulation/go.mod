@@ -5,6 +5,7 @@ go 1.25.3
 require (
 	github.com/achirothmane/aegis-ege v0.0.0-00010101000000-000000000000
 	github.com/achirothmane/aegis-ege/governedaction v0.0.0
+	github.com/achirothmane/easl v0.0.0-20260928052341-f7e3b79c6892
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/padurean/gosmig v0.0.0-20251102200842-f2cc69c685d6
 )
@@ -12,6 +13,7 @@ require (
 replace github.com/achirothmane/aegis-ege/governedaction => ../../governedaction
 
 require (
+	github.com/cilium/ebpf v0.22.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -20,6 +22,8 @@ require (
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
+	github.com/google/go-attestation v0.6.4 // indirect
+	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

@@ -8,6 +8,7 @@ on:
       - 'experiments/gosmig-simulation/**'
       - 'governedaction/runtime/**'
       - 'internal/journal/**'
+      - 'internal/genesisbootstrap/**'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/composite-native-assurance.yml'
@@ -19,6 +20,7 @@ on:
       - 'experiments/gosmig-simulation/**'
       - 'governedaction/runtime/**'
       - 'internal/journal/**'
+      - 'internal/genesisbootstrap/**'
       - '.github/workflows/composite-native-assurance.yml'
 
 permissions:
@@ -43,6 +45,7 @@ jobs:
       GOSMIG_SIM_ADMIN_DSN: postgres://postgres:fixture-only@localhost:5432/gosmig_fixture?sslmode=disable
       NATIVE_FENCE_REQUIRE: '1'
       COMPOSITE_REQUIRE: '1'
+      COMPOSITE_SUCCESSION_REQUIRE: '1'
       COMPOSITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -58,13 +61,17 @@ jobs:
         run: |
           echo "EVIDENCE_VERIFY_BINARY=$RUNNER_TEMP/aegis-evidence-inspect" >> "$GITHUB_ENV"
           echo "COMPOSITE_ARTIFACT_DIR=$RUNNER_TEMP/composite-evidence" >> "$GITHUB_ENV"
+          echo "COMPOSITE_NATIVE_BINARY=$RUNNER_TEMP/composite-native.test" >> "$GITHUB_ENV"
+          echo "COMPOSITE_GENESIS_INPUT=$RUNNER_TEMP/composite-genesis-input.json" >> "$GITHUB_ENV"
+          echo "COMPOSITE_GENESIS_FIXTURE_DIR=$RUNNER_TEMP/composite-genesis" >> "$GITHUB_ENV"
+          echo "COMPOSITE_SUCCESSION_KEYS=$RUNNER_TEMP/composite-private-keys.json" >> "$GITHUB_ENV"
 
       - name: Verify portable evaluator and build read-only consumer
         run: |
           set -euo pipefail
           mkdir -p "$COMPOSITE_ARTIFACT_DIR"
           test "$(git rev-parse HEAD)" = "$COMPOSITE_BUILD_SHA"
-          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/native_destination_fence_test.go)"
+          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
           go test -race -mod=readonly -count=1 ./evidenceverify ./cmd/aegis-evidence-inspect | tee "$COMPOSITE_ARTIFACT_DIR/unit.log"
           go build -mod=readonly -trimpath -o "$EVIDENCE_VERIFY_BINARY" ./cmd/aegis-evidence-inspect
           # This production binary may depend only on the standard library and
@@ -73,13 +80,23 @@ jobs:
           ! grep -E 'internal/|governedaction/|pgx|k8s.io' "$COMPOSITE_ARTIFACT_DIR/verifier-dependencies.txt"
           sha256sum "$EVIDENCE_VERIFY_BINARY" > "$COMPOSITE_ARTIFACT_DIR/verifier-binary.sha256"
 
+      - name: Prepare signed Genesis for the exact native executable
+        run: |
+          set -euo pipefail
+          (cd experiments/gosmig-simulation && go mod download && go mod verify && go test -race -mod=readonly -c -o "$COMPOSITE_NATIVE_BINARY" .)
+          COMPOSITE_PREPARE_SUCCESSION=1 "$COMPOSITE_NATIVE_BINARY" -test.run '^TestPostgresCompositePrepareSuccession$' -test.v
+          go test -mod=readonly -count=1 -run '^TestCompositeGenesisFixtureExport$' ./internal/genesisbootstrap
+          sha256sum "$COMPOSITE_NATIVE_BINARY" > "$COMPOSITE_ARTIFACT_DIR/native-binary.sha256"
+          # Private signing keys, bootstrap paths and credentials stay outside
+          # the uploaded directory. Bundles contain only portable public proof.
+
       - name: Execute native crash, authority, recovery and causality corpus
         working-directory: experiments/gosmig-simulation
         run: |
           set -euo pipefail
           go mod download
           go mod verify
-          go test -race -mod=readonly -count=1 -json -run '^TestPostgresComposite' . | tee "$COMPOSITE_ARTIFACT_DIR/native-tests.jsonl"
+          go tool test2json -t -p github.com/achirothmane/aegis-ege/experiments/gosmig-simulation "$COMPOSITE_NATIVE_BINARY" -test.v -test.run '^TestPostgresComposite' -test.timeout=5m | tee "$COMPOSITE_ARTIFACT_DIR/native-tests.jsonl"
           python3 - <<'PY'
           import json, os
           from pathlib import Path
@@ -90,6 +107,8 @@ jobs:
               'TestPostgresCompositeLostAcknowledgementAuthorityChangeRecovery/UNKNOWN',
               'TestPostgresCompositeAuthorityGenerationSwitchDoesNotReviveOldAdmission',
               'TestPostgresCompositeMatchingStateAndForeignEffectDoNotProveCausality',
+              'TestPostgresCompositeGenesisHistoryCustodianLostAcknowledgement/CLOSED',
+              'TestPostgresCompositeGenesisHistoryCustodianLostAcknowledgement/UNKNOWN',
           }
           passed = {r.get('Test') for r in rows if r['Action'] == 'pass'}
           assert expected <= passed, (expected - passed)

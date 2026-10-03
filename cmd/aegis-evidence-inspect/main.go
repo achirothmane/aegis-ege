@@ -63,6 +63,15 @@ func run() int {
 		if r.ExternallyCommittedEffects != nil {
 			fmt.Printf("Committed effects in this case: %d\n", *r.ExternallyCommittedEffects)
 		}
+		if r.SuccessionValidity != "NOT_PROVIDED" {
+			fmt.Printf("Authority and history handoff: %s\nRight to continue this history: %s\n", r.SuccessionValidity, r.CustodianAuthority)
+			if r.CurrentCustodian != nil {
+				fmt.Printf("Current history holder: %s (%s)\n", r.CurrentCustodian.ID, r.CurrentCustodian.Kind)
+			}
+			if r.EvidenceGrades != nil {
+				fmt.Printf("Evidence: effect=%s; handoff=%s; bootstrap=%s\n", r.EvidenceGrades.Effect, r.EvidenceGrades.Succession, r.EvidenceGrades.Genesis)
+			}
+		}
 		fmt.Printf("Structure: %s; signatures: %s; expected roots: %s\nClaims supported: %t\n", r.Structure, r.Signatures, r.TrustRoots, r.ClaimsSupported)
 		if len(r.Uncertainty) > 0 {
 			fmt.Printf("Uncertainty:\n- %s\n", strings.Join(r.Uncertainty, "\n- "))
