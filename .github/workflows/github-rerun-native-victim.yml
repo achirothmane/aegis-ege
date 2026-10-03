@@ -2,6 +2,15 @@ name: GitHub Rerun Native Victim
 
 on:
   pull_request:
+    paths:
+      - 'governedaction/**'
+      - 'internal/governedactionnormative/**'
+      - 'internal/kubeadapter/**'
+      - 'experiments/gosmig-simulation/**'
+      - 'cmd/github-rerun-proof/**'
+      - 'testdata/governed-action/**'
+      - '.github/workflows/cross-domain-kernel-proof.yml'
+      - '.github/workflows/github-rerun-native-victim.yml'
   workflow_dispatch:
 
 permissions:
@@ -9,7 +18,6 @@ permissions:
 
 jobs:
   victim:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'proof/github-native-rerun-kernel')
     runs-on: ubuntu-latest
     steps:
       - name: Fail first attempt, pass rerun
