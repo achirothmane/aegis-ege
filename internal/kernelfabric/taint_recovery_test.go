@@ -121,7 +121,6 @@ func TestSignedTaintRecoveryAuthorizationExpires(t *testing.T) {
 	}
 }
 
-
 func TestJointTaintRecoveryAuthorizationRequiresBothDistinctPrincipals(t *testing.T) {
 	auth, authorityPublic, authorityPrivate := testTaintRecoveryAuthorization(t)
 	witnessPublic, witnessPrivate, err := ed25519.GenerateKey(rand.Reader)
