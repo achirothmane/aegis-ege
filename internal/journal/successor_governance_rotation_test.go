@@ -68,6 +68,7 @@ func newVCS14RotationFixture(t *testing.T) vcs14RotationFixture {
 		oldEnvelope,
 		oldEnvelopeHash,
 		41,
+		sha256Digest([]byte("vcs14-genesis-41")),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -76,6 +77,7 @@ func newVCS14RotationFixture(t *testing.T) vcs14RotationFixture {
 		newEnvelope,
 		newEnvelopeHash,
 		42,
+		sha256Digest([]byte("vcs14-genesis-42")),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +163,7 @@ func newVCS14RotationFixture(t *testing.T) vcs14RotationFixture {
 	auth, err := NewSuccessorGovernanceRotationAuthorization(
 		"vcs14-a-to-b",
 		SuccessorGovernanceAuthorityJournalID,
-		0,
+		oldHead,
 		oldBinding,
 		newBinding,
 		now.Add(-time.Minute),
@@ -480,7 +482,7 @@ func TestVCS14RejectsStalePredecessorAndDifferentTransitionAfterFreeze(t *testin
 	staleAuth, err := NewSuccessorGovernanceRotationAuthorization(
 		"vcs14-stale",
 		SuccessorGovernanceAuthorityJournalID,
-		7,
+		ExternalHead{JournalID: f.oldHead.JournalID, Sequence: 6, HeadHash: f.oldHead.HeadHash, KeyID: f.oldHead.KeyID + "/rotation/" + sha256Digest([]byte("stale predecessor"))},
 		f.oldBinding,
 		f.newBinding,
 		f.now.Add(-time.Minute),
@@ -499,8 +501,8 @@ func TestVCS14RejectsStalePredecessorAndDifferentTransitionAfterFreeze(t *testin
 	}
 	stale := SignedSuccessorGovernanceRotation{
 		Authorization: staleAuth,
-		OldApproval: staleOld,
-		NewApproval: staleNew,
+		OldApproval:   staleOld,
+		NewApproval:   staleNew,
 	}
 	if _, err := FreezeSuccessorGovernanceAuthority(
 		f.ctx,

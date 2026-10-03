@@ -21,6 +21,7 @@ type EnrollmentSuccessorGovernancePolicy struct {
 
 type GenesisEnrollmentSuccessorGovernanceBinding struct {
 	genesisEpoch           uint64
+	genesisManifestHash    string
 	capabilityEnvelopeHash string
 	policyHash             string
 	authorityID            string
@@ -38,9 +39,13 @@ func ParseGenesisEnrollmentSuccessorGovernanceBinding(
 	capabilityEnvelope []byte,
 	genesisCapabilityEnvelopeHash string,
 	genesisEpoch uint64,
+	genesisManifestHash string,
 ) (GenesisEnrollmentSuccessorGovernanceBinding, error) {
 	if genesisEpoch == 0 {
 		return GenesisEnrollmentSuccessorGovernanceBinding{}, errors.New("Genesis epoch must be non-zero")
+	}
+	if !validSHA256Digest(genesisManifestHash) {
+		return GenesisEnrollmentSuccessorGovernanceBinding{}, errors.New("Genesis manifest hash must be sha256")
 	}
 	if !validSHA256Digest(genesisCapabilityEnvelopeHash) {
 		return GenesisEnrollmentSuccessorGovernanceBinding{}, errors.New("Genesis capability envelope hash must be a sha256 digest")
@@ -111,6 +116,7 @@ func ParseGenesisEnrollmentSuccessorGovernanceBinding(
 
 	return GenesisEnrollmentSuccessorGovernanceBinding{
 		genesisEpoch:           genesisEpoch,
+		genesisManifestHash:    genesisManifestHash,
 		capabilityEnvelopeHash: actualEnvelopeHash,
 		policyHash:             policyHash,
 		authorityID:            policy.AuthorityID,
@@ -120,6 +126,10 @@ func ParseGenesisEnrollmentSuccessorGovernanceBinding(
 
 func (b GenesisEnrollmentSuccessorGovernanceBinding) GenesisEpoch() uint64 {
 	return b.genesisEpoch
+}
+
+func (b GenesisEnrollmentSuccessorGovernanceBinding) GenesisManifestHash() string {
+	return b.genesisManifestHash
 }
 
 func (b GenesisEnrollmentSuccessorGovernanceBinding) CapabilityEnvelopeHash() string {
@@ -136,6 +146,7 @@ func (b GenesisEnrollmentSuccessorGovernanceBinding) AuthorityID() string {
 
 func (b GenesisEnrollmentSuccessorGovernanceBinding) PublicKey() (ed25519.PublicKey, error) {
 	if b.genesisEpoch == 0 ||
+		!validSHA256Digest(b.genesisManifestHash) ||
 		!validSHA256Digest(b.capabilityEnvelopeHash) ||
 		!validSHA256Digest(b.policyHash) ||
 		strings.TrimSpace(b.authorityID) == "" ||

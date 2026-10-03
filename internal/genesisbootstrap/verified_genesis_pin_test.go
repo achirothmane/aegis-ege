@@ -131,6 +131,37 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 			historyBinding.CapabilityEnvelopeHash(),
 		)
 	}
+
+	quorumEpoch, historyEpoch, err := pin.ParseHistorySuccessionEpochs(
+		envelope,
+		"production-history",
+	)
+	if err != nil {
+		t.Fatalf("derive co-bound succession epochs: %v", err)
+	}
+	if quorumEpoch.GenesisEpoch() != pin.GenesisEpoch() ||
+		historyEpoch.GenesisEpoch() != pin.GenesisEpoch() ||
+		quorumEpoch.GenesisManifestHash() != pin.ManifestPayloadHash() ||
+		historyEpoch.GenesisManifestHash() != pin.ManifestPayloadHash() ||
+		quorumEpoch.CapabilityEnvelopeHash() != pin.CapabilityEnvelopeHash() ||
+		historyEpoch.JournalID() != historyBinding.JournalID() {
+		t.Fatalf(
+			"succession epochs escaped verified Genesis provenance: quorum=(epoch=%d manifest=%q envelope=%q) history=(epoch=%d manifest=%q journal=%q)",
+			quorumEpoch.GenesisEpoch(),
+			quorumEpoch.GenesisManifestHash(),
+			quorumEpoch.CapabilityEnvelopeHash(),
+			historyEpoch.GenesisEpoch(),
+			historyEpoch.GenesisManifestHash(),
+			historyEpoch.JournalID(),
+		)
+	}
+	expectedPolicy, err := binding.ActivePolicy(pin.GenesisEpoch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quorumEpoch.PolicyHash() != expectedPolicy.PolicyHash {
+		t.Fatal("co-bound quorum epoch policy differs from verified Genesis binding")
+	}
 	store := &verifiedPinTestStore{
 		trustManifestHash: memberTrustHash,
 		policy: journal.QuorumPolicyState{
@@ -166,6 +197,12 @@ func TestProductionGenesisPinBindsExactQuorumEnvelope(t *testing.T) {
 	); err == nil || !strings.Contains(err.Error(), "capability envelope hash mismatch") {
 		t.Fatalf("tampered history envelope = %v, want exact Genesis hash rejection", err)
 	}
+	if _, _, err := pin.ParseHistorySuccessionEpochs(
+		tampered,
+		"production-history",
+	); err == nil || !strings.Contains(err.Error(), "capability envelope hash mismatch") {
+		t.Fatalf("tampered succession envelope = %v, want exact Genesis hash rejection", err)
+	}
 }
 
 func TestProductionGenesisPinBindsSuccessorGovernanceAuthority(t *testing.T) {
@@ -196,6 +233,9 @@ func TestProductionGenesisPinBindsSuccessorGovernanceAuthority(t *testing.T) {
 	binding, err := pin.ParseEnrollmentSuccessorGovernanceBinding(envelope)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if binding.GenesisManifestHash() != pin.ManifestPayloadHash() {
+		t.Fatal("successor authority escaped verified Genesis manifest provenance")
 	}
 	boundKey, err := binding.PublicKey()
 	if err != nil {
@@ -265,6 +305,12 @@ func TestProductionGenesisLockedDoesNotEmitVerifiedPin(t *testing.T) {
 		"production-history",
 	); err == nil || !strings.Contains(err.Error(), "verified Genesis pin is unavailable") {
 		t.Fatalf("zero pin history parse = %v, want unavailable", err)
+	}
+	if _, _, err := pin.ParseHistorySuccessionEpochs(
+		[]byte("{}"),
+		"production-history",
+	); err == nil || !strings.Contains(err.Error(), "verified Genesis pin is unavailable") {
+		t.Fatalf("zero pin succession epochs = %v, want unavailable", err)
 	}
 }
 

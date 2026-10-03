@@ -601,6 +601,7 @@ func vcs13ServerGovernanceBinding(
 		envelope,
 		envelopeHash,
 		genesisEpoch,
+		envelopeHash, // fixture manifest pin; not a production Genesis verification
 	)
 	if err != nil {
 		t.Fatal(err)
