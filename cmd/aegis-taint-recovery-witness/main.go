@@ -35,14 +35,20 @@ func main() {
 		signedTrust.Manifest.TrustEpoch,
 	)
 	must(err)
+	genesisCapabilityEnvelope := requireFile("GENESIS_CAPABILITY_ENVELOPE_PATH")
+	genesisCapabilityEnvelopeHash := strings.TrimSpace(
+		string(requireFile("GENESIS_CAPABILITY_ENVELOPE_HASH_PATH")),
+	)
+	genesisBinding, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
+		genesisCapabilityEnvelope,
+		genesisCapabilityEnvelopeHash,
+	)
+	must(err)
 	var signedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile
 	mustJSONFile("EXTERNAL_WITNESS_PROFILE_PATH", &signedWitnessProfile)
-	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+	witnessProfile, err := genesisBinding.VerifyProfile(
 		signedWitnessProfile,
-		trustSignerPublic,
 		root,
-		1,
-		1,
 	)
 	must(err)
 	tlsCertPath := requireEnv("TLS_CERT_PATH")
