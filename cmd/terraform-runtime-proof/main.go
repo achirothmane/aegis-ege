@@ -255,12 +255,12 @@ func (a *adapter) VerifyAttestation(_ context.Context, att gaRuntime.Attestation
 	if att.BindingDigest != expected {
 		return errors.New("attestation binding digest mismatch")
 	}
-	switch att.Issuer.ID {
-	case policyIssuer.ID, observerIssuer.ID, recoveryIssuer.ID:
+	if att.Issuer.Equal(policyIssuer) ||
+		att.Issuer.Equal(observerIssuer) ||
+		att.Issuer.Equal(recoveryIssuer) {
 		return nil
-	default:
-		return fmt.Errorf("untrusted attestation issuer %q", att.Issuer.ID)
 	}
+	return fmt.Errorf("untrusted attestation issuer %q/%q", att.Issuer.Kind, att.Issuer.ID)
 }
 
 func (a *adapter) RetainCustody(_ context.Context, custody gaRuntime.Custody) error {
