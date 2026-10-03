@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/ucarion/jcs"
@@ -163,6 +164,13 @@ func normalizeExternalRecoveryWitnessProfile(
 		profile.PolicyEpoch > maxTaintRecoveryTrustJSONInteger {
 		return ExternalRecoveryWitnessProfile{}, fmt.Errorf(
 			"%w: external witness epoch exceeds RFC8785/JCS exact integer profile",
+			ErrTaintRecoveryAuthorization,
+		)
+	}
+	parsedEndpoint, err := url.Parse(profile.Endpoint)
+	if err != nil || parsedEndpoint.Scheme != "https" || parsedEndpoint.Host == "" {
+		return ExternalRecoveryWitnessProfile{}, fmt.Errorf(
+			"%w: external witness endpoint must be an absolute HTTPS URL",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
