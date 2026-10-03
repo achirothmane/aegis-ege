@@ -10,7 +10,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"path/filepath"
@@ -319,6 +321,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	governanceBinding := vcs13ServerGovernanceBinding(t, 13, governancePub)
 	transferID := "vcs12-a-to-b"
 	destinationAttestation, err := SignTPMRootMigrationDestinationAttestation(
 		TPMRootMigrationDestinationAttestation{
@@ -384,7 +387,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		t.Fatal(err)
 	}
 	successorAuth := kernelfabric.EnrollmentIdentitySuccessorAuthorization{
-		Version:                                kernelfabric.EnrollmentIdentitySuccessorAuthorizationVersion,
+		Version:                                kernelfabric.EnrollmentIdentitySuccessorAuthorizationVersionV2,
 		AuthorizationID:                        "vcs12-successor-governance",
 		DeviceID:                               deviceID,
 		PredecessorReceiptDigest:               r1Digest,
@@ -401,6 +404,9 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		DestinationGeneration:                  destinationState.Generation,
 		HistoryWitnessPolicyHash:               historyWitness.QuorumPolicyHash(),
 		OwnershipWitnessPolicyHash:             ownership.QuorumPolicyHash(),
+		GovernanceGenesisEpoch:                 governanceBinding.GenesisEpoch(),
+		GovernanceCapabilityEnvelopeHash:       governanceBinding.CapabilityEnvelopeHash(),
+		GovernancePolicyHash:                   governanceBinding.PolicyHash(),
 		NotBefore:                              now.Add(-time.Minute),
 		ExpiresAt:                              now.Add(5 * time.Minute),
 	}
@@ -433,7 +439,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		storeB,
 		enrollmentPriv,
 		signedSuccessor,
-		governancePub,
+		governanceBinding,
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
@@ -492,7 +498,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		storeB,
 		enrollmentPriv,
 		badSignedSuccessor,
-		governancePub,
+		governanceBinding,
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
@@ -517,7 +523,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		storeB,
 		enrollmentPriv,
 		signedSuccessor,
-		governancePub,
+		governanceBinding,
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
@@ -551,7 +557,7 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 		storeB,
 		enrollmentPriv,
 		signedSuccessor,
-		governancePub,
+		governanceBinding,
 		signedTransfer,
 		transferPub,
 		destinationAttestation,
@@ -570,4 +576,34 @@ func TestVCS12GovernedEnrollmentSuccessorRequiresTransferredHeadAndSameLiveTPM(t
 	if currentB.Sequence != 2 || currentB.HeadDigest != r2Digest {
 		t.Fatalf("governed successor retry advanced durable head: %+v", currentB)
 	}
+}
+
+
+func vcs13ServerGovernanceBinding(
+	t *testing.T,
+	genesisEpoch uint64,
+	publicKey ed25519.PublicKey,
+) journal.GenesisEnrollmentSuccessorGovernanceBinding {
+	t.Helper()
+	envelope, err := json.Marshal(map[string]any{
+		"enrollment_successor_governance": journal.EnrollmentSuccessorGovernancePolicy{
+			Protocol:        journal.EnrollmentSuccessorGovernancePolicyVersion,
+			AuthorityID:     "vcs13-successor-governance",
+			PublicKeyBase64: base64.StdEncoding.EncodeToString(publicKey),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(envelope)
+	envelopeHash := "sha256:" + hex.EncodeToString(sum[:])
+	binding, err := journal.ParseGenesisEnrollmentSuccessorGovernanceBinding(
+		envelope,
+		envelopeHash,
+		genesisEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding
 }
