@@ -207,6 +207,7 @@ jobs:
         env:
           WITNESS_SIGNER_CUSTODY_MODE: generate
           WITNESS_SIGNER_PRIVATE_KEY_PATH: ${{ runner.temp }}/witness-signer/private-key
+          WITNESS_SIGNER_ALGORITHM_PATH: ${{ runner.temp }}/witness-signer/algorithm
           WITNESS_SIGNER_PUBLIC_KEY_PATH: ${{ runner.temp }}/witness-signer/public-key
           WITNESS_SIGNER_TLS_CERT_PATH: ${{ runner.temp }}/witness-signer/tls.crt
           WITNESS_SIGNER_TLS_KEY_PATH: ${{ runner.temp }}/witness-signer/tls.key
@@ -230,6 +231,7 @@ jobs:
         env:
           PROVISION_PHASE: prepare
           PROFILE_AUTHORITY_PUBLIC_KEY_PATH: ${{ runner.temp }}/profile-authority/public-key
+          WITNESS_SIGNER_ALGORITHM_PATH: ${{ runner.temp }}/witness-signer/algorithm
           WITNESS_SIGNER_PUBLIC_KEY_PATH: ${{ runner.temp }}/witness-signer/public-key
           WITNESS_SIGNER_ENDPOINT_PATH: ${{ runner.temp }}/witness-signer/endpoint
           WITNESS_SIGNER_TLS_CERT_PATH: ${{ runner.temp }}/witness-signer/tls.crt
