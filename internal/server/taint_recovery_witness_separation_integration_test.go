@@ -5,11 +5,8 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
+		"encoding/base64"
 	"encoding/json"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -200,29 +197,24 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 		t.Fatalf("controller policy continuity does not match signed witness profile")
 	}
 
-	roots := x509.NewCertPool()
-	if ok := roots.AppendCertsFromPEM([]byte(bundle.WitnessCAPEM)); !ok {
-		t.Fatal("controller bundle witness CA is invalid")
+	if genesisBinding.Policy().TLSServerName != bundle.WitnessTLSServerName {
+		t.Fatalf(
+			"Genesis TLS server name=%q bundle=%q",
+			genesisBinding.Policy().TLSServerName,
+			bundle.WitnessTLSServerName,
+		)
 	}
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				RootCAs:    roots,
-				ServerName: bundle.WitnessTLSServerName,
-			},
-		},
-		Timeout: 10 * time.Second,
-	}
-	remote, err := kernelfabric.NewProfiledRemoteTaintRecoveryWitness(
-		endpoint,
+	remote, genesisProfile, err := genesisBinding.NewRemoteWitness(
+		bundle.SignedWitnessProfile,
 		root,
-		witnessProfile,
 		[]byte(bundle.WitnessCAPEM),
-		httpClient,
+		10*time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if genesisProfile.Profile() != witnessProfile.Profile() {
+		t.Fatal("Genesis remote constructor returned different verified profile")
 	}
 
 	now := time.Now().UTC()
