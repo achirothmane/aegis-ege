@@ -1,0 +1,40 @@
+name: Cross-Genesis TPM continuity proof
+
+on:
+  pull_request:
+    paths:
+      - "internal/journal/quorum_rotation.go"
+      - "internal/journal/quorum_head_store.go"
+      - "internal/server/taint_recovery_history_quorum_anchor.go"
+      - "internal/server/taint_recovery_history_ownership.go"
+      - "internal/server/tpm_history_anchor.go"
+      - "internal/server/tpm_history_continuity_transfer.go"
+      - "internal/server/tpm_history_cross_genesis_continuity_test.go"
+      - "docs/taint-history-cross-genesis-continuity.md"
+      - ".github/workflows/cross-genesis-tpm-continuity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-genesis-continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Prove quorum epoch and hardware root may change without resetting history
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run '^TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement$' -count=1 | tee "$RUNNER_TEMP/cross-genesis-tpm-continuity.log"
+          grep -q -- "--- PASS: TestTPMHistoryContinuitySurvivesGenesisQuorumRotationAndHardwareReplacement" "$RUNNER_TEMP/cross-genesis-tpm-continuity.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/cross-genesis-tpm-continuity.log"; then
+            exit 1
+          fi
