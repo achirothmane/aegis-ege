@@ -46,13 +46,16 @@ type TPMNVMonotonicRoot struct {
 }
 
 type tpmNVRootState struct {
-	Version              string                                           `json:"version"`
-	DeviceIdentity       string                                           `json:"device_identity"`
-	MeasuredBootIdentity string                                           `json:"measured_boot_identity"`
-	Generation           uint64                                           `json:"generation"`
-	PreviousGeneration uint64                                           `json:"previous_generation,omitempty"`
-	Scopes             map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
-	Digest              string                                           `json:"digest"`
+	Version                      string                                           `json:"version"`
+	DeviceIdentity               string                                           `json:"device_identity"`
+	MeasuredBootIdentity         string                                           `json:"measured_boot_identity"`
+	Generation                   uint64                                           `json:"generation"`
+	PreviousGeneration           uint64                                           `json:"previous_generation,omitempty"`
+	PredecessorDeviceIdentity    string                                           `json:"predecessor_device_identity,omitempty"`
+	MigrationSourceStateDigest   string                                           `json:"migration_source_state_digest,omitempty"`
+	MigrationAuthorizationDigest string                                           `json:"migration_authorization_digest,omitempty"`
+	Scopes                       map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
+	Digest                       string                                           `json:"digest"`
 }
 
 func ProvisionTPMNVMonotonicRoot(ctx context.Context, device transport.TPM, cfg TPMNVMonotonicRootConfig) error {

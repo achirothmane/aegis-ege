@@ -433,3 +433,74 @@ The root-state format is now `aegis.ege/tpm-nv-monotonic-root/v2`. Existing v1 c
 ### Claim boundary
 
 This proves software-visible binding to the TPM endorsement hierarchy in the TPM2 simulator model. It does not claim resistance to a compromised TPM implementation that reproduces the enrolled endorsement identity, nor does it define a cross-device root migration protocol. Legitimate TPM replacement therefore requires an explicit separately authorized migration path rather than automatic reset.
+
+## Authorized TPM replacement / root migration
+
+Device identity binding deliberately rejects a copied root state on a different TPM. Legitimate hardware replacement therefore requires a separate authorization path rather than an implicit reset.
+
+A migration authorization binds one exact transition:
+
+```text
+migration_id
+source_device_identity
+source_state_digest
+source_generation
+destination_device_identity
+destination_generation
+destination_nv_index
+not_before
+expires_at
+```
+
+The complete payload is signed with an Ed25519 migration authority key. The destination verifies the signature and validity window before reading or changing its TPM counter.
+
+The migration path then requires:
+
+```text
+source state digest == authorized source digest
+source device        == authorized source device
+source generation    == authorized source generation
+
+destination TPM identity   == authorized destination identity
+destination generation     == authorized destination generation
+destination NV handle      == authorized destination NV handle
+destination authority set  == empty
+```
+
+Only then does it create a new destination generation using the same crash-consistent protocol:
+
+```text
+persist pending destination state
+        |
+        v
+TPM2_NV_Increment
+        |
+        v
+atomic pending -> committed
+```
+
+The new committed state records:
+
+```text
+predecessor_device_identity
+migration_source_state_digest
+migration_authorization_digest
+```
+
+so the replacement does not erase its provenance.
+
+### Executable migration proof
+
+The positive proof creates TPM-A and TPM-B from independent simulator hierarchy seeds. TPM-A owns an active capability root. TPM-B is freshly provisioned and empty.
+
+An exact signed A -> B authorization is issued. A mismatched destination authorization is rejected without changing TPM-B's counter. The exact authorization then migrates the root, advances TPM-B exactly once, preserves the complete capability-authority snapshot set, and records the signed migration commitment.
+
+After the server switches to TPM-B, the permit that was valid under the exact migrated source state remains executable because the migration explicitly authorized continuity of that state.
+
+Replaying the same signed migration is rejected as `ErrTPMRootMigrationReplay`.
+
+A separate falsification test verifies that expired and forged authorizations are rejected before the destination counter changes.
+
+### Claim boundary
+
+This v1 protocol proves explicit software-visible authorization for a root transition between two TPM identities. It does not prove that the migration signer is organizationally independent, nor does it remotely attest the destination TPM inside the migration function itself. A production profile should issue the signed migration authorization only after independently verifying both enrolled device identities and the intended replacement event.
