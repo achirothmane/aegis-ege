@@ -43,13 +43,32 @@ type remotePolicyTransitionRequest struct {
 type governedRemoteWitnessHandler struct {
 	stateStore GovernedWitnessStateStore
 	keyID      string
-	privateKey ed25519.PrivateKey
+	signer     ExternalHeadWitnessSigner
 }
 
 func NewGovernedRemoteWitnessHandler(
 	stateStore GovernedWitnessStateStore,
 	witnessKeyID string,
 	witnessPrivateKey ed25519.PrivateKey,
+) (http.Handler, error) {
+	signer, err := NewEd25519ExternalHeadWitnessSigner(
+		witnessKeyID,
+		witnessPrivateKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return NewGovernedRemoteWitnessHandlerWithSigner(
+		stateStore,
+		witnessKeyID,
+		signer,
+	)
+}
+
+func NewGovernedRemoteWitnessHandlerWithSigner(
+	stateStore GovernedWitnessStateStore,
+	witnessKeyID string,
+	signer ExternalHeadWitnessSigner,
 ) (http.Handler, error) {
 	witnessKeyID = strings.TrimSpace(witnessKeyID)
 	if stateStore == nil {
@@ -58,13 +77,13 @@ func NewGovernedRemoteWitnessHandler(
 	if witnessKeyID == "" {
 		return nil, errors.New("remote witness key id is required")
 	}
-	if len(witnessPrivateKey) != ed25519.PrivateKeySize {
-		return nil, errors.New("invalid remote witness private key")
+	if signer == nil || signer.KeyID() != witnessKeyID {
+		return nil, errors.New("external head witness signer identity mismatch")
 	}
 	return &governedRemoteWitnessHandler{
 		stateStore: stateStore,
 		keyID:      witnessKeyID,
-		privateKey: append(ed25519.PrivateKey(nil), witnessPrivateKey...),
+		signer:     signer,
 	}, nil
 }
 
@@ -131,7 +150,7 @@ func (h *governedRemoteWitnessHandler) handleHeadLoad(
 		return
 	}
 	head.StoreVersion = state.StoreVersion
-	h.writeSignedHead(w, "load", nonce, head, &state.Policy)
+	h.writeSignedHead(r.Context(), w, "load", nonce, head, &state.Policy)
 }
 
 func (h *governedRemoteWitnessHandler) handleRotationObserve(
@@ -152,6 +171,7 @@ func (h *governedRemoteWitnessHandler) handleRotationObserve(
 	}
 	head.StoreVersion = state.StoreVersion
 	h.writeSignedHead(
+		r.Context(),
 		w,
 		"rotation-observe",
 		nonce,
@@ -238,7 +258,7 @@ func (h *governedRemoteWitnessHandler) handleHeadAdvance(
 	}
 	savedHead := saved.Heads[journalID]
 	savedHead.StoreVersion = saved.StoreVersion
-	h.writeSignedHead(w, "advance", nonce, savedHead, &saved.Policy)
+	h.writeSignedHead(r.Context(), w, "advance", nonce, savedHead, &saved.Policy)
 }
 
 func (h *governedRemoteWitnessHandler) handleCurrentPolicy(
@@ -251,7 +271,7 @@ func (h *governedRemoteWitnessHandler) handleCurrentPolicy(
 		h.writeStateError(w, err)
 		return
 	}
-	h.writeSignedPolicy(w, "policy-current", nonce, state.Policy)
+	h.writeSignedPolicy(r.Context(), w, "policy-current", nonce, state.Policy)
 }
 
 func (h *governedRemoteWitnessHandler) handlePolicyTransition(
@@ -319,6 +339,7 @@ func (h *governedRemoteWitnessHandler) handlePolicyTransition(
 		return
 	}
 	h.writeSignedPolicy(
+		r.Context(),
 		w,
 		"policy-transition",
 		nonce,
@@ -327,6 +348,7 @@ func (h *governedRemoteWitnessHandler) handlePolicyTransition(
 }
 
 func (h *governedRemoteWitnessHandler) writeSignedHead(
+	ctx context.Context,
 	w http.ResponseWriter,
 	operation string,
 	nonce string,
@@ -345,13 +367,22 @@ func (h *governedRemoteWitnessHandler) writeSignedHead(
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	result.Signature = base64.StdEncoding.EncodeToString(
-		ed25519.Sign(h.privateKey, payload),
+	signature, err := h.signer.Sign(
+		ctx,
+		ExternalHeadWitnessSigningKindHead,
+		operation,
+		payload,
 	)
+	if err != nil {
+		http.Error(w, "external head witness signer unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	result.Signature = base64.StdEncoding.EncodeToString(signature)
 	writeRemoteJSON(w, result)
 }
 
 func (h *governedRemoteWitnessHandler) writeSignedPolicy(
+	ctx context.Context,
 	w http.ResponseWriter,
 	operation string,
 	nonce string,
@@ -368,9 +399,17 @@ func (h *governedRemoteWitnessHandler) writeSignedPolicy(
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	result.Signature = base64.StdEncoding.EncodeToString(
-		ed25519.Sign(h.privateKey, payload),
+	signature, err := h.signer.Sign(
+		ctx,
+		ExternalHeadWitnessSigningKindPolicy,
+		operation,
+		payload,
 	)
+	if err != nil {
+		http.Error(w, "external head witness signer unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	result.Signature = base64.StdEncoding.EncodeToString(signature)
 	writeRemoteJSON(w, result)
 }
 
