@@ -1,33 +1,79 @@
-# Host reboot trust-reset proof
+# Host reboot trust-reset and fresh re-enrollment proof
 
-This proof closes one narrow recovery boundary: a signed source-recovery authorization and pinned kernel coordination state from one Linux boot must not silently become authority on a later boot.
+This proof treats a Linux host reboot as an authority discontinuity rather than
+assuming that bpffs or recovery authority survives across boots.
 
-The CI schedule executes the same taint-native test in two separate disposable VM boots. Boot A creates a real eBPF array map, writes the exact signed recovery commitment into it, pins it under bpffs, and emits a signed recovery authorization bound to Boot A's hashed Linux boot identity. The VM then terminates.
+The CI schedule executes one taint-native proof in two separate disposable VM
+boots.
 
-Boot B starts from a newly booted kernel. The proof requires all of the following:
+## Boot A
+
+Boot A:
+
+- captures the real Linux boot identity;
+- signs a recovery authorization bound to that exact boot;
+- creates a real eBPF array map containing the signed recovery commitment;
+- pins that map under bpffs;
+- writes only test handoff material into the repository path shared by vimto.
+
+The VM then terminates.
+
+## Boot B
+
+Boot B starts from a new Linux kernel and must prove all of the following:
 
 - the Linux boot identity differs from Boot A;
-- the bpffs pin created by Boot A is absent rather than resurrected;
-- the otherwise-valid Boot A recovery authorization is rejected specifically because its boot identity is stale;
-- a newly signed authorization bound to Boot B is accepted by the same authorization verifier.
+- the bpffs pin created on Boot A is absent;
+- the otherwise-valid Boot-A recovery authorization is rejected specifically
+  because its boot identity is stale;
+- a newly signed authorization bound to Boot B verifies;
+- a fresh signed taint BPF bootstrap is loaded on Boot B;
+- the bootstrap receipt is bound to Boot B's boot identity;
+- the sensitive source is observed again by the loaded BPF-LSM;
+- those newly observed identities are enrolled in a fresh activation plan;
+- activation starts a new enrollment epoch at 1;
+- source continuity starts with `dirty == clean == 0`;
+- a clean protected workload reaches the connect effect boundary and is ALLOWed;
+- after that same workload reads the newly enrolled source, its connect is DENYed.
 
-The invariant is therefore:
+The resulting executable schedule is:
 
 ```text
-Boot A authority + Boot A kernel state
-            |
-            v
-       kernel reboot
-            |
-            v
-Boot B != Boot A
-old bpffs coordination absent
-old boot-bound authorization DENY
-fresh Boot-B-bound authorization required
+Boot A
+  -> boot-bound recovery authority A
+  -> real bpffs pinned commitment A
+  -> VM terminates
+
+Boot B
+  -> boot_id B != boot_id A
+  -> old bpffs state absent
+  -> authorization A DENY
+  -> fresh Boot-B authorization verifies
+  -> fresh signed BPF bootstrap
+  -> kernel-observe source identities on Boot B
+  -> fresh enrollment plan
+  -> activation epoch = 1
+  -> dirty = clean = 0
+  -> clean effect boundary = ALLOW
+  -> enrolled-source read
+  -> tainted effect boundary = DENY
 ```
 
-This is an executable trust-reset proof, not a claim that full source continuity automatically survives a host failure. It intentionally treats a reboot as an authority discontinuity.
+The repository path is deliberately the only handoff channel between the two
+ephemeral VMs. Kernel state itself is not carried across.
+
+## Invariant
+
+A recovery authorization or kernel coordination state from Boot A cannot become
+authority on Boot B. Restoring effect authority requires evidence and enrollment
+created on Boot B.
 
 ## Claim boundary
 
-This proof does not yet establish full post-reboot source re-enrollment and effect restoration, persistent recovery receipts across a real disk-backed machine restart, TPM-backed boot continuity, distributed recovery authority, or recovery across a physical host replacement. Those require separate evidence and must not be inferred from this test.
+This proves reboot trust reset plus fresh post-reboot source enrollment and
+effect restoration on a newly booted disposable Linux kernel.
+
+It does **not** prove durable recovery receipts across a disk-backed physical
+machine reboot, persistence of user-space recovery metadata across host failure,
+TPM-measured boot continuity, distributed recovery authority, or physical-host
+replacement recovery. Those remain separate proof obligations.
