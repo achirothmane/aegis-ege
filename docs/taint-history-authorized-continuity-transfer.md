@@ -77,17 +77,19 @@ The TPM exact-head NV area and monotonic counter are both advanced. Existing cra
 
 ## Interrupted finalization
 
-If destination import succeeds but the final ownership quorum update is interrupted:
+If destination import succeeds but the final ownership quorum update is interrupted, witness replicas may be left at different points of the same signed chain:
 
 ```text
-ownership = QUIESCED
+replica A = SOURCE
+replica B = QUIESCED
+replica C = FINAL
 TPM-B     = Hn
 TPM-A     = Hn
 ```
 
-both devices still fail closed because neither matches the quiesced active identity.
+No state with fewer than a strict majority becomes active truth. Both devices therefore remain fail-closed whenever the quorum cannot reconstruct one admissible owner.
 
-Retrying the same signed authorization recognizes the already prepared destination and resumes only the final ownership step.
+Retrying the same signed authorization first proves that the destination is already prepared at the exact authorized history head. The quorum may then converge only across the finite signed chain `SOURCE → QUIESCED → FINAL`. Any readable third state outside that chain aborts recovery.
 
 ## Source retirement
 
@@ -107,7 +109,7 @@ The proof suite covers two paths.
 
 The first establishes H1 → H2 on TPM-A, transfers H2 to an independently seeded TPM-B, verifies TPM-A is rejected, then appends H3 through TPM-B.
 
-The second makes two ownership witnesses reject only the final ownership epoch. The protocol reaches the quiesced state, both TPMs are denied, and retrying the exact authorization completes the transfer without changing the history head.
+The second makes two ownership witnesses reject only the final ownership epoch. This can leave replicas split across successive authorized states; no active quorum exists, both TPMs are denied, and retrying the exact authorization converges only the signed transition chain before activating TPM-B without changing the history head.
 
 ## Claim boundary
 
