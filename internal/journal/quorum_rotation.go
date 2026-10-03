@@ -95,6 +95,22 @@ func NewGovernedQuorumEpoch(
 	}, nil
 }
 
+func (e GovernedQuorumEpoch) GenesisEpoch() uint64 {
+	return e.genesisEpoch
+}
+
+func (e GovernedQuorumEpoch) GenesisManifestHash() string {
+	return e.genesisManifestHash
+}
+
+func (e GovernedQuorumEpoch) CapabilityEnvelopeHash() string {
+	return e.binding.capabilityEnvelopeHash
+}
+
+func (e GovernedQuorumEpoch) PolicyHash() string {
+	return e.binding.policyHash
+}
+
 func (e GovernedQuorumEpoch) activePolicy() QuorumPolicyState {
 	return QuorumPolicyState{
 		Phase:        QuorumPolicyPhaseActive,
