@@ -53,8 +53,9 @@ type tpmNVRootState struct {
 	PreviousGeneration           uint64                                           `json:"previous_generation,omitempty"`
 	PredecessorDeviceIdentity    string                                           `json:"predecessor_device_identity,omitempty"`
 	MigrationSourceStateDigest   string                                           `json:"migration_source_state_digest,omitempty"`
-	MigrationAuthorizationDigest string                                           `json:"migration_authorization_digest,omitempty"`
-	Scopes                       map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
+	MigrationAuthorizationDigest           string                                           `json:"migration_authorization_digest,omitempty"`
+	MigrationDestinationAttestationDigest string                                           `json:"migration_destination_attestation_digest,omitempty"`
+	Scopes                                 map[string]egeproto.CapabilityAuthoritySnapshot `json:"scopes"`
 	Digest                       string                                           `json:"digest"`
 }
 
