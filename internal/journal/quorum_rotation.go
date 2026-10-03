@@ -281,18 +281,14 @@ func ExecuteQuorumRotation(
 	// every stable shared witness has stopped accepting OLD.
 	if oldCount > 0 {
 		for _, id := range plan.sharedWitnesses {
-			store := sharedStores[id]
-			current, err := store.CurrentQuorumPolicy(ctx)
+			pair := sharedStores[id]
+			current, err := sharedPolicyState(ctx, id, pair)
 			if err != nil {
-				return QuorumRotationResult{}, fmt.Errorf(
-					"read witness %s policy: %w",
-					id,
-					err,
-				)
+				return QuorumRotationResult{}, err
 			}
 			switch current {
 			case oldPolicy:
-				if err := store.CompareAndTransitionQuorumPolicy(
+				if err := pair.old.CompareAndTransitionQuorumPolicy(
 					ctx,
 					oldPolicy,
 					joint,
@@ -305,8 +301,17 @@ func ExecuteQuorumRotation(
 						err,
 					)
 				}
+				if err := requireSharedHandleConvergence(
+					ctx, id, pair, joint, journalID, head,
+				); err != nil {
+					return QuorumRotationResult{}, err
+				}
 			case joint:
-				// Idempotent resume after a partial phase-1 transition.
+				if err := requireSharedHandleConvergence(
+					ctx, id, pair, joint, journalID, head,
+				); err != nil {
+					return QuorumRotationResult{}, err
+				}
 			default:
 				return QuorumRotationResult{}, fmt.Errorf(
 					"%w: witness %s has unexpected phase-1 policy %+v",
@@ -345,18 +350,14 @@ func ExecuteQuorumRotation(
 	// can no longer reach threshold. Advancing JOINT -> NEW one witness at a
 	// time cannot resurrect OLD.
 	for _, id := range plan.sharedWitnesses {
-		store := sharedStores[id]
-		current, err := store.CurrentQuorumPolicy(ctx)
+		pair := sharedStores[id]
+		current, err := sharedPolicyState(ctx, id, pair)
 		if err != nil {
-			return QuorumRotationResult{}, fmt.Errorf(
-				"read witness %s policy during activation: %w",
-				id,
-				err,
-			)
+			return QuorumRotationResult{}, err
 		}
 		switch current {
 		case joint:
-			if err := store.CompareAndTransitionQuorumPolicy(
+			if err := pair.old.CompareAndTransitionQuorumPolicy(
 				ctx,
 				joint,
 				newPolicy,
@@ -369,8 +370,17 @@ func ExecuteQuorumRotation(
 					err,
 				)
 			}
+			if err := requireSharedHandleConvergence(
+				ctx, id, pair, newPolicy, journalID, head,
+			); err != nil {
+				return QuorumRotationResult{}, err
+			}
 		case newPolicy:
-			// Idempotent resume after a partial phase-2 transition.
+			if err := requireSharedHandleConvergence(
+				ctx, id, pair, newPolicy, journalID, head,
+			); err != nil {
+				return QuorumRotationResult{}, err
+			}
 		default:
 			return QuorumRotationResult{}, fmt.Errorf(
 				"%w: witness %s has unexpected phase-2 policy %+v",
@@ -530,10 +540,16 @@ func validateGenesisQuorumBinding(binding GenesisQuorumBinding) error {
 	return nil
 }
 
+
+type sharedPolicyStoreHandles struct {
+	old QuorumPolicyFencedStore
+	new QuorumPolicyFencedStore
+}
+
 func (p QuorumRotationPlan) sharedPolicyStores(
 	oldStore *QuorumHeadStore,
 	newStore *QuorumHeadStore,
-) (map[string]QuorumPolicyFencedStore, error) {
+) (map[string]sharedPolicyStoreHandles, error) {
 	oldMembers := make(map[string]QuorumHeadMember, len(oldStore.members))
 	for _, member := range oldStore.members {
 		oldMembers[member.ID] = member
@@ -543,7 +559,7 @@ func (p QuorumRotationPlan) sharedPolicyStores(
 		newMembers[member.ID] = member
 	}
 
-	result := make(map[string]QuorumPolicyFencedStore, len(p.sharedWitnesses))
+	result := make(map[string]sharedPolicyStoreHandles, len(p.sharedWitnesses))
 	for _, id := range p.sharedWitnesses {
 		oldMember, ok := oldMembers[id]
 		if !ok {
@@ -568,17 +584,121 @@ func (p QuorumRotationPlan) sharedPolicyStores(
 				id,
 			)
 		}
-		// A stable trust identity represents one logical witness. The old-store
-		// handle is used for the compare-and-transition operation; both handles
-		// must observe the same externally persisted policy state in production.
-		result[id] = oldPolicyStore
+		result[id] = sharedPolicyStoreHandles{
+			old: oldPolicyStore,
+			new: newPolicyStore,
+		}
 	}
 	return result, nil
 }
 
+func sharedPolicyState(
+	ctx context.Context,
+	id string,
+	pair sharedPolicyStoreHandles,
+) (QuorumPolicyState, error) {
+	oldState, err := pair.old.CurrentQuorumPolicy(ctx)
+	if err != nil {
+		return QuorumPolicyState{}, fmt.Errorf(
+			"read old handle policy for witness %s: %w",
+			id,
+			err,
+		)
+	}
+	newState, err := pair.new.CurrentQuorumPolicy(ctx)
+	if err != nil {
+		return QuorumPolicyState{}, fmt.Errorf(
+			"read new handle policy for witness %s: %w",
+			id,
+			err,
+		)
+	}
+	if oldState != newState {
+		return QuorumPolicyState{}, fmt.Errorf(
+			"%w: shared witness %s old/new handles disagree: old=%+v new=%+v",
+			ErrQuorumRotationAmbiguous,
+			id,
+			oldState,
+			newState,
+		)
+	}
+	return oldState, nil
+}
+
+func observeSharedHandleHead(
+	ctx context.Context,
+	id string,
+	pair sharedPolicyStoreHandles,
+	journalID string,
+) (ExternalHead, error) {
+	oldHead, err := pair.old.ObserveQuorumRotationHead(ctx, journalID)
+	if err != nil {
+		return ExternalHead{}, fmt.Errorf(
+			"observe old handle for shared witness %s: %w",
+			id,
+			err,
+		)
+	}
+	newHead, err := pair.new.ObserveQuorumRotationHead(ctx, journalID)
+	if err != nil {
+		return ExternalHead{}, fmt.Errorf(
+			"observe new handle for shared witness %s: %w",
+			id,
+			err,
+		)
+	}
+	if !sameSemanticHead(oldHead, newHead) {
+		return ExternalHead{}, fmt.Errorf(
+			"%w: shared witness %s old/new handles disagree on head: old=%+v new=%+v",
+			ErrQuorumRotationContinuity,
+			id,
+			oldHead,
+			newHead,
+		)
+	}
+	return oldHead, nil
+}
+
+func requireSharedHandleConvergence(
+	ctx context.Context,
+	id string,
+	pair sharedPolicyStoreHandles,
+	expectedPolicy QuorumPolicyState,
+	journalID string,
+	expectedHead ExternalHead,
+) error {
+	state, err := sharedPolicyState(ctx, id, pair)
+	if err != nil {
+		return err
+	}
+	if state != expectedPolicy {
+		return fmt.Errorf(
+			"%w: shared witness %s did not converge to expected policy: got=%+v want=%+v",
+			ErrQuorumRotationAmbiguous,
+			id,
+			state,
+			expectedPolicy,
+		)
+	}
+	head, err := observeSharedHandleHead(ctx, id, pair, journalID)
+	if err != nil {
+		return err
+	}
+	if !sameSemanticHead(head, expectedHead) {
+		return fmt.Errorf(
+			"%w: shared witness %s changed head during policy transition: got=%+v want=%+v",
+			ErrQuorumRotationContinuity,
+			id,
+			head,
+			expectedHead,
+		)
+	}
+	return nil
+}
+
 func observeSharedRotationHead(
 	ctx context.Context,
-	stores map[string]QuorumPolicyFencedStore,
+	stores map[string]sharedPolicyStoreHandles,
 	journalID string,
 ) (ExternalHead, error) {
 	ids := make([]string, 0, len(stores))
@@ -589,13 +709,9 @@ func observeSharedRotationHead(
 	var frozen ExternalHead
 	haveFrozen := false
 	for _, id := range ids {
-		head, err := stores[id].ObserveQuorumRotationHead(ctx, journalID)
+		head, err := observeSharedHandleHead(ctx, id, stores[id], journalID)
 		if err != nil {
-			return ExternalHead{}, fmt.Errorf(
-				"observe shared witness %s rotation head: %w",
-				id,
-				err,
-			)
+			return ExternalHead{}, err
 		}
 		if !haveFrozen {
 			frozen = head
@@ -623,7 +739,7 @@ func observeSharedRotationHead(
 
 func classifyRotationPolicies(
 	ctx context.Context,
-	stores map[string]QuorumPolicyFencedStore,
+	stores map[string]sharedPolicyStoreHandles,
 	oldPolicy QuorumPolicyState,
 	joint QuorumPolicyState,
 	newPolicy QuorumPolicyState,
@@ -634,13 +750,9 @@ func classifyRotationPolicies(
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		current, currentErr := stores[id].CurrentQuorumPolicy(ctx)
+		current, currentErr := sharedPolicyState(ctx, id, stores[id])
 		if currentErr != nil {
-			return 0, 0, 0, fmt.Errorf(
-				"read witness %s policy state: %w",
-				id,
-				currentErr,
-			)
+			return 0, 0, 0, currentErr
 		}
 		switch current {
 		case oldPolicy:
@@ -660,3 +772,4 @@ func classifyRotationPolicies(
 	}
 	return oldCount, jointCount, newCount, nil
 }
+
