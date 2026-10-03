@@ -357,10 +357,10 @@ jobs:
     env:
       PROOF_VALUE: proof-v1
       WORKDIR: ${{ github.workspace }}/experiments/terraform-runtime-proof
-      CUSTODY: ${{ runner.temp }}/terraform-proof/custody.json
-      EFFECT_LOG: ${{ runner.temp }}/terraform-proof/effect.log
-      EVIDENCE: ${{ runner.temp }}/terraform-proof/evidence.json
-      SUMMARY: ${{ runner.temp }}/terraform-proof/complexity-dividend.json
+      CUSTODY: ${{ github.workspace }}/.terraform-proof/custody.json
+      EFFECT_LOG: ${{ github.workspace }}/.terraform-proof/effect.log
+      EVIDENCE: ${{ github.workspace }}/.terraform-proof/evidence.json
+      SUMMARY: ${{ github.workspace }}/.terraform-proof/complexity-dividend.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -426,12 +426,12 @@ jobs:
           set +e
           (
             cd "$WORKDIR"
-            terraform plan               -input=false               -no-color               -detailed-exitcode               -var "proof_value=$PROOF_VALUE"               -var "effect_log=$EFFECT_LOG" > "$RUNNER_TEMP/terraform-proof/plan.txt"
+            terraform plan               -input=false               -no-color               -detailed-exitcode               -var "proof_value=$PROOF_VALUE"               -var "effect_log=$EFFECT_LOG" > "$GITHUB_WORKSPACE/.terraform-proof/plan.txt"
           )
           rc=$?
           set -e
           if [ "$rc" -ne 0 ]; then
-            cat "$RUNNER_TEMP/terraform-proof/plan.txt"
+            cat "$GITHUB_WORKSPACE/.terraform-proof/plan.txt"
             exit 1
           fi
 
@@ -502,7 +502,7 @@ jobs:
           name: terraform-complexity-dividend-${{ github.run_id }}
           if-no-files-found: error
           path: |
-            ${{ runner.temp }}/terraform-proof/
+            ${{ github.workspace }}/.terraform-proof/
             experiments/terraform-runtime-proof/main.tf
             experiments/terraform-runtime-proof/terraform.tfstate
             testdata/governed-action/complexity-dividend/terraform-v1.json
