@@ -3,6 +3,7 @@
 package kernelfabric
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,10 +210,197 @@ func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
 		t.Fatalf("fresh boot B authorization did not verify: %v", err)
 	}
 
+	proveFreshBootBEnrollmentAndEffect(t, host.BootIDHash)
+
 	t.Logf(
 		"reboot trust reset proved: bootA=%s bootB=%s stale_authority=DENY old_kernel_pin=ABSENT fresh_boot_authority=ACCEPT",
 		state.BootIDHash,
 		host.BootIDHash,
+	)
+}
+
+
+func proveFreshBootBEnrollmentAndEffect(t *testing.T, bootBIDHash string) {
+	t.Helper()
+	if len(nativeTaintBPFObject) == 0 {
+		t.Fatal("embedded native taint BPF object is empty")
+	}
+	if err := prepareNativeTaintKernel(); err != nil {
+		t.Fatalf("prepare boot B native taint kernel: %v", err)
+	}
+
+	originalCgroup, err := currentUnifiedCgroupPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testID := fmt.Sprintf("aegis-taint-reboot-b-%d", os.Getpid())
+	cgroupPath := filepath.Join("/sys/fs/cgroup", testID)
+	if err := os.Mkdir(cgroupPath, 0o755); err != nil {
+		t.Fatalf("create boot B cgroup: %v", err)
+	}
+	defer func() {
+		_ = movePIDToCgroup(originalCgroup, os.Getpid())
+		_ = os.Remove(cgroupPath)
+	}()
+
+	bpffsRoot := filepath.Join("/sys/fs/bpf", testID)
+	if err := os.MkdirAll(bpffsRoot, 0o755); err != nil {
+		t.Fatalf("create boot B bpffs root: %v", err)
+	}
+	defer removeNativeTaintPins(bpffsRoot)
+
+	sourceRoot := filepath.Join(t.TempDir(), "boot-b-source")
+	if err := os.Mkdir(sourceRoot, 0o700); err != nil {
+		t.Fatalf("create boot B source mountpoint: %v", err)
+	}
+	if err := unix.Mount("aegis-reboot-b-source", sourceRoot, "tmpfs", 0, "mode=0700,size=4m"); err != nil {
+		t.Fatalf("mount boot B source tmpfs: %v", err)
+	}
+	defer func() {
+		if err := unix.Unmount(sourceRoot, unix.MNT_DETACH); err != nil {
+			t.Logf("unmount boot B source tmpfs: %v", err)
+		}
+	}()
+
+	sourcePath := filepath.Join(sourceRoot, "secret.txt")
+	if err := os.WriteFile(sourcePath, []byte("fresh-boot-b-source"), 0o600); err != nil {
+		t.Fatalf("write boot B source: %v", err)
+	}
+
+	artifact := filepath.Join(t.TempDir(), "aegis_taint.bpf.o")
+	if err := os.WriteFile(artifact, nativeTaintBPFObject, 0o600); err != nil {
+		t.Fatalf("materialize boot B taint artifact: %v", err)
+	}
+
+	now := time.Now().UTC()
+	manifest, err := BuildTaintBootstrapManifest(
+		artifact,
+		now.Add(-time.Minute),
+		now.Add(15*time.Minute),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releasePublic, releasePrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedManifest, err := SignBootstrapManifest(manifest, releasePrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseKeyID, err := BootstrapKeyID(releasePublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, attestationPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attestationPublic := attestationPrivate.Public().(ed25519.PublicKey)
+
+	loaded, err := (TaintBootstrapLoader{}).LoadAndAttach(
+		context.Background(),
+		TaintBootstrapLoadRequest{
+			ArtifactPath:          artifact,
+			CgroupPath:            cgroupPath,
+			BPFFSRoot:             bpffsRoot,
+			SignedManifest:        signedManifest,
+			Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
+			AttestationPrivateKey: attestationPrivate,
+			Now:                   now,
+		},
+	)
+	if err != nil {
+		t.Fatalf("load fresh boot B taint substrate: %v", err)
+	}
+	if loaded.SignedReceipt.Receipt.Host.BootIDHash != bootBIDHash {
+		t.Fatalf(
+			"fresh boot B bootstrap receipt bound to wrong boot: got=%s want=%s",
+			loaded.SignedReceipt.Receipt.Host.BootIDHash,
+			bootBIDHash,
+		)
+	}
+
+	sourceKeys, err := ResolveTaintFileKeysObserved(bpffsRoot, sourcePath)
+	if err != nil {
+		t.Fatalf("kernel-observe fresh boot B source: %v", err)
+	}
+	if len(sourceKeys) == 0 {
+		t.Fatal("fresh boot B source probe returned no kernel identities")
+	}
+	plan := TaintActivationPlan{
+		CgroupPath:    cgroupPath,
+		AllowedLabels: 0,
+		Sources:       make([]TaintSourceBinding, 0, len(sourceKeys)),
+	}
+	for _, key := range sourceKeys {
+		plan.Sources = append(plan.Sources, TaintSourceBinding{
+			Path:   sourcePath,
+			File:   key,
+			Labels: 1,
+		})
+	}
+
+	activated, err := ActivateTaintCgroup(TaintActivationRequest{
+		BPFFSRoot:                     bpffsRoot,
+		Plan:                          plan,
+		SignedBootstrapReceipt:        loaded.SignedReceipt,
+		BootstrapAttestationPublicKey: attestationPublic,
+	})
+	if err != nil {
+		t.Fatalf("activate fresh boot B taint cgroup: %v", err)
+	}
+	if activated.EnrollmentEpoch != 1 {
+		t.Fatalf("fresh boot B did not start a new enrollment epoch: %d", activated.EnrollmentEpoch)
+	}
+	active, err := TaintCgroupActivationState(bpffsRoot, activated.CgroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !active {
+		t.Fatal("fresh boot B cgroup is not protected after activation")
+	}
+	dirty, err := TaintSourceIdentityDirtyState(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clean, err := TaintSourceContinuityWatermark(bpffsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirty != 0 || clean != 0 {
+		t.Fatalf("fresh boot B continuity is not clean: dirty=%d clean=%d", dirty, clean)
+	}
+
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go acceptNativeConnections(listener)
+
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move fresh boot B workload into protected cgroup: %v", err)
+	}
+	conn, err := net.DialTimeout("tcp4", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("fresh boot B clean effect unexpectedly denied: %v", err)
+	}
+	_ = conn.Close()
+
+	if _, err := os.ReadFile(sourcePath); err != nil {
+		t.Fatalf("read fresh boot B enrolled source: %v", err)
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("fresh boot B tainted effect unexpectedly allowed: %v", err)
+	}
+
+	t.Logf(
+		"fresh boot B authority restored from new evidence: boot=%s sources=%v epoch=%d clean_effect=ALLOW tainted_effect=DENY",
+		bootBIDHash,
+		sourceKeys,
+		activated.EnrollmentEpoch,
 	)
 }
 
