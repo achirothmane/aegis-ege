@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type EnrollmentIdentityReceiptStore struct {
@@ -252,6 +253,108 @@ func (s AnchoredEnrollmentIdentityStore) Append(
 	signed SignedEnrollmentIdentityReceipt,
 	publicKey ed25519.PublicKey,
 ) (string, error) {
+	if signed.Receipt.Version == EnrollmentIdentityReceiptVersionV2 {
+		return "", fmt.Errorf(
+			"%w: governed successor receipt requires AppendGovernedSuccessor",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	return s.appendVerified(ctx, signed, publicKey)
+}
+
+// AppendGovernedSuccessor is the only storage path for a v2 successor receipt.
+// It proves that the enrollment signer cannot advance durable enrollment
+// lineage by itself: the exact current predecessor and a separately signed
+// successor-governance authorization must agree before the anchor CAS occurs.
+func (s AnchoredEnrollmentIdentityStore) AppendGovernedSuccessor(
+	ctx context.Context,
+	signed SignedEnrollmentIdentityReceipt,
+	enrollmentPublicKey ed25519.PublicKey,
+	signedSuccessor SignedEnrollmentIdentitySuccessorAuthorization,
+	successorGovernancePublicKey ed25519.PublicKey,
+	effectiveAt time.Time,
+) (string, error) {
+	if signed.Receipt.Version != EnrollmentIdentityReceiptVersionV2 {
+		return "", fmt.Errorf(
+			"%w: governed successor append requires receipt v2",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	if len(enrollmentPublicKey) != ed25519.PublicKeySize ||
+		len(successorGovernancePublicKey) != ed25519.PublicKeySize {
+		return "", fmt.Errorf(
+			"%w: enrollment and successor-governance public keys are required",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	if string(enrollmentPublicKey) == string(successorGovernancePublicKey) {
+		return "", fmt.Errorf(
+			"%w: successor governance authority must differ from enrollment authority",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	if err := VerifySignedEnrollmentIdentityReceipt(signed, enrollmentPublicKey); err != nil {
+		return "", err
+	}
+	if err := VerifySignedEnrollmentIdentitySuccessorAuthorization(
+		signedSuccessor,
+		successorGovernancePublicKey,
+		effectiveAt,
+	); err != nil {
+		return "", err
+	}
+	authorizationDigest, err := EnrollmentIdentitySuccessorAuthorizationDigest(signedSuccessor)
+	if err != nil {
+		return "", err
+	}
+	auth := signedSuccessor.Authorization
+	receipt := signed.Receipt
+	if receipt.SuccessorAuthorizationDigest != authorizationDigest ||
+		receipt.Sequence != auth.PredecessorSequence+1 ||
+		receipt.PreviousReceiptDigest != auth.PredecessorReceiptDigest ||
+		receipt.ReceiptID != auth.SuccessorEnrollmentID ||
+		receipt.DeviceID != auth.DeviceID ||
+		receipt.EKSPKISHA256 != auth.SuccessorHardwareIdentityDigest {
+		return "", fmt.Errorf(
+			"%w: successor receipt does not match signed governance authorization",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	if receipt.IssuedAt.Before(auth.NotBefore.UTC()) ||
+		!receipt.IssuedAt.Before(auth.ExpiresAt.UTC()) {
+		return "", fmt.Errorf(
+			"%w: successor receipt was issued outside the authorization window",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+
+	current, currentDigest, exists, err := s.Current(ctx, enrollmentPublicKey)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf(
+			"%w: governed successor requires an existing predecessor receipt",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	if current.Receipt.Sequence != auth.PredecessorSequence ||
+		currentDigest != auth.PredecessorReceiptDigest ||
+		current.Receipt.DeviceID != auth.DeviceID ||
+		current.Receipt.EKSPKISHA256 != auth.PredecessorHardwareIdentityDigest {
+		return "", fmt.Errorf(
+			"%w: current receipt is not the exact authorized predecessor",
+			ErrEnrollmentIdentityReceiptInvalid,
+		)
+	}
+	return s.appendVerified(ctx, signed, enrollmentPublicKey)
+}
+
+func (s AnchoredEnrollmentIdentityStore) appendVerified(
+	ctx context.Context,
+	signed SignedEnrollmentIdentityReceipt,
+	publicKey ed25519.PublicKey,
+) (string, error) {
 	if s.Anchor == nil {
 		return "", errors.New("enrollment identity durable head anchor is required")
 	}
@@ -319,7 +422,6 @@ func (s AnchoredEnrollmentIdentityStore) Append(
 	}
 	return newDigest, nil
 }
-
 func isEnrollmentReceiptSuccessor(
 	current SignedEnrollmentIdentityReceipt,
 	currentDigest string,
