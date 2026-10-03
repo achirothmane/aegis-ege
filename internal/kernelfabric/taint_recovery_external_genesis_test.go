@@ -266,7 +266,6 @@ func TestGenesisExternalRecoveryWitnessBindingRejectsSignerKeyIDMismatchAndUnkno
 	}
 }
 
-
 func TestGenesisExternalRecoveryWitnessBindingRejectsCollapsedRecoveryRoles(t *testing.T) {
 	trust := newTaintRecoveryTrustFixture(t, 10)
 	cases := []struct {
