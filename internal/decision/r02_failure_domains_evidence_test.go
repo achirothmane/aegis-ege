@@ -9,7 +9,7 @@ import (
 )
 
 type r02EvidenceDecision struct {
-	SchemaVersion string `json:"schema_version"`
+	SchemaVersion  string `json:"schema_version"`
 	FailureDomains struct {
 		Distinct bool `json:"distinct"`
 	} `json:"failure_domains"`
@@ -35,7 +35,7 @@ type r02Probe struct {
 	at    time.Time
 }
 
-func (p r02Probe) Name() string { return p.name }
+func (p r02Probe) Name() string                  { return p.name }
 func (p r02Probe) SafetyClass() ProbeSafetyClass { return ProbeReadOnly }
 func (p r02Probe) Supports(Request, Result) bool { return true }
 func (p r02Probe) Acquire(context.Context, Request) (ProbeOutcome, error) {
