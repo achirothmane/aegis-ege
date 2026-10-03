@@ -17,7 +17,6 @@ jobs:
       TPM_DEVICE_PATH: /dev/tpmrm0
       EXPECTED_TPM_EK_SHA256_PATH: /etc/aegis/tpm-recovery-witness/ek-spki.sha256
       EXPECTED_WITNESS_KEY_ID_PATH: /etc/aegis/tpm-recovery-witness/key-id
-      TPM_HARDWARE_RECEIPT_PATH: ${{ runner.temp }}/tpm-recovery-witness-hardware-receipt.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -25,6 +24,9 @@ jobs:
           go-version: "1.25.x"
           cache: true
       - run: go mod download
+      - name: Bind hardware receipt path to the current runner
+        run: |
+          printf 'TPM_HARDWARE_RECEIPT_PATH=%s/tpm-recovery-witness-hardware-receipt.json\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Require kernel TPM resource-manager device and pinned identities
         run: |
           set -euo pipefail
