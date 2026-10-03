@@ -14,7 +14,10 @@ import (
 	"github.com/ucarion/jcs"
 )
 
-const WitnessTrustManifestVersion = "aegis-ege/witness-trust-manifest/v1"
+const (
+	WitnessTrustManifestVersion = "aegis-ege/witness-trust-manifest/v1"
+	maxWitnessTrustJSONInteger  = uint64(1<<53 - 1)
+)
 
 type WitnessTrustManifest struct {
 	Version             string `json:"version"`
@@ -79,7 +82,10 @@ func (r *TwoPrincipalWitnessTrustRoot) Verify(
 	if err := ctx.Err(); err != nil {
 		return WitnessTrustManifest{}, nil, err
 	}
-	manifest := signed.Manifest
+	manifest, err := normalizeWitnessTrustManifest(signed.Manifest)
+	if err != nil {
+		return WitnessTrustManifest{}, nil, err
+	}
 	if manifest.Version != WitnessTrustManifestVersion {
 		return WitnessTrustManifest{}, nil, fmt.Errorf("witness trust manifest version mismatch: %q", manifest.Version)
 	}
@@ -94,12 +100,6 @@ func (r *TwoPrincipalWitnessTrustRoot) Verify(
 		strings.TrimSpace(manifest.WitnessPrincipal) == "" {
 		return WitnessTrustManifest{}, nil, errors.New("witness trust manifest principals are required")
 	}
-	endpoint := strings.TrimRight(strings.TrimSpace(manifest.Endpoint), "/")
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		return WitnessTrustManifest{}, nil, errors.New("witness trust manifest endpoint must use HTTPS")
-	}
-	manifest.Endpoint = endpoint
 	if strings.TrimSpace(manifest.WitnessRuntimeKeyID) == "" {
 		return WitnessTrustManifest{}, nil, errors.New("witness runtime key id is required")
 	}
@@ -173,6 +173,11 @@ func SignWitnessTrustManifest(
 		len(witnessOwnerPrivateKey) != ed25519.PrivateKeySize {
 		return SignedWitnessTrustManifest{}, errors.New("invalid two-principal signing key")
 	}
+	var err error
+	manifest, err = normalizeWitnessTrustManifest(manifest)
+	if err != nil {
+		return SignedWitnessTrustManifest{}, err
+	}
 	payload, err := CanonicalWitnessTrustManifestPayload(manifest)
 	if err != nil {
 		return SignedWitnessTrustManifest{}, err
@@ -184,6 +189,19 @@ func SignWitnessTrustManifest(
 		WitnessOwnerKeyID:     witnessOwnerKeyID,
 		WitnessOwnerSignature: base64.StdEncoding.EncodeToString(ed25519.Sign(witnessOwnerPrivateKey, payload)),
 	}, nil
+}
+
+func normalizeWitnessTrustManifest(manifest WitnessTrustManifest) (WitnessTrustManifest, error) {
+	if manifest.TrustEpoch > maxWitnessTrustJSONInteger {
+		return WitnessTrustManifest{}, errors.New("witness trust epoch exceeds RFC8785/JCS exact JSON integer profile")
+	}
+	endpoint := strings.TrimRight(strings.TrimSpace(manifest.Endpoint), "/")
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return WitnessTrustManifest{}, errors.New("witness trust manifest endpoint must use HTTPS")
+	}
+	manifest.Endpoint = endpoint
+	return manifest, nil
 }
 
 func decodeWitnessTrustSignature(encoded string) ([]byte, error) {
