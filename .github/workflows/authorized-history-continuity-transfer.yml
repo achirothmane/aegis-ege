@@ -5,6 +5,8 @@ on:
     paths:
       - "internal/journal/quorum_head_store.go"
       - "internal/journal/quorum_head_store_test.go"
+      - "internal/journal/history_genesis_continuity.go"
+      - "internal/journal/history_genesis_continuity_test.go"
       - "internal/server/taint_recovery_history_quorum_anchor.go"
       - "internal/server/taint_recovery_history_ownership.go"
       - "internal/server/tpm_history_anchor.go"
@@ -36,9 +38,14 @@ jobs:
           go test -v ./internal/journal -run 'TestQuorumHeadStore(ConvergesAuthorizedSplitTransition|AuthorizedConvergenceRejectsThirdState)' -count=1 | tee "$RUNNER_TEMP/quorum-convergence.log"
           grep -q -- "--- PASS: TestQuorumHeadStoreConvergesAuthorizedSplitTransition" "$RUNNER_TEMP/quorum-convergence.log"
           grep -q -- "--- PASS: TestQuorumHeadStoreAuthorizedConvergenceRejectsThirdState" "$RUNNER_TEMP/quorum-convergence.log"
+          go test -v ./internal/journal -run '^TestGenesisHistoryQuorumRotation' -count=1 | tee "$RUNNER_TEMP/history-genesis-continuity.log"
+          grep -q -- "--- PASS: TestGenesisHistoryQuorumRotationPreservesSameLineageAcrossGenesis" "$RUNNER_TEMP/history-genesis-continuity.log"
+          grep -q -- "--- PASS: TestGenesisHistoryQuorumRotationRejectsLineageSubstitutionBeforeWitnessMutation" "$RUNNER_TEMP/history-genesis-continuity.log"
+          grep -q -- "--- PASS: TestGenesisHistoryQuorumRotationRejectsPurposeSubstitution" "$RUNNER_TEMP/history-genesis-continuity.log"
+          grep -q -- "--- PASS: TestGenesisHistoryQuorumRotationRejectsDetachedHistoryCustody" "$RUNNER_TEMP/history-genesis-continuity.log"
           go test -v ./internal/server -run '^(TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource|TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption)$' -count=1 | tee "$RUNNER_TEMP/history-continuity-transfer.log"
           grep -q -- "--- PASS: TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource" "$RUNNER_TEMP/history-continuity-transfer.log"
           grep -q -- "--- PASS: TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption" "$RUNNER_TEMP/history-continuity-transfer.log"
-          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/quorum-convergence.log" "$RUNNER_TEMP/history-continuity-transfer.log"; then
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/quorum-convergence.log" "$RUNNER_TEMP/history-genesis-continuity.log" "$RUNNER_TEMP/history-continuity-transfer.log"; then
             exit 1
           fi
