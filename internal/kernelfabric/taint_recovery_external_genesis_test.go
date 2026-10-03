@@ -264,3 +264,67 @@ func TestGenesisExternalRecoveryWitnessBindingRejectsSignerKeyIDMismatchAndUnkno
 		t.Fatal("unknown Genesis external witness policy field was accepted")
 	}
 }
+
+
+func TestGenesisExternalRecoveryWitnessBindingRejectsCollapsedRecoveryRoles(t *testing.T) {
+	trust := newTaintRecoveryTrustFixture(t, 10)
+	cases := []struct {
+		name       string
+		publicKey  ed25519.PublicKey
+		privateKey ed25519.PrivateKey
+	}{
+		{
+			name:       "authority-a",
+			publicKey:  trust.authorityPublic,
+			privateKey: trust.authorityPrivate,
+		},
+		{
+			name:       "witness-b",
+			publicKey:  trust.witnessPublic,
+			privateKey: trust.witnessPrivate,
+		},
+		{
+			name:       "recovery-trust-signer",
+			publicKey:  trust.signerPublic,
+			privateKey: trust.signerPrivate,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			envelope := externalWitnessGenesisEnvelopeForTest(
+				t,
+				tc.publicKey,
+				"external/recovery-witness-b",
+				1,
+				1,
+			)
+			binding, err := ParseGenesisExternalRecoveryWitnessBinding(
+				envelope,
+				genesisEnvelopeDigestForTest(envelope),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			signed, err := SignExternalRecoveryWitnessProfile(
+				ExternalRecoveryWitnessProfile{
+					Version:              ExternalRecoveryWitnessProfileVersion,
+					ProfileEpoch:         1,
+					WitnessID:            "external/recovery-witness-b",
+					WitnessKeyID:         trust.signedManifest.Manifest.WitnessKeyID,
+					Endpoint:             "https://witness.example",
+					TLSTrustAnchorSHA256: "sha256:" + strings.Repeat("e", 64),
+					PolicyEpoch:          1,
+					PolicyHash:           "sha256:" + strings.Repeat("f", 64),
+				},
+				tc.privateKey,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := binding.VerifyProfile(signed, trust.root); err == nil {
+				t.Fatalf("Genesis-bound profile authority reused %s key", tc.name)
+			}
+		})
+	}
+}
