@@ -66,6 +66,11 @@ func generate() error {
 	); err != nil {
 		return err
 	}
+	if path := strings.TrimSpace(os.Getenv("WITNESS_SIGNER_ALGORITHM_PATH")); path != "" {
+		if err := writePublic(path, "ed25519"); err != nil {
+			return err
+		}
+	}
 	if err := writePublic(requireEnv("WITNESS_SIGNER_TLS_CERT_PATH"), string(certPEM)); err != nil {
 		return err
 	}

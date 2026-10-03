@@ -88,8 +88,8 @@ func signWitnessRecoveryReceiptWithSigner(
 	if err != nil {
 		return WitnessRecoveryReceipt{}, fmt.Errorf("sign recovery witness receipt: %w", err)
 	}
-	if len(signature) != ed25519.SignatureSize {
-		return WitnessRecoveryReceipt{}, fmt.Errorf("recovery witness receipt signer returned invalid signature size")
+	if len(signature) == 0 {
+		return WitnessRecoveryReceipt{}, fmt.Errorf("recovery witness receipt signer returned empty signature")
 	}
 	receipt.Signature = base64.StdEncoding.EncodeToString(signature)
 	return receipt, nil
@@ -102,10 +102,33 @@ func VerifyWitnessRecoveryReceipt(
 	nonce string,
 	witnessPublicKey ed25519.PublicKey,
 ) error {
+	verifier, err := NewRecoveryWitnessVerifier(
+		RecoveryWitnessSignatureEd25519,
+		base64.StdEncoding.EncodeToString(witnessPublicKey),
+	)
+	if err != nil {
+		return ErrBootstrapSignatureInvalid
+	}
+	return VerifyWitnessRecoveryReceiptWithVerifier(
+		receipt,
+		profile,
+		joint,
+		nonce,
+		verifier,
+	)
+}
+
+func VerifyWitnessRecoveryReceiptWithVerifier(
+	receipt WitnessRecoveryReceipt,
+	profile *VerifiedExternalRecoveryWitnessProfile,
+	joint JointSignedTaintRecoveryAuthorization,
+	nonce string,
+	witnessVerifier RecoveryWitnessVerifier,
+) error {
 	if profile == nil {
 		return fmt.Errorf("%w: external witness profile is unavailable", ErrTaintRecoveryAuthorization)
 	}
-	if len(witnessPublicKey) != ed25519.PublicKeySize {
+	if strings.TrimSpace(witnessVerifier.KeyID()) == "" {
 		return ErrBootstrapSignatureInvalid
 	}
 	expected := profile.profile
@@ -118,6 +141,9 @@ func VerifyWitnessRecoveryReceipt(
 		receipt.PolicyEpoch != expected.PolicyEpoch ||
 		receipt.PolicyHash != expected.PolicyHash {
 		return fmt.Errorf("%w: witness receipt profile continuity mismatch", ErrTaintRecoveryAuthorization)
+	}
+	if receipt.WitnessKeyID != witnessVerifier.KeyID() {
+		return fmt.Errorf("%w: witness receipt verifier identity mismatch", ErrTaintRecoveryAuthorization)
 	}
 	if receipt.AuthorizationID != joint.Authorization.AuthorizationID {
 		return fmt.Errorf("%w: witness receipt authorization mismatch", ErrTaintRecoveryAuthorization)
@@ -141,7 +167,7 @@ func VerifyWitnessRecoveryReceipt(
 		return fmt.Errorf("%w: witness receipt evaluation time is outside authorization window",
 			ErrTaintRecoveryAuthorization)
 	}
-	signature, err := decodeTaintRecoverySignature(receipt.Signature)
+	signature, err := decodeRecoveryWitnessSignature(receipt.Signature)
 	if err != nil {
 		return ErrBootstrapSignatureInvalid
 	}
@@ -149,7 +175,7 @@ func VerifyWitnessRecoveryReceipt(
 	if err != nil {
 		return err
 	}
-	if !ed25519.Verify(witnessPublicKey, payload, signature) {
+	if !witnessVerifier.Verify(payload, signature) {
 		return ErrBootstrapSignatureInvalid
 	}
 	return nil

@@ -31,11 +31,11 @@ type AuthoritySignedTaintRecoveryAuthorization struct {
 }
 
 type RemoteTaintRecoveryWitness struct {
-	endpoint     string
-	witnessKeyID string
-	witnessKey   ed25519.PublicKey
-	profile      *VerifiedExternalRecoveryWitnessProfile
-	client       *http.Client
+	endpoint        string
+	witnessKeyID    string
+	witnessVerifier RecoveryWitnessVerifier
+	profile         *VerifiedExternalRecoveryWitnessProfile
+	client          *http.Client
 }
 
 type TaintRecoveryWitnessPolicy interface {
@@ -173,10 +173,10 @@ func NewRemoteTaintRecoveryWitness(
 		return nil, errors.New("remote recovery witness HTTP client is required")
 	}
 	return &RemoteTaintRecoveryWitness{
-		endpoint:     endpoint,
-		witnessKeyID: trustRoot.manifest.WitnessKeyID,
-		witnessKey:   append(ed25519.PublicKey(nil), trustRoot.witnessKey...),
-		client:       client,
+		endpoint:        endpoint,
+		witnessKeyID:    trustRoot.manifest.WitnessKeyID,
+		witnessVerifier: trustRoot.witnessKey,
+		client:          client,
 	}, nil
 }
 
@@ -277,12 +277,12 @@ func (w *RemoteTaintRecoveryWitness) coSign(
 				ErrTaintRecoveryAuthorization,
 			)
 		}
-		if err := VerifyWitnessRecoveryReceipt(
+		if err := VerifyWitnessRecoveryReceiptWithVerifier(
 			*result.Receipt,
 			w.profile,
 			result.SignedAuthorization,
 			nonce,
-			w.witnessKey,
+			w.witnessVerifier,
 		); err != nil {
 			return JointSignedTaintRecoveryAuthorization{}, WitnessRecoveryReceipt{}, err
 		}
@@ -474,7 +474,7 @@ func newTaintRecoveryWitnessHandlerWithSigner(
 				http.Error(rw, "cannot sign recovery witness receipt", http.StatusServiceUnavailable)
 				return
 			}
-			if err := VerifyWitnessRecoveryReceipt(
+			if err := VerifyWitnessRecoveryReceiptWithVerifier(
 				receipt,
 				profile,
 				joint,
@@ -512,17 +512,20 @@ func newTaintRecoveryWitnessHandlerWithSigner(
 func signAndVerifyRecoveryWitnessPayload(
 	ctx context.Context,
 	signer RecoveryWitnessSigner,
-	publicKey ed25519.PublicKey,
+	verifier RecoveryWitnessVerifier,
 	payload []byte,
 ) ([]byte, error) {
 	if signer == nil {
 		return nil, errors.New("recovery witness signer is unavailable")
 	}
+	if signer.KeyID() != verifier.KeyID() {
+		return nil, errors.New("recovery witness signer identity differs from pinned verifier")
+	}
 	signature, err := signer.Sign(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
-	if len(signature) != ed25519.SignatureSize || !ed25519.Verify(publicKey, payload, signature) {
+	if !verifier.Verify(payload, signature) {
 		return nil, errors.New("recovery witness signer returned unverifiable signature")
 	}
 	return signature, nil
@@ -600,11 +603,11 @@ func (w *RemoteTaintRecoveryWitness) verifyResponse(
 	if !bytes.Equal(expectedPayload, observedPayload) {
 		return errors.New("remote recovery witness changed authorization payload")
 	}
-	witnessSignature, err := decodeTaintRecoverySignature(joint.WitnessSignature)
+	witnessSignature, err := decodeRecoveryWitnessSignature(joint.WitnessSignature)
 	if err != nil {
 		return errors.New("remote recovery witness signature is invalid")
 	}
-	if !ed25519.Verify(w.witnessKey, observedPayload, witnessSignature) {
+	if !w.witnessVerifier.Verify(observedPayload, witnessSignature) {
 		return errors.New("remote recovery witness signature verification failed")
 	}
 	commitment, err := JointTaintRecoveryCommitmentDigest(joint)
@@ -615,11 +618,11 @@ func (w *RemoteTaintRecoveryWitness) verifyResponse(
 	if err != nil {
 		return err
 	}
-	responseSignature, err := decodeTaintRecoverySignature(result.ResponseSignature)
+	responseSignature, err := decodeRecoveryWitnessSignature(result.ResponseSignature)
 	if err != nil {
 		return errors.New("remote recovery witness response signature is invalid")
 	}
-	if !ed25519.Verify(w.witnessKey, statement, responseSignature) {
+	if !w.witnessVerifier.Verify(statement, responseSignature) {
 		return errors.New("remote recovery witness response signature verification failed")
 	}
 	return nil

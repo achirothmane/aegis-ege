@@ -49,6 +49,7 @@ func prepareTaintRecoveryWitness(
 	preparedBundlePath string,
 	unsignedProfilePath string,
 	profileAuthorityPublicKeyPath string,
+	witnessSignatureAlgorithmPath string,
 	witnessPublicKeyPath string,
 	witnessSignerEndpointPath string,
 	witnessSignerTLSCertPath string,
@@ -58,9 +59,20 @@ func prepareTaintRecoveryWitness(
 	if err != nil {
 		return fmt.Errorf("read external profile authority public key: %w", err)
 	}
-	witnessPublic, err := readEd25519PublicKey(witnessPublicKeyPath)
+	witnessSignatureAlgorithm, err := readTrimmedFile(witnessSignatureAlgorithmPath)
+	if err != nil {
+		return fmt.Errorf("read external witness signature algorithm: %w", err)
+	}
+	witnessPublicEncoded, err := readTrimmedFile(witnessPublicKeyPath)
 	if err != nil {
 		return fmt.Errorf("read external witness signer public key: %w", err)
+	}
+	witnessVerifier, err := kernelfabric.NewRecoveryWitnessVerifier(
+		witnessSignatureAlgorithm,
+		witnessPublicEncoded,
+	)
+	if err != nil {
+		return fmt.Errorf("verify external witness signer identity: %w", err)
 	}
 	witnessSignerEndpoint, err := readTrimmedFile(witnessSignerEndpointPath)
 	if err != nil {
@@ -95,10 +107,7 @@ func prepareTaintRecoveryWitness(
 	if err != nil {
 		return err
 	}
-	recoveryWitnessKeyID, err := kernelfabric.BootstrapKeyID(witnessPublic)
-	if err != nil {
-		return err
-	}
+	recoveryWitnessKeyID := witnessVerifier.KeyID()
 	trustSignerKeyID, err := kernelfabric.BootstrapKeyID(trustSignerPublic)
 	if err != nil {
 		return err
@@ -122,8 +131,9 @@ func prepareTaintRecoveryWitness(
 			AuthorityKeyID:     authorityKeyID,
 			AuthorityPublicKey: base64.StdEncoding.EncodeToString(authorityPublic),
 			WitnessPrincipal:   "witness/control-plane-b",
-			WitnessKeyID:       recoveryWitnessKeyID,
-			WitnessPublicKey:   base64.StdEncoding.EncodeToString(witnessPublic),
+			WitnessKeyID:              recoveryWitnessKeyID,
+			WitnessPublicKey:          witnessPublicEncoded,
+			WitnessSignatureAlgorithm: witnessVerifier.Algorithm(),
 		},
 		trustSignerPrivate,
 	)
@@ -296,17 +306,14 @@ func verifyPreparedTaintRecoveryWitness(
 	); err != nil {
 		return nil, err
 	}
-	witnessPublicRaw, err := base64.StdEncoding.DecodeString(
+	witnessVerifier, err := kernelfabric.NewRecoveryWitnessVerifier(
+		prepared.SignedTrust.Manifest.WitnessSignatureAlgorithm,
 		prepared.SignedTrust.Manifest.WitnessPublicKey,
 	)
-	if err != nil || len(witnessPublicRaw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("prepared recovery trust witness public key is invalid")
-	}
-	witnessKeyID, err := kernelfabric.BootstrapKeyID(ed25519.PublicKey(witnessPublicRaw))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("prepared recovery trust witness public key is invalid: %w", err)
 	}
-	if witnessKeyID != prepared.SignedTrust.Manifest.WitnessKeyID {
+	if witnessVerifier.KeyID() != prepared.SignedTrust.Manifest.WitnessKeyID {
 		return nil, fmt.Errorf("prepared recovery trust witness key id mismatch")
 	}
 

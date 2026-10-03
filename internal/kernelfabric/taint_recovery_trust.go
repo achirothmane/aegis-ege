@@ -18,14 +18,15 @@ const (
 )
 
 type TaintRecoveryTrustManifest struct {
-	Version            string `json:"version"`
-	TrustEpoch         uint64 `json:"trust_epoch"`
-	AuthorityPrincipal string `json:"authority_principal"`
-	AuthorityKeyID     string `json:"authority_key_id"`
-	AuthorityPublicKey string `json:"authority_public_key"`
-	WitnessPrincipal   string `json:"witness_principal"`
-	WitnessKeyID       string `json:"witness_key_id"`
-	WitnessPublicKey   string `json:"witness_public_key"`
+	Version                   string `json:"version"`
+	TrustEpoch                uint64 `json:"trust_epoch"`
+	AuthorityPrincipal        string `json:"authority_principal"`
+	AuthorityKeyID            string `json:"authority_key_id"`
+	AuthorityPublicKey        string `json:"authority_public_key"`
+	WitnessPrincipal          string `json:"witness_principal"`
+	WitnessKeyID              string `json:"witness_key_id"`
+	WitnessPublicKey          string `json:"witness_public_key"`
+	WitnessSignatureAlgorithm string `json:"witness_signature_algorithm,omitempty"`
 }
 
 type SignedTaintRecoveryTrustManifest struct {
@@ -38,7 +39,7 @@ type TaintRecoveryTrustRoot struct {
 	manifest     TaintRecoveryTrustManifest
 	signerKeyID  string
 	authorityKey ed25519.PublicKey
-	witnessKey   ed25519.PublicKey
+	witnessKey   RecoveryWitnessVerifier
 }
 
 func SignTaintRecoveryTrustManifest(
@@ -111,7 +112,7 @@ func NewTaintRecoveryTrustRoot(
 		manifest:     manifest,
 		signerKeyID:  signed.SignerKeyID,
 		authorityKey: append(ed25519.PublicKey(nil), authorityKey...),
-		witnessKey:   append(ed25519.PublicKey(nil), witnessKey...),
+		witnessKey:   witnessKey,
 	}, nil
 }
 
@@ -128,7 +129,12 @@ func (r *TaintRecoveryTrustRoot) Verify(
 	if signed.WitnessKeyID != r.manifest.WitnessKeyID {
 		return fmt.Errorf("%w: recovery witness is not trusted", ErrTaintRecoveryAuthorization)
 	}
-	return VerifyJointTaintRecoveryAuthorization(signed, r.authorityKey, r.witnessKey, now)
+	return VerifyJointTaintRecoveryAuthorizationWithWitnessVerifier(
+		signed,
+		r.authorityKey,
+		r.witnessKey,
+		now,
+	)
 }
 
 func (r *TaintRecoveryTrustRoot) TrustEpoch() uint64 {
@@ -140,22 +146,22 @@ func (r *TaintRecoveryTrustRoot) TrustEpoch() uint64 {
 
 func normalizeTaintRecoveryTrustManifest(
 	manifest TaintRecoveryTrustManifest,
-) (TaintRecoveryTrustManifest, ed25519.PublicKey, ed25519.PublicKey, error) {
+) (TaintRecoveryTrustManifest, ed25519.PublicKey, RecoveryWitnessVerifier, error) {
 	if manifest.Version != TaintRecoveryTrustManifestVersion {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery trust manifest version mismatch %q",
 			ErrTaintRecoveryAuthorization,
 			manifest.Version,
 		)
 	}
 	if manifest.TrustEpoch == 0 {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery trust epoch must be non-zero",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
 	if manifest.TrustEpoch > maxTaintRecoveryTrustJSONInteger {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery trust epoch exceeds RFC8785/JCS exact integer profile",
 			ErrTaintRecoveryAuthorization,
 		)
@@ -165,55 +171,70 @@ func normalizeTaintRecoveryTrustManifest(
 	manifest.AuthorityKeyID = strings.TrimSpace(manifest.AuthorityKeyID)
 	manifest.WitnessKeyID = strings.TrimSpace(manifest.WitnessKeyID)
 	if manifest.AuthorityPrincipal == "" || manifest.WitnessPrincipal == "" {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery trust principals are required",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
 	if manifest.AuthorityPrincipal == manifest.WitnessPrincipal {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery authority and witness principals must differ",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
 	authorityRaw, err := base64.StdEncoding.DecodeString(manifest.AuthorityPublicKey)
 	if err != nil || len(authorityRaw) != ed25519.PublicKeySize {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: invalid recovery authority public key",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
-	witnessRaw, err := base64.StdEncoding.DecodeString(manifest.WitnessPublicKey)
-	if err != nil || len(witnessRaw) != ed25519.PublicKeySize {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
-			"%w: invalid recovery witness public key",
-			ErrTaintRecoveryAuthorization,
-		)
-	}
 	authorityKey := ed25519.PublicKey(authorityRaw)
-	witnessKey := ed25519.PublicKey(witnessRaw)
 	authorityKeyID, err := BootstrapKeyID(authorityKey)
 	if err != nil {
-		return TaintRecoveryTrustManifest{}, nil, nil, err
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, err
 	}
-	witnessKeyID, err := BootstrapKeyID(witnessKey)
+	witnessAlgorithm := strings.TrimSpace(manifest.WitnessSignatureAlgorithm)
+	if witnessAlgorithm == "" {
+		witnessAlgorithm = RecoveryWitnessSignatureEd25519
+	}
+	witnessKey, err := NewRecoveryWitnessVerifier(
+		witnessAlgorithm,
+		manifest.WitnessPublicKey,
+	)
 	if err != nil {
-		return TaintRecoveryTrustManifest{}, nil, nil, err
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
+			"%w: invalid recovery witness public key: %v",
+			ErrTaintRecoveryAuthorization,
+			err,
+		)
 	}
+	witnessKeyID := witnessKey.KeyID()
 	if authorityKeyID == witnessKeyID {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery trust manifest uses one key for both principals",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
 	if manifest.AuthorityKeyID != authorityKeyID || manifest.WitnessKeyID != witnessKeyID {
-		return TaintRecoveryTrustManifest{}, nil, nil, fmt.Errorf(
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, fmt.Errorf(
 			"%w: recovery trust key id does not match public key",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
 	manifest.AuthorityPublicKey = base64.StdEncoding.EncodeToString(authorityKey)
-	manifest.WitnessPublicKey = base64.StdEncoding.EncodeToString(witnessKey)
+	encodedWitnessKey, err := witnessKey.EncodedPublicKey()
+	if err != nil {
+		return TaintRecoveryTrustManifest{}, nil, RecoveryWitnessVerifier{}, err
+	}
+	manifest.WitnessPublicKey = encodedWitnessKey
+	if witnessKey.Algorithm() == RecoveryWitnessSignatureEd25519 {
+		// Keep the v1 canonical payload byte-compatible with manifests that
+		// predate explicit witness algorithm metadata.
+		manifest.WitnessSignatureAlgorithm = ""
+	} else {
+		manifest.WitnessSignatureAlgorithm = witnessKey.Algorithm()
+	}
 	return manifest, authorityKey, witnessKey, nil
 }
 
