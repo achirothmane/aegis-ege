@@ -239,20 +239,32 @@ func TransferTPMNVHistoryContinuity(
 		return fmt.Errorf("%w: source state does not match authorization", ErrTPMHistoryContinuityAuthorization)
 	}
 
-	expectedHistory := kernelfabric.TaintRecoveryHistoryAnchorState{
-		Sequence:   auth.SourceSequence,
-		HeadDigest: auth.SourceHeadDigest,
-	}
-	if err := requireExactHistoryWitness(ctx, historyWitness, expectedHistory); err != nil {
-		return err
-	}
-
 	expectedOwnership := TaintRecoveryHistoryOwnershipState{
 		Epoch:                auth.SourceOwnershipEpoch,
 		ActiveDeviceIdentity: auth.SourceDeviceIdentity,
 		AuthorizationDigest:  auth.SourceOwnershipAuthorizationDigest,
 	}
 	if err := validateTaintRecoveryHistoryOwnershipState(expectedOwnership); err != nil {
+		return err
+	}
+	currentOwnership, err := ownership.Current(ctx)
+	if err != nil {
+		return err
+	}
+	finalOwnership := TaintRecoveryHistoryOwnershipState{
+		Epoch:                expectedOwnership.Epoch + 2,
+		ActiveDeviceIdentity: auth.DestinationDeviceIdentity,
+		AuthorizationDigest:  commitment,
+	}
+	if currentOwnership == finalOwnership {
+		return ErrTPMHistoryContinuityReplay
+	}
+
+	expectedHistory := kernelfabric.TaintRecoveryHistoryAnchorState{
+		Sequence:   auth.SourceSequence,
+		HeadDigest: auth.SourceHeadDigest,
+	}
+	if err := requireExactHistoryWitness(ctx, historyWitness, expectedHistory); err != nil {
 		return err
 	}
 
@@ -267,18 +279,6 @@ func TransferTPMNVHistoryContinuity(
 		return err
 	}
 
-	currentOwnership, err := ownership.Current(ctx)
-	if err != nil {
-		return err
-	}
-	finalOwnership := TaintRecoveryHistoryOwnershipState{
-		Epoch:                expectedOwnership.Epoch + 2,
-		ActiveDeviceIdentity: auth.DestinationDeviceIdentity,
-		AuthorizationDigest:  commitment,
-	}
-	if currentOwnership == finalOwnership {
-		return ErrTPMHistoryContinuityReplay
-	}
 	quiesced := TaintRecoveryHistoryOwnershipState{
 		Epoch:                expectedOwnership.Epoch + 1,
 		ActiveDeviceIdentity: quiescedRecoveryHistoryOwnershipIdentity(commitment),
