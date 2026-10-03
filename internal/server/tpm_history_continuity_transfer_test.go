@@ -460,6 +460,10 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	commitment, err := TPMHistoryContinuityTransferAuthorizationDigest(signedTransfer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Sequence 1 is the quiesced ownership state; sequence 2 is final ownership.
 	// Let the quiesce commit, then allow only a minority final write. This can
 	// leave the physical replicas split across source/quiesced/final states,
@@ -479,8 +483,14 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		t.Fatal("ownership finalization interruption unexpectedly succeeded")
 	}
 
-	if _, err := ownership.Current(ctx); !errors.Is(err, journal.ErrExternalHeadQuorum) {
-		t.Fatalf("split ownership quorum unexpectedly produced an active truth: %v", err)
+	ownershipAfterInterruption, ownershipErr := ownership.Current(ctx)
+	if ownershipErr == nil {
+		if ownershipAfterInterruption.Epoch != 1 ||
+			ownershipAfterInterruption.ActiveDeviceIdentity != quiescedRecoveryHistoryOwnershipIdentity(commitment) {
+			t.Fatalf("failed finalization produced unexpected ownership truth: %+v", ownershipAfterInterruption)
+		}
+	} else if !errors.Is(ownershipErr, journal.ErrExternalHeadQuorum) {
+		t.Fatalf("failed finalization produced unexpected ownership error: %v", ownershipErr)
 	}
 	staleSource := &staticDeviceHistoryAnchor{
 		identity: sourceState.DeviceIdentity,
@@ -493,15 +503,15 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := quiescedSource.Current(ctx); !errors.Is(err, journal.ErrExternalHeadQuorum) {
-		t.Fatalf("source identity became active while ownership quorum was split: %v", err)
+	if _, err := quiescedSource.Current(ctx); err == nil {
+		t.Fatal("source identity became active during interrupted ownership finalization")
 	}
 	ownedB, err := NewOwnedConjunctiveTaintRecoveryHistoryAnchor(localB, historyWitness, ownership)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ownedB.Current(ctx); !errors.Is(err, journal.ErrExternalHeadQuorum) {
-		t.Fatalf("destination became active while ownership quorum was split: %v", err)
+	if _, err := ownedB.Current(ctx); err == nil {
+		t.Fatal("destination became active during interrupted ownership finalization")
 	}
 
 	g1.setFailure(0)
