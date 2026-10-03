@@ -26,16 +26,16 @@ import (
 )
 
 const (
-	taintInodeReuseHelperEnv    = "AEGIS_TAINT_INODE_REUSE_HELPER"
-	taintRestartObserverEnv     = "AEGIS_TAINT_RESTART_OBSERVER"
-	taintRecoveryCrashHelperEnv = "AEGIS_TAINT_RECOVERY_CRASH_HELPER"
-	taintRecoveryPlanEnv        = "AEGIS_TAINT_RECOVERY_PLAN"
-	taintRecoveryAuthEnv        = "AEGIS_TAINT_RECOVERY_AUTH"
+	taintInodeReuseHelperEnv      = "AEGIS_TAINT_INODE_REUSE_HELPER"
+	taintRestartObserverEnv       = "AEGIS_TAINT_RESTART_OBSERVER"
+	taintRecoveryCrashHelperEnv   = "AEGIS_TAINT_RECOVERY_CRASH_HELPER"
+	taintRecoveryPlanEnv          = "AEGIS_TAINT_RECOVERY_PLAN"
+	taintRecoveryAuthEnv          = "AEGIS_TAINT_RECOVERY_AUTH"
 	taintRecoveryTrustManifestEnv = "AEGIS_TAINT_RECOVERY_TRUST_MANIFEST"
 	taintRecoveryTrustSignerEnv   = "AEGIS_TAINT_RECOVERY_TRUST_SIGNER"
 	taintRecoveryTrustEpochEnv    = "AEGIS_TAINT_RECOVERY_TRUST_EPOCH"
-	taintRecoveryNowEnv         = "AEGIS_TAINT_RECOVERY_NOW"
-	taintRecoveryBoundaryEnv    = "AEGIS_TAINT_RECOVERY_BOUNDARY"
+	taintRecoveryNowEnv           = "AEGIS_TAINT_RECOVERY_NOW"
+	taintRecoveryBoundaryEnv      = "AEGIS_TAINT_RECOVERY_BOUNDARY"
 )
 
 func TestTaintRestartObserver(t *testing.T) {
@@ -117,8 +117,8 @@ func TestTaintRecoveryCrashHelper(t *testing.T) {
 	}
 
 	req := TaintRecoveryRequest{
-		BPFFSRoot:            os.Getenv(taintNativeHelperBPFFSRoot),
-		Plan:                 plan,
+		BPFFSRoot:           os.Getenv(taintNativeHelperBPFFSRoot),
+		Plan:                plan,
 		SignedAuthorization: signed,
 		RecoveryTrust:       recoveryTrust,
 		Now:                 now,
@@ -331,7 +331,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	loaded, err := loader.LoadAndAttach(context.Background(), TaintBootstrapLoadRequest{
 		ArtifactPath:          artifact,
 		CgroupPath:            cgroupPath,
-		BPFFSRoot:             bpffsRoot,
+		BPFFSRoot:            bpffsRoot,
 		SignedManifest:        signedManifest,
 		Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
 		AttestationPrivateKey: attestationPrivate,
@@ -361,8 +361,8 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		})
 	}
 	activated, err := ActivateTaintCgroup(TaintActivationRequest{
-		BPFFSRoot:                     bpffsRoot,
-		Plan:                          plan,
+		BPFFSRoot:                    bpffsRoot,
+		Plan:                         plan,
 		SignedBootstrapReceipt:        loaded.SignedReceipt,
 		BootstrapAttestationPublicKey: attestationPublic,
 	})
@@ -500,7 +500,7 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	_, err = (TaintBootstrapLoader{}).LoadAndAttach(context.Background(), TaintBootstrapLoadRequest{
 		ArtifactPath:          artifact,
 		CgroupPath:            cgroupPath,
-		BPFFSRoot:             bpffsRoot,
+		BPFFSRoot:            bpffsRoot,
 		SignedManifest:        signedManifest,
 		Trust:                 BootstrapTrustStore{releaseKeyID: releasePublic},
 		AttestationPrivateKey: attestationPrivate,
@@ -517,8 +517,8 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	// implementation reports the already-armed lifetime guard or DIRTY
 	// continuity, stale enrollment must never become a second ALLOW transition.
 	_, err = ActivateTaintCgroup(TaintActivationRequest{
-		BPFFSRoot:                     bpffsRoot,
-		Plan:                          plan,
+		BPFFSRoot:                    bpffsRoot,
+		Plan:                         plan,
 		SignedBootstrapReceipt:        loaded.SignedReceipt,
 		BootstrapAttestationPublicKey: attestationPublic,
 	})
@@ -690,9 +690,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 	sourcesBeforeSinglePrincipal := nativeTaintSourceSnapshot(t, bpffsRoot)
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  authorityOnly,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: authorityOnly,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
@@ -884,9 +884,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedOther,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedOther,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
@@ -902,9 +902,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 
 	recovered, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedRecovery,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedRecovery,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
@@ -1010,9 +1010,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	}
 
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedStaleFuture,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedStaleFuture,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
@@ -1154,9 +1154,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedWrongCompleted,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedWrongCompleted,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
@@ -1173,9 +1173,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 
 	sourcesBeforeAck := nativeTaintSourceSnapshot(t, bpffsRoot)
 	acknowledged, err := RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedCleanCrash,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedCleanCrash,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
@@ -1232,9 +1232,9 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 	// Once acknowledged, even the exact authorization is no longer an in-flight
 	// operation. Re-presenting it must not manufacture a second SUCCESS.
 	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
-		BPFFSRoot:            bpffsRoot,
-		Plan:                 recoveryPlan,
-		SignedAuthorization:  signedCleanCrash,
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: signedCleanCrash,
 		RecoveryTrust:       recoveryTrust,
 		Now:                  now,
 	})
