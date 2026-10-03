@@ -58,6 +58,25 @@ func (p VerifiedGenesisPin) ParseQuorumBinding(
 }
 
 
+func (p VerifiedGenesisPin) ParseHistoryBinding(
+	capabilityEnvelope []byte,
+	purpose string,
+) (journal.GenesisHistoryBinding, error) {
+	if !p.ready ||
+		p.genesisEpoch == 0 ||
+		p.capabilityEnvelopeHash == "" ||
+		p.manifestPayloadHash == "" {
+		return journal.GenesisHistoryBinding{}, errors.New(
+			"verified Genesis pin is unavailable",
+		)
+	}
+	return journal.ParseGenesisHistoryBinding(
+		capabilityEnvelope,
+		p.capabilityEnvelopeHash,
+		purpose,
+	)
+}
+
 func (p VerifiedGenesisPin) ParseEnrollmentSuccessorGovernanceBinding(
 	capabilityEnvelope []byte,
 ) (journal.GenesisEnrollmentSuccessorGovernanceBinding, error) {
