@@ -17,18 +17,18 @@ import (
 )
 
 const (
-	targetID       = "terraform:terraform_data.governed"
-	operationID    = "terraform.apply"
-	custodyVersion = "aegis.terraform-proof-custody/v1"
+	targetID        = "terraform:terraform_data.governed"
+	operationID     = "terraform.apply"
+	custodyVersion  = "aegis.terraform-proof-custody/v1"
 	evidenceVersion = "aegis.terraform-complexity-dividend/v1"
 )
 
 var (
-	policyIssuer = gaRuntime.Identity{ID: "policy:terraform-proof", Kind: "policy"}
-	observerIssuer = gaRuntime.Identity{ID: "observer:terraform-proof", Kind: "observer"}
-	recoveryIssuer = gaRuntime.Identity{ID: "policy:terraform-recovery", Kind: "policy"}
-	subjectIdentity = gaRuntime.Identity{ID: "operator:terraform-proof", Kind: "operator"}
-	executorIdentity = gaRuntime.Identity{ID: "process:terraform-executor", Kind: "process"}
+	policyIssuer      = gaRuntime.Identity{ID: "policy:terraform-proof", Kind: "policy"}
+	observerIssuer    = gaRuntime.Identity{ID: "observer:terraform-proof", Kind: "observer"}
+	recoveryIssuer    = gaRuntime.Identity{ID: "policy:terraform-recovery", Kind: "policy"}
+	subjectIdentity   = gaRuntime.Identity{ID: "operator:terraform-proof", Kind: "operator"}
+	executorIdentity  = gaRuntime.Identity{ID: "process:terraform-executor", Kind: "process"}
 	recovererIdentity = gaRuntime.Identity{ID: "process:terraform-recoverer", Kind: "process"}
 )
 
@@ -38,28 +38,28 @@ type custodyFile struct {
 }
 
 type evidence struct {
-	SchemaVersion          string                `json:"schema_version"`
-	Domain                 string                `json:"domain"`
-	Disposition            gaRuntime.Disposition `json:"disposition"`
-	EffectID               string                `json:"effect_id"`
-	AttemptID              string                `json:"attempt_id"`
-	CustodyRecorded        bool                  `json:"custody_recorded"`
-	RecoveryBoundaryEntered bool                 `json:"recovery_boundary_entered"`
-	ReplayDisposition      gaRuntime.Disposition `json:"replay_disposition"`
-	ReplayBoundaryEntered  bool                  `json:"replay_boundary_entered"`
-	EffectLogLines         int                   `json:"effect_log_lines"`
-	ObservedRevision       string                `json:"observed_revision"`
-	ObservedDigest         string                `json:"observed_digest"`
-	CoreSemanticDelta      int                   `json:"core_semantic_delta"`
+	SchemaVersion           string                `json:"schema_version"`
+	Domain                  string                `json:"domain"`
+	Disposition             gaRuntime.Disposition `json:"disposition"`
+	EffectID                string                `json:"effect_id"`
+	AttemptID               string                `json:"attempt_id"`
+	CustodyRecorded         bool                  `json:"custody_recorded"`
+	RecoveryBoundaryEntered bool                  `json:"recovery_boundary_entered"`
+	ReplayDisposition       gaRuntime.Disposition `json:"replay_disposition"`
+	ReplayBoundaryEntered   bool                  `json:"replay_boundary_entered"`
+	EffectLogLines          int                   `json:"effect_log_lines"`
+	ObservedRevision        string                `json:"observed_revision"`
+	ObservedDigest          string                `json:"observed_digest"`
+	CoreSemanticDelta       int                   `json:"core_semantic_delta"`
 }
 
 type adapter struct {
-	workDir       string
-	custodyPath   string
-	effectLogPath string
-	proofValue    string
+	workDir         string
+	custodyPath     string
+	effectLogPath   string
+	proofValue      string
 	crashAfterApply bool
-	executeCalls  int
+	executeCalls    int
 }
 
 func main() {
@@ -92,10 +92,10 @@ func runExecute(args []string) {
 
 	req := buildRequest(*value, *attempt)
 	a := &adapter{
-		workDir: *workDir,
-		custodyPath: *custody,
+		workDir:       *workDir,
+		custodyPath:   *custody,
 		effectLogPath: *effectLog,
-		proofValue: *value,
+		proofValue:    *value,
 		crashAfterApply: *crash,
 	}
 	result := gaRuntime.Run(context.Background(), req, a)
@@ -125,10 +125,10 @@ func runRecover(args []string) {
 
 	req := buildRequest(*value, *attempt)
 	a := &adapter{
-		workDir: *workDir,
-		custodyPath: *custodyPath,
+		workDir:       *workDir,
+		custodyPath:   *custodyPath,
 		effectLogPath: *effectLog,
-		proofValue: *value,
+		proofValue:    *value,
 	}
 
 	effectID, err := gaRuntime.EffectIdentity(req)
