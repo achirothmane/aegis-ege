@@ -219,7 +219,6 @@ func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
 	)
 }
 
-
 func proveFreshBootBEnrollmentAndEffect(t *testing.T, bootBIDHash string) {
 	t.Helper()
 	if len(nativeTaintBPFObject) == 0 {
