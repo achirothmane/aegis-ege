@@ -2,6 +2,8 @@ package journal
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -334,8 +336,20 @@ func TestQuorumHeadStoreConvergesAuthorizedSplitTransition(t *testing.T) {
 	if !sameSemanticHead(recovered, final) {
 		t.Fatalf("recovered head=%+v want=%+v", recovered, final)
 	}
-	if recovered.StoreVersion == "" || !strings.Contains(recovered.StoreVersion, store.policyHash) {
-		t.Fatalf("recovered quorum head lost governed policy binding: %q", recovered.StoreVersion)
+	parts := strings.SplitN(recovered.StoreVersion, ":", 2)
+	if len(parts) != 2 || parts[0] != quorumHeadStoreVersion {
+		t.Fatalf("recovered quorum store version is malformed: %q", recovered.StoreVersion)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode recovered quorum store version: %v", err)
+	}
+	var version quorumStoreVersion
+	if err := json.Unmarshal(payload, &version); err != nil {
+		t.Fatalf("decode recovered quorum policy binding: %v", err)
+	}
+	if version.PolicyHash != store.policyHash {
+		t.Fatalf("recovered quorum policy hash=%q want=%q", version.PolicyHash, store.policyHash)
 	}
 
 	current, err := store.Load(context.Background(), "capability-root")
