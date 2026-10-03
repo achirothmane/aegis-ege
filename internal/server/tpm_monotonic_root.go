@@ -48,6 +48,7 @@ type TPMNVMonotonicRoot struct {
 type tpmNVRootState struct {
 	Version                      string                                           `json:"version"`
 	DeviceIdentity               string                                           `json:"device_identity"`
+	MeasuredBootIdentity         string                                           `json:"measured_boot_identity"`
 	Generation                   uint64                                           `json:"generation"`
 	PreviousGeneration           uint64                                           `json:"previous_generation,omitempty"`
 	PredecessorDeviceIdentity    string                                           `json:"predecessor_device_identity,omitempty"`
