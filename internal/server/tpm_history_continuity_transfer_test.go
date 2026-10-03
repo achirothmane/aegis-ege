@@ -460,13 +460,10 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	commitment, err := TPMHistoryContinuityTransferAuthorizationDigest(signedTransfer)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// Sequence 1 is the quiesced ownership state; sequence 2 is final ownership.
-	// Let the quiesce commit, then make a strict majority reject the final step.
+	// Let the quiesce commit, then allow only a minority final write. This can
+	// leave the physical replicas split across source/quiesced/final states,
+	// but no quorum may authorize either physical TPM.
 	g1.setFailure(2)
 	g2.setFailure(2)
 	if err := TransferTPMNVHistoryContinuity(
@@ -482,13 +479,8 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 		t.Fatal("ownership finalization interruption unexpectedly succeeded")
 	}
 
-	quiesced, err := ownership.Current(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if quiesced.Epoch != 1 ||
-		quiesced.ActiveDeviceIdentity != quiescedRecoveryHistoryOwnershipIdentity(commitment) {
-		t.Fatalf("ownership did not remain quiesced after interrupted finalization: %+v", quiesced)
+	if _, err := ownership.Current(ctx); !errors.Is(err, journal.ErrExternalHeadQuorum) {
+		t.Fatalf("split ownership quorum unexpectedly produced an active truth: %v", err)
 	}
 	staleSource := &staticDeviceHistoryAnchor{
 		identity: sourceState.DeviceIdentity,
@@ -501,15 +493,15 @@ func TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := quiescedSource.Current(ctx); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
-		t.Fatalf("source identity remained active while ownership was quiesced: %v", err)
+	if _, err := quiescedSource.Current(ctx); !errors.Is(err, journal.ErrExternalHeadQuorum) {
+		t.Fatalf("source identity became active while ownership quorum was split: %v", err)
 	}
 	ownedB, err := NewOwnedConjunctiveTaintRecoveryHistoryAnchor(localB, historyWitness, ownership)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ownedB.Current(ctx); !errors.Is(err, ErrTaintRecoveryHistoryOwnershipMismatch) {
-		t.Fatalf("destination became active before ownership finalization: %v", err)
+	if _, err := ownedB.Current(ctx); !errors.Is(err, journal.ErrExternalHeadQuorum) {
+		t.Fatalf("destination became active while ownership quorum was split: %v", err)
 	}
 
 	g1.setFailure(0)
