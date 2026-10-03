@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -53,18 +55,24 @@ const (
 	recoveryWitnessExternalEndpoint = "https://127.0.0.1:30443"
 	recoveryWitnessNodePort   int32  = 30443
 
-	controllerBundleVersion = "aegis.ege/taint-recovery-controller-bundle/v2"
+	controllerBundleVersion = "aegis.ege/taint-recovery-controller-bundle/v3"
 )
 
 type controllerBundle struct {
-	Version              string                                            `json:"version"`
-	AuthorityPrivateKey  string                                            `json:"authority_private_key"`
-	SignedTrust          kernelfabric.SignedTaintRecoveryTrustManifest    `json:"signed_trust"`
-	SignedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
-	TrustSignerPublicKey string                                            `json:"trust_signer_public_key"`
-	WitnessCAPEM         string                                            `json:"witness_ca_pem"`
-	WitnessTLSServerName string                                            `json:"witness_tls_server_name"`
-	Policy               recoverywitnessprofile.StaticPolicy               `json:"policy"`
+	Version                       string                                             `json:"version"`
+	AuthorityPrivateKey           string                                             `json:"authority_private_key"`
+	SignedTrust                   kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
+	SignedWitnessProfile          kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
+	GenesisCapabilityEnvelopeBase64 string                                            `json:"genesis_capability_envelope_base64"`
+	GenesisCapabilityEnvelopeHash   string                                            `json:"genesis_capability_envelope_hash"`
+	TrustSignerPublicKey          string                                             `json:"trust_signer_public_key"`
+	WitnessCAPEM                  string                                             `json:"witness_ca_pem"`
+	WitnessTLSServerName          string                                             `json:"witness_tls_server_name"`
+	Policy                        recoverywitnessprofile.StaticPolicy                `json:"policy"`
+}
+
+type recoveryGenesisCapabilityEnvelope struct {
+	ExternalRecoveryWitness kernelfabric.ExternalRecoveryWitnessGenesisPolicy `json:"external_recovery_witness"`
 }
 
 func main() {
@@ -154,6 +162,10 @@ func provisionTaintRecoveryWitness(
 	if err != nil {
 		return err
 	}
+	profileAuthorityPublic, profileAuthorityPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
 
 	authorityKeyID, err := kernelfabric.BootstrapKeyID(authorityPublic)
 	if err != nil {
@@ -216,6 +228,32 @@ func provisionTaintRecoveryWitness(
 	if err != nil {
 		return err
 	}
+	profileAuthorityKeyID, err := kernelfabric.BootstrapKeyID(profileAuthorityPublic)
+	if err != nil {
+		return err
+	}
+	genesisCapabilityEnvelope, err := json.Marshal(recoveryGenesisCapabilityEnvelope{
+		ExternalRecoveryWitness: kernelfabric.ExternalRecoveryWitnessGenesisPolicy{
+			Protocol:                  kernelfabric.ExternalRecoveryWitnessGenesisPolicyVersion,
+			ProfileAuthorityKeyID:     profileAuthorityKeyID,
+			ProfileAuthorityPublicKey: base64.StdEncoding.EncodeToString(profileAuthorityPublic),
+			RequiredWitnessID:         "witness/control-plane-b",
+			TLSServerName:             recoveryWitnessServerName,
+			MinimumProfileEpoch:       1,
+			MinimumPolicyEpoch:        1,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	genesisEnvelopeSum := sha256.Sum256(genesisCapabilityEnvelope)
+	genesisCapabilityEnvelopeHash := "sha256:" + hex.EncodeToString(genesisEnvelopeSum[:])
+	if _, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
+		genesisCapabilityEnvelope,
+		genesisCapabilityEnvelopeHash,
+	); err != nil {
+		return fmt.Errorf("self-verify external witness Genesis binding: %w", err)
+	}
 	signedWitnessProfile, err := kernelfabric.SignExternalRecoveryWitnessProfile(
 		kernelfabric.ExternalRecoveryWitnessProfile{
 			Version:              kernelfabric.ExternalRecoveryWitnessProfileVersion,
@@ -227,7 +265,7 @@ func provisionTaintRecoveryWitness(
 			PolicyEpoch:          policy.PolicyEpoch,
 			PolicyHash:           policyHash,
 		},
-		trustSignerPrivate,
+		profileAuthorityPrivate,
 	)
 	if err != nil {
 		return err
@@ -265,10 +303,12 @@ func provisionTaintRecoveryWitness(
 		},
 		Immutable: &immutable,
 		Data: map[string]string{
-			"trust-manifest.json":       string(trustPayload),
-			"external-profile.json":     string(witnessProfilePayload),
-			"trust-signer-public-key":  base64.StdEncoding.EncodeToString(trustSignerPublic),
-			"policy.json":               string(policyPayload),
+			"trust-manifest.json":             string(trustPayload),
+			"external-profile.json":           string(witnessProfilePayload),
+			"genesis-capability-envelope.json": string(genesisCapabilityEnvelope),
+			"genesis-capability-envelope-hash": genesisCapabilityEnvelopeHash,
+			"trust-signer-public-key":         base64.StdEncoding.EncodeToString(trustSignerPublic),
+			"policy.json":                     string(policyPayload),
 		},
 	}
 	if _, err := witnessAdmin.CoreV1().ConfigMaps(witnessNamespace).Create(
@@ -302,6 +342,8 @@ func provisionTaintRecoveryWitness(
 							{Name: "WITNESS_PRIVATE_KEY_PATH", Value: "/run/aegis-witness/secret/witness-private-key"},
 							{Name: "TRUST_MANIFEST_PATH", Value: "/run/aegis-witness/config/trust-manifest.json"},
 							{Name: "EXTERNAL_WITNESS_PROFILE_PATH", Value: "/run/aegis-witness/config/external-profile.json"},
+							{Name: "GENESIS_CAPABILITY_ENVELOPE_PATH", Value: "/run/aegis-witness/config/genesis-capability-envelope.json"},
+							{Name: "GENESIS_CAPABILITY_ENVELOPE_HASH_PATH", Value: "/run/aegis-witness/config/genesis-capability-envelope-hash"},
 							{Name: "TRUST_SIGNER_PUBLIC_KEY_PATH", Value: "/run/aegis-witness/config/trust-signer-public-key"},
 							{Name: "WITNESS_POLICY_PATH", Value: "/run/aegis-witness/config/policy.json"},
 							{Name: "TLS_CERT_PATH", Value: "/run/aegis-witness/secret/tls.crt"},
@@ -406,14 +448,16 @@ func provisionTaintRecoveryWitness(
 	}
 
 	bundle := controllerBundle{
-		Version:              controllerBundleVersion,
-		AuthorityPrivateKey:  base64.StdEncoding.EncodeToString(authorityPrivate),
-		SignedTrust:          signedTrust,
-		SignedWitnessProfile: signedWitnessProfile,
-		TrustSignerPublicKey: base64.StdEncoding.EncodeToString(trustSignerPublic),
-		WitnessCAPEM:         string(tlsCertPEM),
-		WitnessTLSServerName: recoveryWitnessServerName,
-		Policy:               policy,
+		Version:                       controllerBundleVersion,
+		AuthorityPrivateKey:           base64.StdEncoding.EncodeToString(authorityPrivate),
+		SignedTrust:                   signedTrust,
+		SignedWitnessProfile:          signedWitnessProfile,
+		GenesisCapabilityEnvelopeBase64: base64.StdEncoding.EncodeToString(genesisCapabilityEnvelope),
+		GenesisCapabilityEnvelopeHash:   genesisCapabilityEnvelopeHash,
+		TrustSignerPublicKey:          base64.StdEncoding.EncodeToString(trustSignerPublic),
+		WitnessCAPEM:                  string(tlsCertPEM),
+		WitnessTLSServerName:          recoveryWitnessServerName,
+		Policy:                        policy,
 	}
 	payload, err := json.MarshalIndent(bundle, "", "  ")
 	if err != nil {

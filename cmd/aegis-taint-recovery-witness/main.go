@@ -35,24 +35,29 @@ func main() {
 		signedTrust.Manifest.TrustEpoch,
 	)
 	must(err)
+	genesisCapabilityEnvelope := requireFile("GENESIS_CAPABILITY_ENVELOPE_PATH")
+	genesisCapabilityEnvelopeHash := strings.TrimSpace(
+		string(requireFile("GENESIS_CAPABILITY_ENVELOPE_HASH_PATH")),
+	)
+	genesisBinding, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
+		genesisCapabilityEnvelope,
+		genesisCapabilityEnvelopeHash,
+	)
+	must(err)
 	var signedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile
 	mustJSONFile("EXTERNAL_WITNESS_PROFILE_PATH", &signedWitnessProfile)
-	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+	witnessProfile, err := genesisBinding.VerifyProfile(
 		signedWitnessProfile,
-		trustSignerPublic,
 		root,
-		1,
-		1,
 	)
 	must(err)
 	tlsCertPath := requireEnv("TLS_CERT_PATH")
 	tlsCertPEM, err := os.ReadFile(tlsCertPath)
 	must(err)
-	tlsHash, err := kernelfabric.TLSCertificatePEMSHA256(tlsCertPEM)
-	must(err)
-	if tlsHash != witnessProfile.Profile().TLSTrustAnchorSHA256 {
-		log.Fatalf("mounted TLS certificate does not match signed external witness profile")
-	}
+	must(genesisBinding.VerifyMountedTLSCertificate(
+		tlsCertPEM,
+		witnessProfile,
+	))
 
 	var policy recoverywitnessprofile.StaticPolicy
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)

@@ -5,11 +5,8 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/base64"
+		"encoding/base64"
 	"encoding/json"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -29,18 +26,20 @@ const (
 	recoveryWitnessSecretNameIntegration     = "taint-recovery-witness-key"
 	recoveryWitnessConfigNameIntegration     = "taint-recovery-witness-config"
 	recoveryWitnessDeploymentNameIntegration = "taint-recovery-witness"
-	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v2"
+	controllerBundleVersionIntegration        = "aegis.ege/taint-recovery-controller-bundle/v3"
 )
 
 type recoveryControllerBundleIntegration struct {
-	Version              string                                             `json:"version"`
-	AuthorityPrivateKey  string                                             `json:"authority_private_key"`
-	SignedTrust          kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
-	SignedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
-	TrustSignerPublicKey string                                             `json:"trust_signer_public_key"`
-	WitnessCAPEM         string                                             `json:"witness_ca_pem"`
-	WitnessTLSServerName string                                             `json:"witness_tls_server_name"`
-	Policy               recoverywitnessprofile.StaticPolicy                `json:"policy"`
+	Version                       string                                             `json:"version"`
+	AuthorityPrivateKey           string                                             `json:"authority_private_key"`
+	SignedTrust                   kernelfabric.SignedTaintRecoveryTrustManifest     `json:"signed_trust"`
+	SignedWitnessProfile          kernelfabric.SignedExternalRecoveryWitnessProfile `json:"signed_witness_profile"`
+	GenesisCapabilityEnvelopeBase64 string                                            `json:"genesis_capability_envelope_base64"`
+	GenesisCapabilityEnvelopeHash   string                                            `json:"genesis_capability_envelope_hash"`
+	TrustSignerPublicKey          string                                             `json:"trust_signer_public_key"`
+	WitnessCAPEM                  string                                             `json:"witness_ca_pem"`
+	WitnessTLSServerName          string                                             `json:"witness_tls_server_name"`
+	Policy                        recoverywitnessprofile.StaticPolicy                `json:"policy"`
 }
 
 func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
@@ -131,6 +130,9 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if _, exists := raw["witness_private_key"]; exists {
 		t.Fatal("controller bundle contains witness private key")
 	}
+	if _, exists := raw["profile_authority_private_key"]; exists {
+		t.Fatal("controller bundle contains external profile authority private key")
+	}
 
 	var bundle recoveryControllerBundleIntegration
 	if err := json.Unmarshal(bundlePayload, &bundle); err != nil {
@@ -161,12 +163,30 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+	genesisCapabilityEnvelope, err := base64.StdEncoding.DecodeString(
+		bundle.GenesisCapabilityEnvelopeBase64,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesisBinding, err := kernelfabric.ParseGenesisExternalRecoveryWitnessBinding(
+		genesisCapabilityEnvelope,
+		bundle.GenesisCapabilityEnvelopeHash,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesisBinding.Policy().ProfileAuthorityKeyID == bundle.SignedTrust.SignerKeyID {
+		t.Fatal("external profile authority unexpectedly reuses recovery trust signer")
+	}
+	if bundle.SignedWitnessProfile.SignerKeyID != genesisBinding.Policy().ProfileAuthorityKeyID {
+		t.Fatalf("profile signer=%q Genesis authority=%q",
+			bundle.SignedWitnessProfile.SignerKeyID,
+			genesisBinding.Policy().ProfileAuthorityKeyID)
+	}
+	witnessProfile, err := genesisBinding.VerifyProfile(
 		bundle.SignedWitnessProfile,
-		ed25519.PublicKey(trustSignerRaw),
 		root,
-		bundle.SignedWitnessProfile.Profile.ProfileEpoch,
-		bundle.SignedWitnessProfile.Profile.PolicyEpoch,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -183,29 +203,24 @@ func TestKindTaintRecoveryWitnessControlPlaneSeparation(t *testing.T) {
 		t.Fatalf("controller policy continuity does not match signed witness profile")
 	}
 
-	roots := x509.NewCertPool()
-	if ok := roots.AppendCertsFromPEM([]byte(bundle.WitnessCAPEM)); !ok {
-		t.Fatal("controller bundle witness CA is invalid")
+	if genesisBinding.Policy().TLSServerName != bundle.WitnessTLSServerName {
+		t.Fatalf(
+			"Genesis TLS server name=%q bundle=%q",
+			genesisBinding.Policy().TLSServerName,
+			bundle.WitnessTLSServerName,
+		)
 	}
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				RootCAs:    roots,
-				ServerName: bundle.WitnessTLSServerName,
-			},
-		},
-		Timeout: 10 * time.Second,
-	}
-	remote, err := kernelfabric.NewProfiledRemoteTaintRecoveryWitness(
-		endpoint,
+	remote, genesisProfile, err := genesisBinding.NewRemoteWitness(
+		bundle.SignedWitnessProfile,
 		root,
-		witnessProfile,
 		[]byte(bundle.WitnessCAPEM),
-		httpClient,
+		10*time.Second,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if genesisProfile.Profile() != witnessProfile.Profile() {
+		t.Fatal("Genesis remote constructor returned different verified profile")
 	}
 
 	now := time.Now().UTC()
