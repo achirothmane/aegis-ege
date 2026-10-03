@@ -238,6 +238,7 @@ func provisionTaintRecoveryWitness(
 			ProfileAuthorityKeyID:     profileAuthorityKeyID,
 			ProfileAuthorityPublicKey: base64.StdEncoding.EncodeToString(profileAuthorityPublic),
 			RequiredWitnessID:         "witness/control-plane-b",
+			TLSServerName:             recoveryWitnessServerName,
 			MinimumProfileEpoch:       1,
 			MinimumPolicyEpoch:        1,
 		},
