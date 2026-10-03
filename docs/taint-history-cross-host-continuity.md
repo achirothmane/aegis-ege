@@ -76,7 +76,7 @@ Repair of that state is an explicit authorized recovery/migration operation, not
 This v1 proves:
 
 - exact-digest agreement between local TPM and external quorum;
-- tolerance of one unavailable member in a 2-of-3 quorum;
+- tolerance of an unavailable minority witness while a current 2-of-3 majority remains;
 - fail-closed behavior after replacement/reinitialization of the local TPM;
 - fail-closed behavior after a one-sided witness commit.
 
