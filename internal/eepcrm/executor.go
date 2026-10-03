@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/achirothmane/aegis-ege/governedaction"
 	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/evidencepipeline"
 	"github.com/achirothmane/aegis-ege/internal/journal"
@@ -49,23 +50,23 @@ type CustomerUpdatePlan struct {
 }
 
 type OutcomeEvidence struct {
-	APIVersion            string                   `json:"api_version"`
-	PostconditionProfile  string                   `json:"postcondition_profile"`
-	IntentID              string                   `json:"intent_id"`
-	Target                string                   `json:"target"`
-	EvidencePacketDigest  string                   `json:"evidence_packet_digest"`
-	PermitDigest          string                   `json:"permit_digest"`
-	PlanDigest            string                   `json:"plan_digest"`
-	BeforeDigest          string                   `json:"before_digest"`
-	AfterDigest           string                   `json:"after_digest,omitempty"`
-	Result                PostconditionResult      `json:"result"`
-	RequestAcceptance     RequestAcceptance        `json:"request_acceptance"`
-	ObservationStatus     ObservationStatus        `json:"observation_status"`
-	ObservationCount      int                      `json:"observation_count"`
-	Postcondition         *PostconditionEvaluation `json:"postcondition,omitempty"`
-	HTTPStatus            int                      `json:"http_status,omitempty"`
-	ObservedAt            time.Time                `json:"observed_at"`
-	IntegrityDigest       string                   `json:"integrity_digest"`
+	APIVersion           string                   `json:"api_version"`
+	PostconditionProfile string                   `json:"postcondition_profile"`
+	IntentID             string                   `json:"intent_id"`
+	Target               string                   `json:"target"`
+	EvidencePacketDigest string                   `json:"evidence_packet_digest"`
+	PermitDigest         string                   `json:"permit_digest"`
+	PlanDigest           string                   `json:"plan_digest"`
+	BeforeDigest         string                   `json:"before_digest"`
+	AfterDigest          string                   `json:"after_digest,omitempty"`
+	Result               PostconditionResult      `json:"result"`
+	RequestAcceptance    RequestAcceptance        `json:"request_acceptance"`
+	ObservationStatus    ObservationStatus        `json:"observation_status"`
+	ObservationCount     int                      `json:"observation_count"`
+	Postcondition        *PostconditionEvaluation `json:"postcondition,omitempty"`
+	HTTPStatus           int                      `json:"http_status,omitempty"`
+	ObservedAt           time.Time                `json:"observed_at"`
+	IntegrityDigest      string                   `json:"integrity_digest"`
 }
 
 type customerSnapshot struct {
@@ -197,7 +198,7 @@ func (e *Executor) Execute(
 		return OutcomeEvidence{}, fmt.Errorf("verify permit/evidence binding: %w", err)
 	}
 	now := e.clock().UTC()
-	if permit.Claims.ValidUntil.IsZero() || !now.Before(permit.Claims.ValidUntil.UTC()) {
+	if governedaction.CheckValidity(permit.Claims.ValidUntil, now) != nil {
 		return OutcomeEvidence{}, errors.New("execution permit expired")
 	}
 	if packet.Action.Kind != "crm.customer_update" ||
@@ -351,22 +352,32 @@ func (e *Executor) Execute(
 		AttemptState:         string(AttemptPossibleEffect),
 		OccurredAt:           e.clock().UTC(),
 	}
-	if _, err := e.journal.Append(ctx, executionEvent); err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("journal dispatch intent before mutation: %w", err)
-	}
-	if _, err := e.attempts.Transition(
-		ctx, attemptID, AttemptClaimed, AttemptPossibleEffect, 0,
-		"dispatch boundary entered", e.clock().UTC(),
-	); err != nil {
-		return OutcomeEvidence{}, fmt.Errorf("persist possible CRM effect before dispatch: %w", err)
-	}
-
-	status, dispatchErr := e.patchCustomer(
-		ctx,
-		plan.CustomerID,
-		plan.Patch,
-		binding.ExpectedResourceVersion,
+	dispatched, dispatchErr := governedaction.Dispatch(ctx,
+		func(context.Context) error {
+			return e.checkEffectBoundary(permit, plan, before)
+		},
+		func(ctx context.Context) error {
+			if _, err := e.journal.Append(ctx, executionEvent); err != nil {
+				return fmt.Errorf("journal dispatch intent before mutation: %w", err)
+			}
+			if _, err := e.attempts.Transition(
+				ctx, attemptID, AttemptClaimed, AttemptPossibleEffect, 0,
+				"dispatch boundary entered", e.clock().UTC(),
+			); err != nil {
+				return fmt.Errorf("persist possible CRM effect before dispatch: %w", err)
+			}
+			return nil
+		},
+		func(ctx context.Context) (int, error) {
+			return e.patchCustomer(ctx, plan.CustomerID, plan.Patch, binding.ExpectedResourceVersion)
+		},
 	)
+	if !dispatched.BoundaryEntered {
+		// A retained POSSIBLE_EFFECT record remains conservative if authority
+		// expires after its write. Recovery observes it; it does not replay PATCH.
+		return OutcomeEvidence{}, fmt.Errorf("CRM effect boundary not entered: %w", dispatchErr)
+	}
+	status := dispatched.Value
 	if dispatchErr != nil && status == http.StatusPreconditionFailed {
 		_, transitionErr := e.attempts.Transition(
 			context.Background(), attemptID, AttemptPossibleEffect, AttemptBlocked,
@@ -497,7 +508,7 @@ func (e *Executor) Execute(
 }
 
 type postconditionObservation struct {
-	Evaluation *PostconditionEvaluation
+	Evaluation  *PostconditionEvaluation
 	AfterDigest string
 	Status      ObservationStatus
 	Count       int
@@ -672,6 +683,44 @@ func (e *Executor) appendOutcomeEvent(
 		OccurredAt:           outcome.ObservedAt,
 	})
 	return err
+}
+
+// checkEffectBoundary re-establishes the exact native binding and finite
+// authority on both sides of the durable custody write. The read snapshot is a
+// witness, not an atomic guarantee: PATCH still requires destination If-Match.
+func (e *Executor) checkEffectBoundary(permit egeproto.Permit, plan CustomerUpdatePlan, before customerSnapshot) error {
+	binding := permit.Claims.ExecutionBinding
+	if binding == nil {
+		return errors.New("CRM execution permit is missing destination binding")
+	}
+	digest, err := DigestCustomerUpdatePlan(plan)
+	if err != nil {
+		return err
+	}
+	targetRef := func(destination, account, endpoint, customer string) (string, error) {
+		return journal.DigestPayload(map[string]string{
+			"destination": destination, "account": account, "endpoint": endpoint,
+			"target_type": "customer", "customer": customer,
+		})
+	}
+	admittedTarget, err := targetRef(binding.DestinationID, binding.AccountID, binding.Endpoint, permit.Claims.Target.Name)
+	if err != nil {
+		return err
+	}
+	currentTarget, err := targetRef(e.destinationID, e.accountID, e.baseURL.String(), plan.CustomerID)
+	if err != nil {
+		return err
+	}
+	if err := governedaction.CheckBinding(
+		governedaction.Binding{ActionRevision: permit.Claims.PlanDigest, Target: admittedTarget, Profile: binding.AdapterProfile},
+		governedaction.Binding{ActionRevision: digest, Target: currentTarget, Profile: e.adapterProfile},
+	); err != nil {
+		return fmt.Errorf("CRM execution binding: %w", err)
+	}
+	if err := governedaction.CheckValidity(permit.Claims.ValidUntil, e.clock().UTC()); err != nil {
+		return fmt.Errorf("CRM execution authority: %w", err)
+	}
+	return e.validateSnapshotBinding(before, binding, plan.CustomerID)
 }
 
 func (e *Executor) validateExecutionBinding(

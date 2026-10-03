@@ -42,6 +42,9 @@ func main() {
 	if err != nil {
 		fatalf("read workload spec: %v", err)
 	}
+	if spec.LinuxIsolation == nil {
+		fatalf("workload spec must include linux_isolation; unisolated governed workloads are not authorized")
+	}
 	issuerKey, err := kernelfabric.LoadEd25519PublicKey(*issuerPublicKeyPath)
 	if err != nil {
 		fatalf("load admission issuer public key: %v", err)

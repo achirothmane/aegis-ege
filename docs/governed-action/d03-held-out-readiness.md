@@ -33,9 +33,12 @@ observation, recovery and outcome.
 The selected run also needs a bounded test grant appropriate to that substrate
 and a post-freeze applicability/oracle commitment before integration.
 
-No approved or identified participant satisfying that requirement is recorded
-in the current D03 evidence. The same-owner repositories used for D00-D02 do
-not satisfy independence.
+Two public recruitment requests are now pending at `padurean/gosmig#1` and
+`maragudk/migrate#87`, but neither independent maintainer has explicitly
+accepted participation. Therefore no
+qualified participant, cohort selection, bounded test grant, applicability/oracle
+commitment, or independent implementation is yet recorded. The same-owner
+repositories used for D00-D02 do not satisfy independence.
 
 Therefore:
 
@@ -46,6 +49,30 @@ reason = INDEPENDENT_PARTICIPANT_NOT_YET_RECORDED
 
 This is not a frozen-contract failure. It is an operational prerequisite that
 has not yet been met.
+
+## Parallel public-incident falsification track
+
+While recruitment remains blocked, D03 may accumulate a **public incident
+corpus** from independently owned repositories whose failure and later
+resolution are publicly reconstructable.
+
+That corpus is recorded in
+`docs/governed-action/d03-public-incident-corpus.md` and
+`testdata/governed-action/d03/public-incident-corpus.json`.
+
+Its purpose is to increase falsification pressure without waiting for maintainer
+responses. It can expose incorrect retry assumptions, bad evidence
+classification and fail-open behavior against real incidents.
+
+It does **not** satisfy the operational prerequisite above and does not change:
+
+```text
+D03 = BLOCKED_UNSTARTED
+reason = INDEPENDENT_PARTICIPANT_NOT_YET_RECORDED
+```
+
+External incident replay and independent held-out implementation are separate
+forms of evidence and must not be relabeled as one another.
 
 ## What does not count
 
@@ -60,6 +87,16 @@ The following do not satisfy D03:
   written frozen contract and published vectors;
 - selecting concrete held-out cases and feeding them back into the core before
   the independent maintainer commits the cohort.
+
+## Recruitment state
+
+Recruitment may proceed in parallel across qualified candidates. Contact alone
+never counts as consent or cohort selection. The first qualified independent
+maintainer who explicitly accepts may proceed to the separate post-freeze
+selection/applicability/oracle record required by Protocol J.
+
+This avoids making progress depend on a single maintainer response while
+preserving the holdout boundary.
 
 ## Readiness condition
 

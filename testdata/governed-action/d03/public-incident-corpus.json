@@ -1,0 +1,155 @@
+{
+  "schema_version": "governed-action.d03-public-incident-corpus/v1",
+  "status": "ACTIVE_CORPUS_EVIDENCE_ONLY",
+  "recorded_at": "2026-09-30",
+  "frozen_contract": "candidate-kernel-contract-v1",
+  "frozen_oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "counts_as_d03_independent_validation": false,
+  "incidents": [
+    {
+      "id": "PIC-0001",
+      "source_repository": "daniel-ospina/tortoise",
+      "source_issue": 3442,
+      "source_issue_url": "https://github.com/daniel-ospina/tortoise/issues/3442",
+      "source_resolution_pr": 5474,
+      "source_resolution_pr_url": "https://github.com/daniel-ospina/tortoise/pull/5474",
+      "source_resolution_merge": "1917852e17ffe741f37ca419c2c433c741112159",
+      "observed": {
+        "workflow": "python-ci",
+        "job": "changes",
+        "run_id": 34748148065,
+        "job_id": 103701145755,
+        "same_head_diff_rerun_passed": true
+      },
+      "corrected_ground_truth": {
+        "class": "INFRA_TRANSIENT_RUNNER_ACQUISITION_FAILURE",
+        "steps_executed": 0,
+        "runner_id": 0,
+        "runner_name_empty": true,
+        "acquisition_attempts": 5,
+        "interpretation": "The failed attempt never acquired a runner and never executed user steps."
+      },
+      "retry_gate_expectation": {
+        "decision": "ALLOW_RERUN_CANDIDATE",
+        "precondition": "ZERO_EXECUTION_POSITIVELY_ESTABLISHED",
+        "forbidden_inference": "RERUN_PASS_IMPLIES_FLAKY_TEST"
+      },
+      "secondary_defect": {
+        "class": "NON_CANONICAL_CHANGED_SET_DERIVATION",
+        "risk": "A fallback diff asked a different question and a swallowed failure could silently reduce the selected test suite.",
+        "repair": "Use one canonical merge-base diff with absent-base and empty-changed-set guards.",
+        "required_gate_behavior": "FAIL_CLOSED"
+      },
+      "evidence_role": "PUBLIC_INCIDENT_REPLAY",
+      "held_out_cohort": false,
+      "independent_participant": false
+    },
+    {
+      "id": "PIC-0002",
+      "source_repository": "lidge-jun/opencodex",
+      "source_issue": 1563,
+      "source_issue_url": "https://github.com/lidge-jun/opencodex/issues/1563",
+      "source_resolution_pr": 1575,
+      "source_resolution_pr_url": "https://github.com/lidge-jun/opencodex/pull/1575",
+      "source_resolution_merge": "be3597ff2db1c2941ff15d04f65f1bfc6389c4a3",
+      "observed": {
+        "signal": "single macOS CI test failed at 6016.60ms against a 6000ms harness deadline, then the identical commit passed on rerun",
+        "same_head_diff_rerun_passed": true,
+        "failing_environment": "GitHub hosted macOS",
+        "failure_observed_ms": 6016.6,
+        "harness_timeout_ms": 6000
+      },
+      "corrected_ground_truth": {
+        "class": "TEST_HARNESS_TIMEOUT_MARGIN",
+        "interpretation": "The deterministic product behavior was unchanged; hosted macOS full-suite setup occasionally crossed the test harness deadline."
+      },
+      "repair": {
+        "action": "Give this test its own 10-second Bun harness budget while leaving the product SQLite lock deadline and CODEX_BUSY behavior unchanged.",
+        "verification": "Focused case passed 5/5 under the requested 2-core limit; typecheck and privacy scan were green.",
+        "product_behavior_changed": false
+      },
+      "retry_gate_expectation": {
+        "decision": "ALLOW_BOUNDED_RERUN_CANDIDATE",
+        "precondition": "KNOWN_TEST_HARNESS_TIMEOUT_SIGNATURE_WITH_NO_PRODUCT_FAILURE_EVIDENCE",
+        "forbidden_inference": "RERUN_PASS_ALONE_PROVES_TEST_FLAKE"
+      },
+      "evidence_role": "PUBLIC_INCIDENT_REPLAY",
+      "held_out_cohort": false,
+      "independent_participant": false
+    },
+    {
+      "id": "PIC-0003",
+      "source_repository": "herdrdev/herdr",
+      "source_issue": 3451,
+      "source_issue_url": "https://github.com/herdrdev/herdr/issues/3451",
+      "source_resolution_pr": 3453,
+      "source_resolution_pr_url": "https://github.com/herdrdev/herdr/pull/3453",
+      "source_resolution_merge": "69585b01d0297b50e302c98f883d705dec92834d",
+      "observed": {
+        "signal": "macOS CI intermittently returned no initial title; the rerun on the same commit passed",
+        "same_head_diff_rerun_passed": true,
+        "failing_environment": "GitHub macos-latest"
+      },
+      "corrected_ground_truth": {
+        "class": "TEST_FIXTURE_WALL_CLOCK_RACE",
+        "interpretation": "The fixture TTL was only 1 ms, so metadata could expire before the test asserted the initial title."
+      },
+      "repair": {
+        "action": "Raise the fixture TTL to 60 seconds and advance directly to the captured deadline so expiry semantics remain tested without wall-clock dependence.",
+        "ttl_before_ms": 1,
+        "ttl_after_seconds": 60,
+        "verification_consecutive_passes": 100
+      },
+      "retry_gate_expectation": {
+        "decision": "ALLOW_BOUNDED_RERUN_CANDIDATE",
+        "precondition": "KNOWN_FIXTURE_RACE_SIGNATURE_WITH_NO_PRODUCT_FAILURE_EVIDENCE",
+        "forbidden_inference": "SAME_COMMIT_RERUN_PASS_IS_SUFFICIENT_CLASSIFICATION"
+      },
+      "evidence_role": "PUBLIC_INCIDENT_REPLAY",
+      "held_out_cohort": false,
+      "independent_participant": false
+    },
+    {
+      "id": "PIC-0004",
+      "source_repository": "frappe/draw",
+      "source_issue": 546,
+      "source_issue_url": "https://github.com/frappe/draw/issues/546",
+      "source_resolution_pr": 547,
+      "source_resolution_pr_url": "https://github.com/frappe/draw/pull/547",
+      "source_resolution_merge": "affaabd607bfec327867d3c170b81bb2f9bfdf3d",
+      "observed": {
+        "signal": "the same repository commit passed earlier and later failed on rerun after an unpinned upstream develop dependency changed",
+        "same_repository_commit_prior_pass_then_rerun_failed": true,
+        "repository_commit": "6ba7424",
+        "upstream_dependency": "frappe/frappe",
+        "upstream_ref": "develop",
+        "upstream_change_pr": 41626,
+        "upstream_dependency_pinned": false
+      },
+      "corrected_ground_truth": {
+        "class": "ENVIRONMENT_DEPENDENCY_DRIFT",
+        "interpretation": "The repository commit was unchanged, but CI inputs were not: Frappe develop moved and changed sanitize_html behavior."
+      },
+      "repair": {
+        "action": "Set ignore_xss_filter on Draw Diagram.document and add a regression test so serialized JSON is not passed through the HTML sanitizer.",
+        "verification": "CI using the current Frappe develop dependency turned green after the fix."
+      },
+      "retry_gate_expectation": {
+        "decision": "HOLD_REQUIRES_INPUT_PROVENANCE",
+        "precondition": "RECONSTRUCT_OR_PIN_EXTERNAL_EXECUTION_INPUTS_BEFORE_CLASSIFYING",
+        "forbidden_inference": "SAME_REPOSITORY_COMMIT_IMPLIES_SAME_EXECUTION_INPUTS"
+      },
+      "evidence_role": "PUBLIC_INCIDENT_REPLAY",
+      "held_out_cohort": false,
+      "independent_participant": false
+    }
+  ],
+  "claim_limits": [
+    "does not satisfy D03 independent-participant readiness",
+    "does not establish held-out generalization",
+    "does not modify the frozen oracle",
+    "does not treat rerun success as proof of flakiness"
+  ],
+  "normative_change": false,
+  "runtime_change": false
+}

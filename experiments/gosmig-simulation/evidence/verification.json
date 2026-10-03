@@ -1,0 +1,51 @@
+{
+  "schema_version": "governed-action.gosmig-evidence-provenance/v1",
+  "classification": "SAME_OWNER_SUPPLEMENTAL_FALSIFICATION",
+  "registration_commit": "efdffa811a272128248476b273392feb3d369814",
+  "registration_blob": "1942ec24e31f849e07177d14bb244003ccd8b51e",
+  "upstream_commit": "f2cc69c685d654990d01582cb68b2c5b097cb36d",
+  "upstream_version": "v0.0.0-20251102200842-f2cc69c685d6",
+  "oracle_blob": "37e2e0a0867fa78df37f9d4243a1c4107d62094b",
+  "successful_run": {
+    "id": 36798979674,
+    "job_id": 110168821148,
+    "artifact_id": 11134867957,
+    "source_head": "9a8256ed5484e87e3ff2025543865c849e14a170",
+    "conclusion": "success",
+    "zip_sha256": "d5045bff8aa7f5d04fad0ea07b52daccbf855fea9679df8399ff06779d3a7789",
+    "url": "https://github.com/achirothmane/aegis-ege/actions/runs/36798979674"
+  },
+  "earlier_runs": [
+    {
+      "id": 36798410885,
+      "conclusion": "failure",
+      "stage": "service initialization",
+      "reason": "Docker health-command single-quote parsing; no native schedules executed"
+    },
+    {
+      "id": 36798487589,
+      "conclusion": "failure",
+      "stage": "native schedules",
+      "source_head": "a43dd51e487301fb7900d5346ad471469182be8a",
+      "reason": "Adapter compared bootstrap whitespace incorrectly; expected cases unchanged",
+      "zip_sha256": "ddc2f0a56434df9ffe70094e76dbe84aa69cb76ad2cfef79bf7ee277276c9413"
+    }
+  ],
+  "retained_files": {
+    "failed-native-evidence-36798487589.json": "af4188847178c0b3efd4f4d6fcf15c99581e6f7af2c79236d94cea8586fae2ab",
+    "k07-result-36798979674.json": "897837de8e790500754d5afdd1b771fdc94b3b07f65847604aac3e3f7653d7d8",
+    "native-evidence-36798979674.json": "248592a438bbbcff4603440d339caca7b62b2387ed5766c43a6c13bc9d95eed0",
+    "upstream-module-36798979674.json": "99235e138dc441aff46e9ff2cc4a6311931a324710bf75feea31ad5bc595c9e1"
+  },
+  "fixed_cases_executed": 13,
+  "governed_cases_evaluated_by_unchanged_k07": 11,
+  "independent_participation": false,
+  "d03_status": "BLOCKED_UNSTARTED",
+  "d04_extracted": false,
+  "limits": [
+    "cooperative adapter for one fixed transactional migration",
+    "test-only HMAC key and disposable database credentials",
+    "expiry checked before the commit request, not a bound on durable commit completion",
+    "takeover execution covers the pre-transaction phase; possible effects permit read-only recovery only"
+  ]
+}

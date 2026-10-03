@@ -95,6 +95,16 @@ The existing K06 hash checks and K07 executions continue to protect all seven
 frozen artifacts and all 28 normative traces. The experiment separately pins the
 frozen oracle blob `37e2e0a0867fa78df37f9d4243a1c4107d62094b`.
 
+## Current implementation context
+
+The later standalone library already exposes `governedaction.CheckOrigin` for
+exact provenance identity and capability-subset checks. This earlier experiment
+is complementary: it exercises owner-issued signed grants, local activation/use,
+and current authority after data rewind. Its harness does not call `CheckOrigin`
+and is not evidence that a production loader verifies those grants. Production
+integration must connect authenticated profile witnesses to the actual shared
+boundary rather than use this fixture as a second runtime.
+
 ## Claim boundary and classification
 
 Classification: **policy/profile specialization experiment**, subject to review.

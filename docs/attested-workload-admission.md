@@ -68,11 +68,24 @@ absolute executable path
 arguments
 working directory
 complete environment supplied to the child
+Linux privilege-isolation profile
 ```
 
 The environment is normalized by variable name before hashing so map/order differences do not alter the digest.
 
 The workload process receives exactly the environment listed in the spec. It does not silently inherit the parent environment.
+
+For the production-style Linux launcher, the signed spec must also include:
+
+```text
+linux_isolation.mode = user-namespace-v1
+linux_isolation.host_uid = non-root host uid
+linux_isolation.host_gid = non-root host gid
+```
+
+This isolation object is part of `WorkloadLaunchSpecDigest`. Removing it or
+changing the host UID/GID after admission therefore invalidates the signed
+workload binding.
 
 ## Freshness
 
@@ -133,6 +146,36 @@ move PID into cgroup
 ```
 
 There is no intentional pre-enforcement execution window.
+
+## Host privilege separation
+
+When `linux_isolation.mode` is `user-namespace-v1`, the launcher creates a
+fresh Linux user namespace and mount namespace while cloning directly into the
+authorized cgroup. UID/GID 0 inside the workload namespace map to the explicit
+non-root host UID/GID signed into the workload specification.
+
+The result is deliberate authority separation:
+
+```text
+governed workload namespace root
+        !=
+host initial-user-namespace root
+        !=
+BPF / cgroup / host-mount enforcement authority
+```
+
+The privileged native M15 harness exercises the actual
+`StartAttestedWorkload` path and verifies that the isolated hostile process
+cannot remove pinned enforcement links, mutate protected-cgroup state, escape
+the protected cgroup, or join the host mount namespace. Host-side activation
+remains present after the hostile workload exits.
+
+`aegis-attested-run` fails closed when `linux_isolation` is absent. The
+lower-level library retains an unisolated path for compatibility/internal
+experiments, but that path does not earn the M15 privilege-separation claim.
+
+This does not claim containment after compromise of host root or the initial
+user namespace itself.
 
 ## One-shot grant consumption
 
@@ -195,7 +238,12 @@ Example:
   "working_dir": "/var/lib/my-worker",
   "environment": [
     {"name": "MODE", "value": "production"}
-  ]
+  ],
+  "linux_isolation": {
+    "mode": "user-namespace-v1",
+    "host_uid": 65534,
+    "host_gid": 65534
+  }
 }
 ```
 
@@ -256,6 +304,8 @@ wrong target cgroup inode
 non-cgroup-v2 target
 invalid executable
 invalid working directory
+missing linux_isolation in aegis-attested-run
+invalid/root host uid or gid in linux_isolation
 ```
 
 The following happen after terminal consumption:
@@ -282,6 +332,9 @@ workload spec digest
 exact cgroup path + inode binding
 one-shot durable grant claim
 atomic clone-into-cgroup start
+signed user-namespace privilege isolation
+non-root host UID/GID mapping bound into workload spec digest
+production-style CLI fails closed without linux_isolation
 signed activation receipt
 concurrent replay rejection
 ```
@@ -293,6 +346,7 @@ Kubernetes scheduler/admission-controller integration
 distributed/linearizable grant-consumption backend
 container image digest / OCI manifest specialization
 systemd unit specialization
+host-root / initial-user-namespace compromise containment
 
 ```
 

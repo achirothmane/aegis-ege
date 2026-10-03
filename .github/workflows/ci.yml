@@ -21,7 +21,7 @@ jobs:
           cache: true
       - run: go mod download
       - run: go mod verify
-      - name: Compile kernel DecisionCapsule BPF adapter
+      - name: Compile kernel BPF adapters
         run: |
           ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
           clang -O2 -g -Wall -Werror -target bpf \
@@ -29,6 +29,20 @@ jobs:
             -Ikernel/bpf \
             -c kernel/bpf/aegis_connect.bpf.c \
             -o "$RUNNER_TEMP/aegis_connect.bpf.o"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o "$RUNNER_TEMP/aegis_taint.bpf.o"
+      - name: Verify taint hardening formatting
+        run: |
+          offenders="$(gofmt -l internal/kernelfabric/taint_*.go cmd/aegis-taint-*/main.go)"
+          if [ -n "$offenders" ]; then
+            echo "gofmt required for:"
+            printf '%s\n' "$offenders"
+            gofmt -d internal/kernelfabric/taint_*.go cmd/aegis-taint-*/main.go
+            exit 1
+          fi
       - name: Assert legacy unsigned BPF loader is disabled
         run: |
           if bash kernel/bpf/load.sh >"$RUNNER_TEMP/legacy-loader.out" 2>&1; then
@@ -38,6 +52,54 @@ jobs:
           fi
           grep -q "Unsigned BPF loading" "$RUNNER_TEMP/legacy-loader.out"
       - run: go test ./...
+      - name: Prove all three TPM crash windows without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run '^TestTPMRoot(Crash|CounterAhead)' -count=1 | tee "$RUNNER_TEMP/tpm-crash-proof.log"
+          test "$(grep -c '^--- PASS: TestTPMRoot' "$RUNNER_TEMP/tpm-crash-proof.log")" -eq 3
+          if grep -q '^--- SKIP:' "$RUNNER_TEMP/tpm-crash-proof.log"; then
+            exit 1
+          fi
+      - name: Prove TPM root device identity binding without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run TestTPMRootRejectsCopiedStateOnDifferentEndorsementIdentity -count=1 | tee "$RUNNER_TEMP/tpm-device-binding-proof.log"
+          grep -q -- "--- PASS: TestTPMRootRejectsCopiedStateOnDifferentEndorsementIdentity" "$RUNNER_TEMP/tpm-device-binding-proof.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-device-binding-proof.log"; then
+            exit 1
+          fi
+
+      - name: Prove TPM measured-boot root binding without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run TestTPMRootRejectsPermitAfterMeasuredBootPCRDrift -count=1 | tee "$RUNNER_TEMP/tpm-measured-boot-proof.log"
+          grep -q -- "--- PASS: TestTPMRootRejectsPermitAfterMeasuredBootPCRDrift" "$RUNNER_TEMP/tpm-measured-boot-proof.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-measured-boot-proof.log"; then
+            exit 1
+          fi
+
+      - name: Prove authorized TPM root migration without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-positive.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay" "$RUNNER_TEMP/tpm-root-migration-positive.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-positive.log"; then
+            exit 1
+          fi
+          go test -v ./internal/server -run TestTPMRootMigrationRejectsExpiredAndForgedAuthorization -count=1 | tee "$RUNNER_TEMP/tpm-root-migration-negative.log"
+          grep -q -- "--- PASS: TestTPMRootMigrationRejectsExpiredAndForgedAuthorization" "$RUNNER_TEMP/tpm-root-migration-negative.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-root-migration-negative.log"; then
+            exit 1
+          fi
+
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
 
@@ -54,10 +116,32 @@ jobs:
       - run: go mod download
       - name: Install KinD
         run: go install sigs.k8s.io/kind@v0.33.0
-      - name: Create KinD cluster
+      - name: Create isolated workload and witness control planes
         run: |
-          "$(go env GOPATH)/bin/kind" create cluster --name state-latch --image "kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
-          "$(go env GOPATH)/bin/kind" get kubeconfig --name state-latch > "$RUNNER_TEMP/state-latch-kubeconfig"
-          echo "KUBECONFIG=$RUNNER_TEMP/state-latch-kubeconfig" >> "$GITHUB_ENV"
-      - name: Run KinD integration tests
+          KIND_IMAGE="kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95"
+          "$(go env GOPATH)/bin/kind" create cluster             --name state-latch             --image "$KIND_IMAGE"             --kubeconfig "$RUNNER_TEMP/workload-admin-kubeconfig"
+          "$(go env GOPATH)/bin/kind" create cluster             --name aegis-witness             --image "$KIND_IMAGE"             --kubeconfig "$RUNNER_TEMP/witness-admin-kubeconfig"
+      - name: Run baseline KinD integration suite
+        env:
+          KUBECONFIG: ${{ runner.temp }}/workload-admin-kubeconfig
         run: go test -tags=integration -run "^TestKind" -v ./internal/kubeadapter ./internal/server ./internal/journal
+      - name: Provision narrow runtime capabilities
+        env:
+          WORKLOAD_ADMIN_KUBECONFIG: ${{ runner.temp }}/workload-admin-kubeconfig
+          WITNESS_ADMIN_KUBECONFIG: ${{ runner.temp }}/witness-admin-kubeconfig
+          WORKLOAD_RUNTIME_KUBECONFIG: ${{ runner.temp }}/workload-runtime-kubeconfig
+          WITNESS_RUNTIME_KUBECONFIG: ${{ runner.temp }}/witness-runtime-kubeconfig
+        run: go run ./cmd/aegis-capability-runtime-provision
+      - name: Remove provisioning authority
+        run: |
+          rm -f "$RUNNER_TEMP/workload-admin-kubeconfig"
+          rm -f "$RUNNER_TEMP/witness-admin-kubeconfig"
+          rm -rf "$HOME/.kube"
+          test ! -e "$RUNNER_TEMP/workload-admin-kubeconfig"
+          test ! -e "$RUNNER_TEMP/witness-admin-kubeconfig"
+          test -s "$RUNNER_TEMP/workload-runtime-kubeconfig"
+          test -s "$RUNNER_TEMP/witness-runtime-kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/workload-runtime-kubeconfig" >> "$GITHUB_ENV"
+          echo "WITNESS_KUBECONFIG=$RUNNER_TEMP/witness-runtime-kubeconfig" >> "$GITHUB_ENV"
+      - name: Run cross-cluster witness proof without admin credentials
+        run: go test -tags=integration -run "^TestKindCrossClusterWitnessRejectsWorkloadAuthorityRollback$" -v ./internal/server

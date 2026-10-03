@@ -50,8 +50,8 @@
       "bounded test authority/grant appropriate to the selected substrate",
       "post-freeze applicability/oracle commitment before integration"
     ],
-    "current_evidence": "No approved/identified independent participant and existing consumer repository are recorded in the D03 project evidence. Same-owner repositories used for D00-D02 do not satisfy independence.",
-    "interpretation": "D03 remains unstarted. This is an operational blocker, not a failure of the frozen contract and not permission to fabricate a cohort."
+    "current_evidence": "Two public recruitment requests are pending: padurean/gosmig#1 and maragudk/migrate#87. Neither maintainer has explicitly accepted participation. No cohort, bounded test grant, applicability/oracle commitment, or independent implementation is recorded.",
+    "interpretation": "D03 remains BLOCKED_UNSTARTED. Parallel outreach reduces single-maintainer waiting risk but does not satisfy the independent-participant prerequisite."
   },
   "prohibited_shortcuts": [
     "count EEP as a third independent domain",
@@ -70,7 +70,7 @@
     "oracle_commitment": null,
     "test_grant": null
   },
-  "allowed_next_action": "Identify and obtain participation from one real independent maintainer with an existing materially different repository/substrate; only then record cohort selection and begin D03.",
+  "allowed_next_action": "Continue qualified recruitment in parallel. Once one independent maintainer explicitly accepts, record that maintainer's existing repository, materially different substrate, bounded test grant, applicability/native comparator, held-out oracle commitment, and independence provenance before any D03 implementation.",
   "normative_change": false,
   "runtime_change": false
 }

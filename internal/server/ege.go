@@ -342,6 +342,18 @@ func (s *Server) handleEGEExecute(w http.ResponseWriter, r *http.Request) {
 		reason := decision.ReasonCode("CAPABILITY_FENCE_UNAVAILABLE")
 
 		switch {
+		case errors.Is(err, ErrTPMMonotonicRootMeasuredBootChanged):
+			status = http.StatusConflict
+			code = "CAPABILITY_ROOT_MEASURED_BOOT_CHANGED"
+			reason = "CAPABILITY_ROOT_MEASURED_BOOT_CHANGED"
+		case errors.Is(err, ErrTPMMonotonicRootDeviceChanged):
+			status = http.StatusConflict
+			code = "CAPABILITY_ROOT_DEVICE_CHANGED"
+			reason = "CAPABILITY_ROOT_DEVICE_CHANGED"
+		case errors.Is(err, ErrTPMMonotonicRootRollback):
+			status = http.StatusConflict
+			code = "CAPABILITY_ROOT_ROLLBACK_DETECTED"
+			reason = "CAPABILITY_ROOT_ROLLBACK_DETECTED"
 		case errors.Is(err, egeproto.ErrCapabilityAuthorityChanged):
 			status = http.StatusConflict
 			code = "CAPABILITY_AUTHORITY_CHANGED"

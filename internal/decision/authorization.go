@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/achirothmane/aegis-ege/governedaction"
 	"github.com/achirothmane/easl"
 
 	"github.com/achirothmane/aegis-ege/internal/easlruntime"
@@ -36,7 +37,7 @@ const (
 func ValidateAuthorization(auth Authorization, attempt ExecutionAttempt) AuthorizationValidation {
 	reasons := make([]ReasonCode, 0, 5)
 
-	if !attempt.Now.Before(auth.ValidUntil) {
+	if governedaction.CheckValidity(auth.ValidUntil, attempt.Now) != nil {
 		reasons = append(reasons, AuthorizationExpired)
 	}
 	reasons = append(reasons, validateAuthorizationStateBindings(auth, attempt)...)

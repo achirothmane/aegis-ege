@@ -1,0 +1,118 @@
+name: Native taint falsification
+
+on:
+  pull_request:
+    paths:
+      - "kernel/bpf/aegis_taint.bpf.c"
+      - "kernel/bpf/include/aegis_taint_abi.h"
+      - "internal/kernelfabric/taint_*.go"
+      - "scripts/taint-native-probe.sh"
+      - ".github/workflows/taint-native-falsification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-taint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Prepare inode-reuse ext4 fixture
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs util-linux
+          mkdir -p internal/kernelfabric/testdata
+          truncate -s 16M internal/kernelfabric/testdata/aegis_inode_reuse.ext4
+          mkfs.ext4 -q -F -N 64 -m 0 internal/kernelfabric/testdata/aegis_inode_reuse.ext4
+          : > internal/kernelfabric/testdata/aegis_taint.bpf.o
+      - name: Force exact same-number inode reuse on host ext4
+        shell: bash
+        run: |
+          sudo -E env \
+            "PATH=$PATH" \
+            go test -count=1 -tags=taintnative \
+              -run "^TestNativeExt4SameInodeReuseFixture$" \
+              -v ./internal/kernelfabric
+      - name: Probe native BPF LSM environment
+        id: probe
+        shell: bash
+        run: |
+          bash scripts/taint-native-probe.sh | tee "$RUNNER_TEMP/taint-native-probe.txt"
+          cat "$RUNNER_TEMP/taint-native-probe.txt" >> "$GITHUB_STEP_SUMMARY"
+      - name: Compile taint BPF object for native test
+        if: steps.probe.outputs.supported == 'true'
+        shell: bash
+        run: |
+          mkdir -p internal/kernelfabric/testdata
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o internal/kernelfabric/testdata/aegis_taint.bpf.o
+      - name: Execute privileged native taint falsification
+        if: steps.probe.outputs.supported == 'true'
+        shell: bash
+        run: |
+          sudo -E env \
+            "PATH=$PATH" \
+            go test -count=1 -tags=taintnative \
+              -run "^(TestNativeTaintReadForkFileAndEgress|TestNativeTaintBindMountSubstitutionFailsClosed|TestNativeTaintAncestorRenameSubstitutionFailsClosed|TestNativeTaintAncestorSymlinkSubstitutionFailsClosed|TestNativeTaintUnlinkContinuityIsSticky|TestTaintNativeHelper|TestTaintInodeReuseHelper)$" \
+              -v ./internal/kernelfabric
+      - name: Record unsupported host kernel
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          {
+            echo "## Host kernel cannot run the native proof directly"
+            echo
+            echo "The GitHub-hosted kernel does not expose every prerequisite required by the privileged BPF-LSM test."
+            echo "A VM fallback will now boot a BPF selftests kernel instead of treating this as proof."
+            echo
+            echo "Probe reasons:"
+            printf "%s\n" "${{ steps.probe.outputs.reasons }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install VM fallback dependencies
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86
+          CGO_ENABLED=0 go install lmb.io/vimto@v0.4.0
+          if [ -e /dev/kvm ]; then
+            sudo chmod 0666 /dev/kvm
+          fi
+      - name: Compile taint BPF object for VM fallback
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        run: |
+          mkdir -p internal/kernelfabric/testdata
+          ARCH_INCLUDE="/usr/include/$(uname -m)-linux-gnu"
+          clang -O2 -g -Wall -Werror -target bpf \
+            -I"$ARCH_INCLUDE" \
+            -Ikernel/bpf \
+            -c kernel/bpf/aegis_taint.bpf.c \
+            -o internal/kernelfabric/testdata/aegis_taint.bpf.o
+      - name: Execute native taint falsification in BPF selftests VM
+        if: steps.probe.outputs.supported != 'true'
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          VIMTO="$(go env GOPATH)/bin/vimto"
+          sudo -E env \
+            "PATH=$PATH" \
+            "CGO_ENABLED=0" \
+            "$VIMTO" \
+              -kernel ghcr.io/cilium/ci-kernels:stable-selftests -- \
+              go test -count=1 -tags=taintnative \
+                -run "^(TestNativeTaintReadForkFileAndEgress|TestNativeTaintBindMountSubstitutionFailsClosed|TestNativeTaintAncestorRenameSubstitutionFailsClosed|TestNativeTaintAncestorSymlinkSubstitutionFailsClosed|TestNativeTaintUnlinkContinuityIsSticky|TestTaintNativeHelper|TestTaintInodeReuseHelper)$" \
+                -v ./internal/kernelfabric
