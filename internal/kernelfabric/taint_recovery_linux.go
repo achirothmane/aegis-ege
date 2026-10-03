@@ -16,8 +16,9 @@ import (
 type TaintRecoveryRequest struct {
 	BPFFSRoot            string
 	Plan                 TaintActivationPlan
-	SignedAuthorization  SignedTaintRecoveryAuthorization
+	SignedAuthorization  JointSignedTaintRecoveryAuthorization
 	RecoveryAuthorityKey ed25519.PublicKey
+	RecoveryWitnessKey   ed25519.PublicKey
 	Now                  time.Time
 
 	// Crash-boundary hooks are internal to native falsification. External callers
@@ -43,15 +44,16 @@ func RecoverTaintSourceContinuity(req TaintRecoveryRequest) (TaintRecoveryResult
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	if err := VerifySignedTaintRecoveryAuthorization(
+	if err := VerifyJointTaintRecoveryAuthorization(
 		req.SignedAuthorization,
 		req.RecoveryAuthorityKey,
+		req.RecoveryWitnessKey,
 		now,
 	); err != nil {
 		return TaintRecoveryResult{}, err
 	}
 	auth := req.SignedAuthorization.Authorization
-	commitment, err := TaintRecoveryCommitmentDigest(req.SignedAuthorization)
+	commitment, err := JointTaintRecoveryCommitmentDigest(req.SignedAuthorization)
 	if err != nil {
 		return TaintRecoveryResult{}, fmt.Errorf("digest taint recovery commitment: %w", err)
 	}
