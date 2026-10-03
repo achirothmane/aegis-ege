@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -15,12 +17,46 @@ import (
 	"time"
 
 	"github.com/achirothmane/aegis-ege/internal/decision"
-	egeproto "github.com/achirothmane/aegis-ege/internal/ege"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
 	"github.com/google/go-tpm-tools/simulator"
 )
+
+func migrationRemoteDecisionDigest(label string) string {
+	sum := sha256.Sum256([]byte(label))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func signMigrationDestinationAttestationForTest(
+	t *testing.T,
+	migrationID string,
+	state tpmNVRootState,
+	now time.Time,
+	privateKey ed25519.PrivateKey,
+) SignedTPMRootMigrationDestinationAttestation {
+	t.Helper()
+	signed, err := SignTPMRootMigrationDestinationAttestation(
+		TPMRootMigrationDestinationAttestation{
+			Version:                         TPMRootMigrationDestinationAttestationVersion,
+			AttestationID:                   "attestation-" + migrationID,
+			MigrationID:                     migrationID,
+			EnrolledDeviceID:                "node-b",
+			DestinationDeviceIdentity:       state.DeviceIdentity,
+			DestinationMeasuredBootIdentity: state.MeasuredBootIdentity,
+			RemoteDecisionDigest:            migrationRemoteDecisionDigest("remote-allow-" + migrationID),
+			Decision:                        "ALLOW",
+			VerifiedAt:                      now.Add(-time.Minute),
+			ExpiresAt:                       now.Add(5 * time.Minute),
+			VerifierID:                      "remote-attestation-authority",
+		},
+		privateKey,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
 
 func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *testing.T) {
 	ctx := context.Background()
@@ -133,52 +169,160 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counterBefore != destinationBefore.Generation {
-		t.Fatalf("fresh destination counter/state mismatch: counter=%d generation=%d", counterBefore, destinationBefore.Generation)
-	}
 
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	migrationPub, migrationPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	auth := TPMRootMigrationAuthorization{
-		Version:                   TPMRootMigrationAuthorizationVersion,
-		MigrationID:               "migration-a-to-b-1",
-		SourceDeviceIdentity:      source.DeviceIdentity,
-		SourceStateDigest:         source.Digest,
-		SourceGeneration:          source.Generation,
-		DestinationDeviceIdentity: destinationBefore.DeviceIdentity,
-		DestinationGeneration:     destinationBefore.Generation,
-		DestinationNVIndex:        uint32(cfgB.NVIndex),
-		NotBefore:                 now.Add(-time.Minute),
-		ExpiresAt:                 now.Add(5 * time.Minute),
+	attestationPub, attestationPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
 	}
-	signed, err := SignTPMRootMigrationAuthorization(auth, privateKey)
+	migrationID := "migration-a-to-b-1"
+	goodAttestation := signMigrationDestinationAttestationForTest(
+		t, migrationID, destinationBefore, now, attestationPriv,
+	)
+	goodAttestationDigest, err := TPMRootMigrationDestinationAttestationDigest(goodAttestation)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	wrong := auth
-	wrong.MigrationID = "migration-wrong-destination"
-	wrong.DestinationDeviceIdentity = "sha256:" + strings.Repeat("11", 32)
-	wrongSigned, err := SignTPMRootMigrationAuthorization(wrong, privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := MigrateTPMNVMonotonicRoot(ctx, cfgA.StatePath, rootB, wrongSigned, publicKey, now); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
-		t.Fatalf("wrong destination authorization should fail closed, got %v", err)
-	}
-	counterAfterWrong, err := rootB.readCounter(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if counterAfterWrong != counterBefore {
-		t.Fatalf("rejected migration changed destination counter: before=%d after=%d", counterBefore, counterAfterWrong)
+	baseAuth := TPMRootMigrationAuthorization{
+		Version:                      TPMRootMigrationAuthorizationVersion,
+		MigrationID:                  migrationID,
+		SourceDeviceIdentity:         source.DeviceIdentity,
+		SourceStateDigest:            source.Digest,
+		SourceGeneration:             source.Generation,
+		DestinationDeviceIdentity:    destinationBefore.DeviceIdentity,
+		DestinationGeneration:        destinationBefore.Generation,
+		DestinationNVIndex:           uint32(cfgB.NVIndex),
+		DestinationAttestationDigest: goodAttestationDigest,
+		NotBefore:                    now.Add(-time.Minute),
+		ExpiresAt:                    now.Add(5 * time.Minute),
 	}
 
-	if err := MigrateTPMNVMonotonicRoot(ctx, cfgA.StatePath, rootB, signed, publicKey, now); err != nil {
-		t.Fatalf("authorized migration failed: %v", err)
+	assertCounterUnchanged := func(t *testing.T) {
+		t.Helper()
+		got, err := rootB.readCounter(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != counterBefore {
+			t.Fatalf("rejected migration changed destination counter: before=%d after=%d", counterBefore, got)
+		}
 	}
+
+	t.Run("same_authority_rejected", func(t *testing.T) {
+		sameKeyAttestation := signMigrationDestinationAttestationForTest(
+			t, migrationID, destinationBefore, now, migrationPriv,
+		)
+		digest, err := TPMRootMigrationDestinationAttestationDigest(sameKeyAttestation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := baseAuth
+		auth.DestinationAttestationDigest = digest
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			sameKeyAttestation, migrationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("same migration/attestation authority should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("measured_boot_mismatch_rejected", func(t *testing.T) {
+		mismatchedState := destinationBefore
+		mismatchedState.MeasuredBootIdentity = "sha256:" + strings.Repeat("22", 32)
+		att := signMigrationDestinationAttestationForTest(
+			t, migrationID, mismatchedState, now, attestationPriv,
+		)
+		digest, err := TPMRootMigrationDestinationAttestationDigest(att)
+		if err != nil {
+			t.Fatal(err)
+		}
+		auth := baseAuth
+		auth.DestinationAttestationDigest = digest
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			att, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestation) {
+			t.Fatalf("mismatched live measured boot should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("expired_authorization_rejected", func(t *testing.T) {
+		auth := baseAuth
+		auth.NotBefore = now.Add(-10 * time.Minute)
+		auth.ExpiresAt = now.Add(-time.Minute)
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("expired migration should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("forged_authorization_rejected", func(t *testing.T) {
+		signed, err := SignTPMRootMigrationAuthorization(baseAuth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signed.Signature = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("forged migration should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("wrong_destination_rejected", func(t *testing.T) {
+		auth := baseAuth
+		auth.DestinationDeviceIdentity = "sha256:" + strings.Repeat("11", 32)
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("wrong destination authorization should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	var signed SignedTPMRootMigrationAuthorization
+	t.Run("authorized_migration_succeeds", func(t *testing.T) {
+		var err error
+		signed, err = SignTPMRootMigrationAuthorization(baseAuth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationPub, now,
+		); err != nil {
+			t.Fatalf("authorized migration failed: %v", err)
+		}
+	})
+
 	migrated, ok, err := readTPMNVRootState(cfgB.StatePath)
 	if err != nil || !ok {
 		t.Fatalf("read migrated root state: ok=%t err=%v", ok, err)
@@ -199,6 +343,9 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 	if migrated.MigrationAuthorizationDigest != commitment {
 		t.Fatalf("migration authorization commitment mismatch: got=%s want=%s", migrated.MigrationAuthorizationDigest, commitment)
 	}
+	if migrated.MigrationDestinationAttestationDigest != goodAttestationDigest {
+		t.Fatalf("destination attestation commitment mismatch: got=%s want=%s", migrated.MigrationDestinationAttestationDigest, goodAttestationDigest)
+	}
 	if migrated.Generation != destinationBefore.Generation+1 {
 		t.Fatalf("destination generation did not advance exactly once: got=%d want=%d", migrated.Generation, destinationBefore.Generation+1)
 	}
@@ -211,133 +358,23 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 	}
 
-	if err := MigrateTPMNVMonotonicRoot(ctx, cfgA.StatePath, rootB, signed, publicKey, now); !errors.Is(err, ErrTPMRootMigrationReplay) {
-		t.Fatalf("replayed migration authorization should fail closed, got %v", err)
-	}
+	t.Run("replay_rejected", func(t *testing.T) {
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationPub, now,
+		); !errors.Is(err, ErrTPMRootMigrationReplay) {
+			t.Fatalf("replayed migration authorization should fail closed, got %v", err)
+		}
+	})
 
-	authority.Root = rootB
-	recorder := executeRootedCapabilityPermit(t, srv, permitT1)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("exact authority continuity should survive authorized migration: got=%d body=%s", recorder.Code, recorder.Body.String())
-	}
-	if controller.executeCalls != 1 {
-		t.Fatalf("authorized migration expected exactly one mutation controller call, got %d", controller.executeCalls)
-	}
-}
-
-func TestTPMRootMigrationRejectsExpiredAndForgedAuthorization(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-
-	simA, err := simulator.GetWithFixedSeedInsecure(401)
-	if err != nil {
-		t.Fatalf("start TPM-A simulator: %v", err)
-	}
-	deviceA := transport.FromReadWriter(simA)
-	cfgA := TPMNVMonotonicRootConfig{
-		NVIndex:   tpm2.TPMHandle(0x0180A152),
-		StatePath: filepath.Join(dir, "root-a.json"),
-		IndexAuth: []byte("aegis-root-migration-expiry-test"),
-	}
-	if err := ProvisionTPMNVMonotonicRoot(ctx, deviceA, cfgA); err != nil {
-		_ = simA.Close()
-		t.Fatal(err)
-	}
-	rootA, err := NewTPMNVMonotonicRoot(deviceA, cfgA)
-	if err != nil {
-		_ = simA.Close()
-		t.Fatal(err)
-	}
-	scope := CapabilityFenceScope{
-		IntentID: "intent-migration-expiry",
-		Kind:     egeNodeDrainKind,
-		Target:   egeproto.Target{Type: egeNodeTarget, Name: "node-9"},
-	}
-	snapshot := egeproto.CapabilityAuthoritySnapshot{
-		AuthorityDomain: "cluster-a/control-plane",
-		AuthorityTerm:   9,
-		DecisionEpoch:   41,
-		RevocationEpoch: 2,
-	}
-	if _, err := rootA.Advance(ctx, scope, snapshot); err != nil {
-		_ = simA.Close()
-		t.Fatal(err)
-	}
-	source, ok, err := readTPMNVRootState(cfgA.StatePath)
-	if err != nil || !ok {
-		_ = simA.Close()
-		t.Fatalf("read source state: ok=%t err=%v", ok, err)
-	}
-	if err := simA.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	simB, err := simulator.GetWithFixedSeedInsecure(402)
-	if err != nil {
-		t.Fatalf("start TPM-B simulator: %v", err)
-	}
-	defer simB.Close()
-	cfgB := cfgA
-	cfgB.StatePath = filepath.Join(dir, "root-b.json")
-	deviceB := transport.FromReadWriter(simB)
-	if err := ProvisionTPMNVMonotonicRoot(ctx, deviceB, cfgB); err != nil {
-		t.Fatal(err)
-	}
-	rootB, err := NewTPMNVMonotonicRoot(deviceB, cfgB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dest, ok, err := readTPMNVRootState(cfgB.StatePath)
-	if err != nil || !ok {
-		t.Fatalf("read destination state: ok=%t err=%v", ok, err)
-	}
-	counterBefore, err := rootB.readCounter(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Date(2026, 10, 3, 2, 30, 0, 0, time.UTC)
-	auth := TPMRootMigrationAuthorization{
-		Version:                   TPMRootMigrationAuthorizationVersion,
-		MigrationID:               "migration-expired",
-		SourceDeviceIdentity:      source.DeviceIdentity,
-		SourceStateDigest:         source.Digest,
-		SourceGeneration:          source.Generation,
-		DestinationDeviceIdentity: dest.DeviceIdentity,
-		DestinationGeneration:     dest.Generation,
-		DestinationNVIndex:        uint32(cfgB.NVIndex),
-		NotBefore:                 now.Add(-10 * time.Minute),
-		ExpiresAt:                 now.Add(-time.Minute),
-	}
-	expired, err := SignTPMRootMigrationAuthorization(auth, priv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := MigrateTPMNVMonotonicRoot(ctx, cfgA.StatePath, rootB, expired, pub, now); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
-		t.Fatalf("expired migration should fail closed, got %v", err)
-	}
-
-	validAuth := auth
-	validAuth.MigrationID = "migration-forged"
-	validAuth.NotBefore = now.Add(-time.Minute)
-	validAuth.ExpiresAt = now.Add(time.Minute)
-	forged, err := SignTPMRootMigrationAuthorization(validAuth, priv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	forged.Signature = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
-	if err := MigrateTPMNVMonotonicRoot(ctx, cfgA.StatePath, rootB, forged, pub, now); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
-		t.Fatalf("forged migration should fail closed, got %v", err)
-	}
-	counterAfter, err := rootB.readCounter(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if counterAfter != counterBefore {
-		t.Fatalf("rejected authorizations changed destination counter: before=%d after=%d", counterBefore, counterAfter)
-	}
+	t.Run("continuity_preserved", func(t *testing.T) {
+		authority.Root = rootB
+		recorder := executeRootedCapabilityPermit(t, srv, permitT1)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("exact authority continuity should survive authorized migration: got=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if controller.executeCalls != 1 {
+			t.Fatalf("authorized migration expected exactly one mutation controller call, got %d", controller.executeCalls)
+		}
+	})
 }

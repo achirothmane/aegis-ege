@@ -32,6 +32,7 @@ type TPMRootMigrationAuthorization struct {
 	DestinationDeviceIdentity string    `json:"destination_device_identity"`
 	DestinationGeneration     uint64    `json:"destination_generation"`
 	DestinationNVIndex        uint32    `json:"destination_nv_index"`
+	DestinationAttestationDigest string  `json:"destination_attestation_digest"`
 	NotBefore                 time.Time `json:"not_before"`
 	ExpiresAt                 time.Time `json:"expires_at"`
 }
@@ -66,6 +67,9 @@ func ValidateTPMRootMigrationAuthorization(auth TPMRootMigrationAuthorization) e
 	}
 	if auth.DestinationNVIndex == 0 {
 		return fmt.Errorf("%w: destination_nv_index is required", ErrTPMRootMigrationAuthorization)
+	}
+	if !validSHA256Ref(auth.DestinationAttestationDigest) {
+		return fmt.Errorf("%w: destination_attestation_digest is invalid", ErrTPMRootMigrationAuthorization)
 	}
 	if auth.SourceDeviceIdentity == auth.DestinationDeviceIdentity {
 		return fmt.Errorf("%w: source and destination device identities must differ", ErrTPMRootMigrationAuthorization)
@@ -159,16 +163,36 @@ func MigrateTPMNVMonotonicRoot(
 	sourceStatePath string,
 	destination *TPMNVMonotonicRoot,
 	signed SignedTPMRootMigrationAuthorization,
-	publicKey ed25519.PublicKey,
+	migrationPublicKey ed25519.PublicKey,
+	destinationAttestation SignedTPMRootMigrationDestinationAttestation,
+	attestationPublicKey ed25519.PublicKey,
 	now time.Time,
 ) error {
 	if destination == nil {
 		return fmt.Errorf("%w: destination root is required", ErrTPMRootMigrationAuthorization)
 	}
-	if err := VerifySignedTPMRootMigrationAuthorization(signed, publicKey, now); err != nil {
+	if err := VerifySignedTPMRootMigrationAuthorization(signed, migrationPublicKey, now); err != nil {
 		return err
 	}
+	if err := VerifySignedTPMRootMigrationDestinationAttestation(destinationAttestation, attestationPublicKey, now); err != nil {
+		return err
+	}
+	if len(migrationPublicKey) != ed25519.PublicKeySize ||
+		len(attestationPublicKey) != ed25519.PublicKeySize ||
+		string(migrationPublicKey) == string(attestationPublicKey) {
+		return fmt.Errorf("%w: migration and attestation authorities must be independent", ErrTPMRootMigrationAuthorization)
+	}
 	auth := signed.Authorization
+	att := destinationAttestation.Attestation
+	attestationDigest, err := TPMRootMigrationDestinationAttestationDigest(destinationAttestation)
+	if err != nil {
+		return err
+	}
+	if auth.DestinationAttestationDigest != attestationDigest ||
+		att.MigrationID != auth.MigrationID ||
+		att.DestinationDeviceIdentity != auth.DestinationDeviceIdentity {
+		return fmt.Errorf("%w: destination attestation does not match migration authorization", ErrTPMRootMigrationAuthorization)
+	}
 
 	source, ok, err := readTPMNVRootState(sourceStatePath)
 	if err != nil {
@@ -208,6 +232,10 @@ func MigrateTPMNVMonotonicRoot(
 		state.Generation != auth.DestinationGeneration {
 		return fmt.Errorf("%w: destination root does not match authorization", ErrTPMRootMigrationAuthorization)
 	}
+	if state.DeviceIdentity != att.DestinationDeviceIdentity ||
+		state.MeasuredBootIdentity != att.DestinationMeasuredBootIdentity {
+		return fmt.Errorf("%w: live destination does not match independently attested identity", ErrTPMRootMigrationDestinationAttestation)
+	}
 	if len(state.Scopes) != 0 {
 		return ErrTPMRootMigrationDestination
 	}
@@ -221,6 +249,7 @@ func MigrateTPMNVMonotonicRoot(
 	next.PredecessorDeviceIdentity = source.DeviceIdentity
 	next.MigrationSourceStateDigest = source.Digest
 	next.MigrationAuthorizationDigest = commitment
+	next.MigrationDestinationAttestationDigest = attestationDigest
 	next.Scopes = make(map[string]egeproto.CapabilityAuthoritySnapshot, len(source.Scopes))
 	for key, snapshot := range source.Scopes {
 		next.Scopes[key] = snapshot
