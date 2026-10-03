@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'governedaction/**'
+      - 'scripts/verify_cross_domain_kernel_tree.py'
+      - 'scripts/test_verify_cross_domain_kernel_tree.py'
       - 'internal/governedactionnormative/**'
       - 'internal/kubeadapter/**'
       - 'experiments/gosmig-simulation/**'
@@ -252,6 +254,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
       - name: Download GitHub evidence
         uses: actions/download-artifact@v4
@@ -271,11 +274,12 @@ jobs:
           name: cross-domain-postgresql-${{ github.run_id }}
           path: cross-domain-evidence/postgresql
 
-      - name: Assert kernel semantic delta is zero
+      - name: Verify frozen contract and exact registered extension
         run: |
           set -euo pipefail
           registration=testdata/governed-action/cross-domain/registration-v1.json
-          test "$(git rev-parse HEAD:governedaction)" = "$(jq -r '.pins.governedaction_tree' "$registration")"
+          python3 -m unittest discover -s scripts -p 'test_verify_cross_domain_kernel_tree.py' -v
+          python3 scripts/verify_cross_domain_kernel_tree.py
           test "$(git hash-object testdata/governed-action/v1/normative-cases.json)" = "$(jq -r '.pins.normative_oracle_blob' "$registration")"
           test "$(git rev-parse HEAD:testdata/governed-action/v1)" = "$(jq -r '.pins.normative_oracle_tree' "$registration")"
           test "$(git hash-object testdata/governed-action/k07/executable-cases.json)" = "$(jq -r '.pins.k07_fixture_blob' "$registration")"
@@ -327,12 +331,15 @@ jobs:
                   "postgresql": "PASS",
               },
               "kernel_semantic_delta": 0,
+              "kernel_semantic_delta_scope": "frozen contract source",
+              "reference_runtime_extension_native_proof": False,
               "unauthorized_effects_observed": 0,
               "blind_non_idempotent_replays_observed": 0,
               "false_successes_observed": 0,
               "restart_or_takeover_recovery": "PASS",
               "same_kernel_preliminary_proof": "PASS",
               "limits": [
+                  "Registered reference runtime extension is outside this native proof",
                   "GitHub proof covers executor-process loss on a live runner, not total runner/VM loss",
                   "KinD is an isolated experimental cluster",
                   "PostgreSQL evidence is same-owner supplemental falsification, not independent adoption"
@@ -381,8 +388,9 @@ jobs:
         run: |
           set -euo pipefail
           registration=testdata/governed-action/complexity-dividend/terraform-v1.json
-          test "$(git rev-parse HEAD:governedaction)" = "$(jq -r '.pins.governedaction_tree' "$registration")"
-          test "$(git rev-parse HEAD:governedaction/runtime)" = "$(jq -r '.pins.runtime_tree' "$registration")"
+          python3 scripts/verify_cross_domain_kernel_tree.py --registration "$registration"
+          frozen_tree="$(jq -r '.pins.governedaction_tree' "$registration")"
+          test "$(git rev-parse "$frozen_tree:runtime")" = "$(jq -r '.pins.runtime_tree' "$registration")"
           test "$(git hash-object governedaction/runtime/runtime.go)" = "$(jq -r '.pins.runtime_blob' "$registration")"
           test "$(git hash-object governedaction/runtime/recovery.go)" = "$(jq -r '.pins.recovery_blob' "$registration")"
           test "$(git hash-object testdata/governed-action/d03a/corpus-v1.json)" = "$(jq -r '.pins.d03a_corpus_blob' "$registration")"
@@ -449,8 +457,13 @@ jobs:
           base = registration["source_head"]
           changed = subprocess.check_output(["git", "diff", "--name-only", f"{base}...HEAD"], text=True).splitlines()
           core_changed = [p for p in changed if p.startswith("governedaction/")]
-          if core_changed:
-              raise SystemExit(f"core semantic delta is not zero: {core_changed}")
+          extension_files = {"governedaction/" + item["path"] for item in
+                             registration.get("reference_runtime_extension", {}).get("files", [])}
+          frozen_core_changed = [p for p in core_changed if p not in extension_files]
+          if frozen_core_changed:
+              raise SystemExit(f"frozen core delta is not zero: {frozen_core_changed}")
+          subprocess.run(["python3", "scripts/verify_cross_domain_kernel_tree.py",
+                          "--registration", "testdata/governed-action/complexity-dividend/terraform-v1.json"], check=True)
 
           def loc(paths):
               total = 0
@@ -479,6 +492,10 @@ jobs:
               "domain": "terraform",
               "baseline_head": base,
               "core_files_changed": len(core_changed),
+              "frozen_core_files_changed": len(frozen_core_changed),
+              "registered_extension_files_changed": sorted(p for p in core_changed if p in extension_files),
+              "core_semantic_delta_scope": "frozen contract source",
+              "reference_runtime_extension_native_proof": False,
               "core_semantic_delta": 0,
               "domain_adapter_files": adapter_paths,
               "domain_adapter_loc_delta": loc(adapter_paths),
