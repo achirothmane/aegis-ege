@@ -10,7 +10,7 @@ import (
 
 	"github.com/achirothmane/easl/genesis"
 	"github.com/achirothmane/aegis-ege/internal/genesisbootstrap"
-	"github.com/achirothmane/aegis-ege/internal/testsupport"
+	"github.com/achirothmane/aegis-ege/internal/integrationfixture"
 )
 
 func TestIndependentLiveQuorumActivationRequiresVerifiedGenesisPin(t *testing.T) {
@@ -42,7 +42,7 @@ func TestIndependentLiveQuorumActivationRequiresVerifiedGenesisPin(t *testing.T)
 		t.Fatalf("zero Genesis pin activation=%v, want fail-closed", err)
 	}
 
-	fixture, err := testsupport.NewProductionGenesisFixture(
+	fixture, err := integrationfixture.NewProductionGenesisFixture(
 		t.TempDir(),
 		prepared.envelope,
 		prepared.genesisEpoch,
