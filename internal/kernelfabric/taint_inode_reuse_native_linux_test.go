@@ -721,6 +721,56 @@ func TestNativeTaintUnlinkContinuityIsSticky(t *testing.T) {
 		t.Fatalf("move recovery controller outside protected cgroup after single-principal denial: %v", err)
 	}
 
+	// Two signatures are still insufficient when their identities are not pinned
+	// by the verified recovery trust root.
+	_, rogueAuthorityPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rogueWitnessPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rogueJoint, err := SignJointTaintRecoveryAuthorization(
+		recoveryAuth,
+		rogueAuthorityPrivate,
+		rogueWitnessPrivate,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RecoverTaintSourceContinuity(TaintRecoveryRequest{
+		BPFFSRoot:           bpffsRoot,
+		Plan:                recoveryPlan,
+		SignedAuthorization: rogueJoint,
+		RecoveryTrust:       recoveryTrust,
+		Now:                 now,
+	})
+	if err == nil {
+		t.Fatal("untrusted two-key recovery authorization reopened source continuity")
+	}
+	if dirty, err := TaintSourceIdentityDirtyState(bpffsRoot); err != nil || dirty != dirtyBeforeSinglePrincipal {
+		t.Fatalf("untrusted two-key recovery mutated DIRTY: got=%d want=%d err=%v", dirty, dirtyBeforeSinglePrincipal, err)
+	}
+	if clean, err := TaintSourceContinuityWatermark(bpffsRoot); err != nil || clean != cleanBeforeSinglePrincipal {
+		t.Fatalf("untrusted two-key recovery mutated CLEAN: got=%d want=%d err=%v", clean, cleanBeforeSinglePrincipal, err)
+	}
+	if epoch, err := TaintEnrollmentEpoch(bpffsRoot); err != nil || epoch != epochBeforeSinglePrincipal {
+		t.Fatalf("untrusted two-key recovery mutated epoch: got=%d want=%d err=%v", epoch, epochBeforeSinglePrincipal, err)
+	}
+	if sources := nativeTaintSourceSnapshot(t, bpffsRoot); !reflect.DeepEqual(sourcesBeforeSinglePrincipal, sources) {
+		t.Fatalf("untrusted two-key recovery mutated source enrollment: before=%v after=%v", sourcesBeforeSinglePrincipal, sources)
+	}
+	if err := movePIDToCgroup(cgroupPath, os.Getpid()); err != nil {
+		t.Fatalf("move workload into protected cgroup after untrusted-principal denial: %v", err)
+	}
+	if err := expectNativeDialDenied(listener.Addr().String()); err != nil {
+		t.Fatalf("untrusted two-key recovery reopened protected egress: %v", err)
+	}
+	if err := movePIDToCgroup(originalCgroup, os.Getpid()); err != nil {
+		t.Fatalf("move recovery controller outside protected cgroup after untrusted-principal denial: %v", err)
+	}
+
 	// Pre-issue a second stale authorization for the *next* invalidation
 	// generation while it still claims epoch 1. After the first recovery the
 	// source plan remains identical, and a topology-only invalidation will make
