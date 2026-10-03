@@ -21,10 +21,11 @@ const (
 )
 
 type RemoteHeadStore struct {
-	endpoint       string
-	witnessKeyID   string
-	witnessKey     ed25519.PublicKey
-	client         *http.Client
+	endpoint          string
+	witnessKeyID      string
+	witnessKey        ed25519.PublicKey
+	trustManifestHash string
+	client            *http.Client
 }
 
 type remoteHeadWire struct {
@@ -94,6 +95,13 @@ func NewRemoteHeadStore(
 		witnessKey:   append(ed25519.PublicKey(nil), witnessPublicKey...),
 		client:       client,
 	}, nil
+}
+
+func (s *RemoteHeadStore) QuorumTrustManifestHash() string {
+	if s == nil {
+		return ""
+	}
+	return s.trustManifestHash
 }
 
 func (s *RemoteHeadStore) Load(
