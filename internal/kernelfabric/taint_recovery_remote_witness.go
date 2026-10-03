@@ -42,6 +42,12 @@ type TaintRecoveryWitnessPolicy interface {
 	AdmitTaintRecoveryWitness(context.Context, TaintRecoveryAuthorization) error
 }
 
+type ProfiledTaintRecoveryWitnessPolicy interface {
+	TaintRecoveryWitnessPolicy
+	RecoveryWitnessPolicyEpoch() uint64
+	RecoveryWitnessPolicyHash() (string, error)
+}
+
 type TaintRecoveryWitnessPolicyFunc func(context.Context, TaintRecoveryAuthorization) error
 
 func (f TaintRecoveryWitnessPolicyFunc) AdmitTaintRecoveryWitness(
@@ -288,7 +294,7 @@ func (w *RemoteTaintRecoveryWitness) coSign(
 func NewProfiledTaintRecoveryWitnessHandler(
 	trustRoot *TaintRecoveryTrustRoot,
 	witnessPrivateKey ed25519.PrivateKey,
-	policy TaintRecoveryWitnessPolicy,
+	policy ProfiledTaintRecoveryWitnessPolicy,
 	profile *VerifiedExternalRecoveryWitnessProfile,
 	now func() time.Time,
 ) (http.Handler, error) {
@@ -300,6 +306,17 @@ func NewProfiledTaintRecoveryWitnessHandler(
 	}
 	if profile.profile.WitnessKeyID != trustRoot.manifest.WitnessKeyID {
 		return nil, fmt.Errorf("%w: external witness profile key does not match trust root", ErrTaintRecoveryAuthorization)
+	}
+	if policy == nil {
+		return nil, fmt.Errorf("%w: profiled witness policy is required", ErrTaintRecoveryAuthorization)
+	}
+	policyHash, err := policy.RecoveryWitnessPolicyHash()
+	if err != nil {
+		return nil, fmt.Errorf("%w: compute witness policy hash: %v", ErrTaintRecoveryAuthorization, err)
+	}
+	if policy.RecoveryWitnessPolicyEpoch() != profile.profile.PolicyEpoch ||
+		policyHash != profile.profile.PolicyHash {
+		return nil, fmt.Errorf("%w: witness policy continuity does not match external profile", ErrTaintRecoveryAuthorization)
 	}
 	return newTaintRecoveryWitnessHandler(trustRoot, witnessPrivateKey, policy, profile, now)
 }
