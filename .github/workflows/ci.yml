@@ -137,6 +137,25 @@ jobs:
             exit 1
           fi
 
+      - name: Prove Genesis-bound TPM migration attestation trust without skips
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay -count=1 | tee "$RUNNER_TEMP/tpm-genesis-attestation-root.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/rogue_attestation_key_not_admitted_by_genesis" "$RUNNER_TEMP/tpm-genesis-attestation-root.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/attestation_trust_root_epoch_mismatch_rejected" "$RUNNER_TEMP/tpm-genesis-attestation-root.log"
+          grep -q -- "--- PASS: TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay/attestation_policy_substitution_rejected" "$RUNNER_TEMP/tpm-genesis-attestation-root.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-genesis-attestation-root.log"; then
+            exit 1
+          fi
+          go test -v ./internal/server -run TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource -count=1 | tee "$RUNNER_TEMP/tpm-genesis-attestation-history.log"
+          grep -q -- "--- PASS: TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource/attestation_policy_substitution_rejected" "$RUNNER_TEMP/tpm-genesis-attestation-history.log"
+          grep -q -- "--- PASS: TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource" "$RUNNER_TEMP/tpm-genesis-attestation-history.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/tpm-genesis-attestation-history.log"; then
+            exit 1
+          fi
+
       - name: Run moat falsification benchmark v1
         run: go run ./cmd/moatbench
 

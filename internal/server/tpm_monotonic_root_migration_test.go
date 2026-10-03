@@ -16,7 +16,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/achirothmane/easl/genesis"
 	"github.com/achirothmane/aegis-ege/internal/decision"
+	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 	"github.com/achirothmane/aegis-ege/internal/kubeadapter"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
@@ -26,6 +28,46 @@ import (
 func migrationRemoteDecisionDigest(label string) string {
 	sum := sha256.Sum256([]byte(label))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func migrationAttestationGenesisForTest(
+	t *testing.T,
+	publicKey ed25519.PublicKey,
+	genesisEpoch,
+	trustRootEpoch uint64,
+	policyHash string,
+) genesis.Manifest {
+	t.Helper()
+	keyID, err := kernelfabric.BootstrapKeyID(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return genesis.Manifest{
+		GenesisEpoch: genesisEpoch,
+		Trust: genesis.Trust{
+			TrustRootRef:          keyID,
+			TrustRootEpoch:        trustRootEpoch,
+			AttestationPolicyHash: policyHash,
+		},
+	}
+}
+
+func migrationAttestationTrustForTest(
+	t *testing.T,
+	publicKey ed25519.PublicKey,
+	genesisEpoch,
+	trustRootEpoch uint64,
+	policyHash string,
+) TPMRootMigrationAttestationTrust {
+	t.Helper()
+	trust, err := NewGenesisBoundTPMRootMigrationAttestationTrust(
+		migrationAttestationGenesisForTest(t, publicKey, genesisEpoch, trustRootEpoch, policyHash),
+		publicKey,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return trust
 }
 
 func signMigrationDestinationAttestationForTest(
@@ -182,6 +224,18 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	const (
+		attestationGenesisEpoch   uint64 = 17
+		attestationTrustRootEpoch uint64 = 9
+	)
+	attestationPolicyHash := "sha256:" + strings.Repeat("a", 64)
+	attestationTrust := migrationAttestationTrustForTest(
+		t,
+		attestationPub,
+		attestationGenesisEpoch,
+		attestationTrustRootEpoch,
+		attestationPolicyHash,
+	)
 	migrationID := "migration-a-to-b-1"
 	goodAttestation := signMigrationDestinationAttestationForTest(
 		t, migrationID, destinationBefore, now, attestationPriv,
@@ -199,9 +253,13 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		SourceGeneration:             source.Generation,
 		DestinationDeviceIdentity:    destinationBefore.DeviceIdentity,
 		DestinationGeneration:        destinationBefore.Generation,
-		DestinationNVIndex:           uint32(cfgB.NVIndex),
-		DestinationAttestationDigest: goodAttestationDigest,
-		NotBefore:                    now.Add(-time.Minute),
+		DestinationNVIndex:                    uint32(cfgB.NVIndex),
+		DestinationAttestationDigest:          goodAttestationDigest,
+		DestinationAttestationGenesisEpoch:    attestationTrust.genesisEpoch,
+		DestinationAttestationTrustRootRef:    attestationTrust.trustRootRef,
+		DestinationAttestationTrustRootEpoch:  attestationTrust.trustRootEpoch,
+		DestinationAttestationPolicyHash:      attestationTrust.attestationPolicyHash,
+		NotBefore:                             now.Add(-time.Minute),
 		ExpiresAt:                    now.Add(5 * time.Minute),
 	}
 
@@ -224,17 +282,75 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
+		sameAuthorityTrust := migrationAttestationTrustForTest(
+			t,
+			migrationPub,
+			attestationGenesisEpoch,
+			attestationTrustRootEpoch,
+			attestationPolicyHash,
+		)
 		auth := baseAuth
 		auth.DestinationAttestationDigest = digest
+		auth.DestinationAttestationTrustRootRef = sameAuthorityTrust.trustRootRef
 		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			sameKeyAttestation, migrationPub, now,
+			sameKeyAttestation, sameAuthorityTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
 			t.Fatalf("same migration/attestation authority should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("rogue_attestation_key_not_admitted_by_genesis", func(t *testing.T) {
+		roguePub, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pinnedManifest := migrationAttestationGenesisForTest(
+			t,
+			attestationPub,
+			attestationGenesisEpoch,
+			attestationTrustRootEpoch,
+			attestationPolicyHash,
+		)
+		if _, err := NewGenesisBoundTPMRootMigrationAttestationTrust(pinnedManifest, roguePub); !errors.Is(err, ErrTPMRootMigrationAttestationTrust) {
+			t.Fatalf("rogue attestation verifier was admitted by Genesis trust: %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("attestation_trust_root_epoch_mismatch_rejected", func(t *testing.T) {
+		auth := baseAuth
+		auth.DestinationAttestationTrustRootEpoch--
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationTrust, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("stale attestation trust-root epoch should fail closed, got %v", err)
+		}
+		assertCounterUnchanged(t)
+	})
+
+	t.Run("attestation_policy_substitution_rejected", func(t *testing.T) {
+		auth := baseAuth
+		auth.DestinationAttestationPolicyHash = "sha256:" + strings.Repeat("b", 64)
+		signed, err := SignTPMRootMigrationAuthorization(auth, migrationPriv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateTPMNVMonotonicRoot(
+			ctx, cfgA.StatePath, rootB, signed, migrationPub,
+			goodAttestation, attestationTrust, now,
+		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
+			t.Fatalf("attestation policy substitution should fail closed, got %v", err)
 		}
 		assertCounterUnchanged(t)
 	})
@@ -257,7 +373,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			att, attestationPub, now,
+			att, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestation) {
 			t.Fatalf("mismatched live measured boot should fail closed, got %v", err)
 		}
@@ -288,7 +404,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			att, attestationPub, now,
+			att, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestationStale) {
 			t.Fatalf("stale remote decision should fail closed, got %v", err)
 		}
@@ -319,7 +435,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			att, attestationPub, now,
+			att, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestationStale) {
 			t.Fatalf("bridge that extends remote decision freshness should fail closed, got %v", err)
 		}
@@ -350,7 +466,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			att, attestationPub, now,
+			att, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationDestinationAttestationStale) {
 			t.Fatalf("future remote decision should fail closed, got %v", err)
 		}
@@ -377,7 +493,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			att, attestationPub, now,
+			att, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
 			t.Fatalf("wrong attested destination generation should fail closed, got %v", err)
 		}
@@ -394,7 +510,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			goodAttestation, attestationPub, now,
+			goodAttestation, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
 			t.Fatalf("expired migration should fail closed, got %v", err)
 		}
@@ -409,7 +525,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		signed.Signature = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			goodAttestation, attestationPub, now,
+			goodAttestation, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
 			t.Fatalf("forged migration should fail closed, got %v", err)
 		}
@@ -425,7 +541,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			goodAttestation, attestationPub, now,
+			goodAttestation, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationAuthorization) {
 			t.Fatalf("wrong destination authorization should fail closed, got %v", err)
 		}
@@ -441,7 +557,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 		}
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			goodAttestation, attestationPub, now,
+			goodAttestation, attestationTrust, now,
 		); err != nil {
 			t.Fatalf("authorized migration failed: %v", err)
 		}
@@ -470,6 +586,12 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 	if migrated.MigrationDestinationAttestationDigest != goodAttestationDigest {
 		t.Fatalf("destination attestation commitment mismatch: got=%s want=%s", migrated.MigrationDestinationAttestationDigest, goodAttestationDigest)
 	}
+	if migrated.MigrationAttestationGenesisEpoch != attestationTrust.genesisEpoch ||
+		migrated.MigrationAttestationTrustRootRef != attestationTrust.trustRootRef ||
+		migrated.MigrationAttestationTrustRootEpoch != attestationTrust.trustRootEpoch ||
+		migrated.MigrationAttestationPolicyHash != attestationTrust.attestationPolicyHash {
+		t.Fatalf("migration lost Genesis attestation trust lineage: %+v", migrated)
+	}
 	if migrated.Generation != destinationBefore.Generation+1 {
 		t.Fatalf("destination generation did not advance exactly once: got=%d want=%d", migrated.Generation, destinationBefore.Generation+1)
 	}
@@ -485,7 +607,7 @@ func TestTPMRootAuthorizedMigrationPreservesExactAuthorityAndRejectsReplay(t *te
 	t.Run("replay_rejected", func(t *testing.T) {
 		if err := MigrateTPMNVMonotonicRoot(
 			ctx, cfgA.StatePath, rootB, signed, migrationPub,
-			goodAttestation, attestationPub, now,
+			goodAttestation, attestationTrust, now,
 		); !errors.Is(err, ErrTPMRootMigrationReplay) {
 			t.Fatalf("replayed migration authorization should fail closed, got %v", err)
 		}
