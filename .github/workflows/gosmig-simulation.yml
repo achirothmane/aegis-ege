@@ -48,6 +48,8 @@ jobs:
       GS_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       GOSMIG_SIM_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/native-evidence.json
       GOSMIG_SIM_ORACLE_RESULT: ${{ github.workspace }}/gosmig-evidence/k07-result.json
+      GOSMIG_R01_CARDINALITY_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/r01-cardinality.json
+      GOSMIG_R01_E2E_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/r01-end-to-end.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +62,7 @@ jobs:
         working-directory: experiments/gosmig-simulation
         run: |
           mkdir -p "$GITHUB_WORKSPACE/gosmig-evidence"
-          test -z "$(gofmt -l guard.go simulation_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go)"
+          test -z "$(gofmt -l guard.go simulation_test.go r01_native_cardinality_test.go r01_end_to_end_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go)"
           go mod download
           go mod verify
           git diff --exit-code -- go.mod go.sum
@@ -79,6 +81,8 @@ jobs:
       - name: Verify frozen contract and unchanged K07 dispositions
         run: |
           test -s "$GOSMIG_SIM_EVIDENCE"
+          test -s "$GOSMIG_R01_CARDINALITY_EVIDENCE"
+          test -s "$GOSMIG_R01_E2E_EVIDENCE"
           go test -mod=readonly -count=1 -v ./internal/governedactionnormative | tee gosmig-evidence/frozen-k07-test.log
           test -s "$GOSMIG_SIM_ORACLE_RESULT"
       - name: Preserve native observations and resolved source
@@ -93,6 +97,10 @@ jobs:
             experiments/gosmig-simulation/go.sum
             experiments/gosmig-simulation/guard.go
             experiments/gosmig-simulation/simulation_test.go
+            experiments/gosmig-simulation/r01_native_cardinality_test.go
+            experiments/gosmig-simulation/r01_end_to_end_test.go
+            internal/decision/r01_end_to_end_evidence_test.go
+            internal/governedactionnormative/r01_end_to_end_projection_test.go
             internal/governedactionnormative/gosmig_simulation_test.go
             testdata/governed-action/gosmig-simulation/registration-v1.json
             governedaction/
