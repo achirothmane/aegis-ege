@@ -1,0 +1,63 @@
+{
+  "schema_version": "aegis.native-destination-fence-kubernetes/v1",
+  "base_main": "2afad5622e4261dc15f02d8f9a3cd711aaf2ab75",
+  "substrate": {
+    "kind": "Kubernetes API",
+    "profile": "single ConfigMap co-locating semantic state, authority state, custody fence, and effect marker",
+    "linearization": "API-server resourceVersion compare-and-swap on one object",
+    "target_identity": "namespace/name + immutable UID"
+  },
+  "pins": {
+    "runtime_blob": "7e4b77757eb6490b18086d13fd22dbae02d277de",
+    "fenced_runtime_blob": "bff1a1b1fc7524fd6cdebe5cad905bf9efb7be77",
+    "proof_test_blob": "a901885ecdeaa8b9c7ad2d60e33fa0b4a4f84887"
+  },
+  "positive_profile_checks": [
+    "exact effect_id and attempt_id",
+    "exact owner identity",
+    "exact monotonic generation",
+    "CROSSING custody phase",
+    "exact target UID",
+    "exact semantic revision and digest",
+    "active exact admission binding",
+    "resourceVersion CAS on the same destination object"
+  ],
+  "falsification_cases": [
+    {
+      "id": "NF-K8S-01",
+      "name": "stale owner after takeover",
+      "expected": "old owner/generation denied; new owner closes exactly one effect"
+    },
+    {
+      "id": "NF-K8S-02",
+      "name": "semantic state changes after native read",
+      "expected": "competing write changes resourceVersion; stale effect update conflicts; zero effect"
+    },
+    {
+      "id": "NF-K8S-03",
+      "name": "authority revoked after native read",
+      "expected": "competing write changes resourceVersion; stale effect update conflicts; zero effect"
+    },
+    {
+      "id": "NF-K8S-04",
+      "name": "exact valid fencing token replay",
+      "expected": "second effect denied; effect cardinality remains one"
+    },
+    {
+      "id": "NF-K8S-05",
+      "name": "split Lease fence and target object",
+      "expected": "COUNTEREXAMPLE: takeover of a separate Lease does not change target resourceVersion, so stale target mutation remains admissible"
+    }
+  ],
+  "conclusion_rule": {
+    "split_object_lease_profile": "INSUFFICIENT",
+    "co_located_single_object_profile": "SURVIVES_V1"
+  },
+  "claim_boundary": [
+    "This does not prove arbitrary Kubernetes mutations are natively fenced.",
+    "A separate Lease checked before a mutation is not enough; the proof deliberately demonstrates that gap.",
+    "The positive profile requires fence state and effect state to share the same Kubernetes object, or an equivalent server-side admission/transaction boundary.",
+    "No new governed-action semantic primitive is introduced.",
+    "The proof does not claim multi-object atomicity, cross-cluster transactions, or admission-webhook correctness."
+  ]
+}
