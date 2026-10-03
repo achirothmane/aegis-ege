@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -273,7 +274,26 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	}
 }
 
+const tpmHistorySameGenerationHelperEnv = "AEGIS_TPM_HISTORY_SAME_GENERATION_HELPER"
+
 func TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite(t *testing.T) {
+	if os.Getenv(tpmHistorySameGenerationHelperEnv) == "1" {
+		runTPMNVHistoryAnchorSameGenerationScenario(t)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite$", "-test.v")
+	cmd.Env = append(os.Environ(), tpmHistorySameGenerationHelperEnv+"=1")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("isolated same-generation TPM history proof failed: %v", err)
+	}
+}
+
+func runTPMNVHistoryAnchorSameGenerationScenario(t *testing.T) {
+	t.Helper()
+
 	sim, err := simulator.Get()
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
