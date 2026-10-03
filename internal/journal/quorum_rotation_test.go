@@ -465,3 +465,209 @@ func TestQuorumPolicyTransitionForbidsDirectOldToNewAndRollback(t *testing.T) {
 		t.Fatal("NEW -> OLD rollback unexpectedly accepted")
 	}
 }
+
+
+func governedRotationSplitHandleFixture(
+	t *testing.T,
+) (
+	QuorumRotationPlan,
+	*QuorumHeadStore,
+	*QuorumHeadStore,
+	map[string]*rotationPolicyTestStore,
+	map[string]*rotationPolicyTestStore,
+	ExternalHead,
+) {
+	t.Helper()
+
+	oldBinding := quorumBindingForTest(
+		t,
+		2,
+		"witness-a",
+		"witness-b",
+		"witness-c",
+	)
+	newBinding := quorumBindingForTest(
+		t,
+		2,
+		"witness-b",
+		"witness-c",
+		"witness-d",
+	)
+	oldEpoch, err := NewGovernedQuorumEpoch(
+		oldBinding,
+		31,
+		sha256Digest([]byte("genesis-31")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newEpoch, err := NewGovernedQuorumEpoch(
+		newBinding,
+		32,
+		sha256Digest([]byte("genesis-32")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewQuorumRotationPlan(oldEpoch, newEpoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	head := quorumTestHead(23, "split-handle")
+	oldPolicy := oldEpoch.activePolicy()
+	newPolicy := newEpoch.activePolicy()
+
+	oldHandles := map[string]*rotationPolicyTestStore{
+		"witness-a": newRotationPolicyTestStore(
+			head,
+			quorumTrustHashForTest("witness-a"),
+			oldPolicy,
+		),
+		"witness-b": newRotationPolicyTestStore(
+			head,
+			quorumTrustHashForTest("witness-b"),
+			oldPolicy,
+		),
+		"witness-c": newRotationPolicyTestStore(
+			head,
+			quorumTrustHashForTest("witness-c"),
+			oldPolicy,
+		),
+	}
+	newHandles := map[string]*rotationPolicyTestStore{
+		"witness-b": newRotationPolicyTestStore(
+			head,
+			quorumTrustHashForTest("witness-b"),
+			oldPolicy,
+		),
+		"witness-c": newRotationPolicyTestStore(
+			head,
+			quorumTrustHashForTest("witness-c"),
+			oldPolicy,
+		),
+		"witness-d": newRotationPolicyTestStore(
+			head,
+			quorumTrustHashForTest("witness-d"),
+			newPolicy,
+		),
+	}
+
+	oldStore, err := NewGovernedQuorumHeadStore(
+		[]QuorumHeadMember{
+			{ID: "witness-a", Store: oldHandles["witness-a"]},
+			{ID: "witness-b", Store: oldHandles["witness-b"]},
+			{ID: "witness-c", Store: oldHandles["witness-c"]},
+		},
+		oldBinding,
+		oldEpoch.genesisEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newStore, err := NewGovernedQuorumHeadStore(
+		[]QuorumHeadMember{
+			{ID: "witness-b", Store: newHandles["witness-b"]},
+			{ID: "witness-c", Store: newHandles["witness-c"]},
+			{ID: "witness-d", Store: newHandles["witness-d"]},
+		},
+		newBinding,
+		newEpoch.genesisEpoch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan, oldStore, newStore, oldHandles, newHandles, head
+}
+
+func TestQuorumRotationRejectsOldNewHandlePolicySplitWithSameTrustIdentity(t *testing.T) {
+	plan, oldStore, newStore, oldHandles, newHandles, head :=
+		governedRotationSplitHandleFixture(t)
+	ctx := context.Background()
+
+	newHandles["witness-b"].setPolicy(plan.newEpoch.activePolicy())
+
+	if _, err := oldStore.Load(ctx, head.JournalID); err != nil {
+		t.Fatalf("old quorum should remain readable in split setup: %v", err)
+	}
+	if _, err := newStore.Load(ctx, head.JournalID); err != nil {
+		t.Fatalf("new quorum should also be readable in split setup: %v", err)
+	}
+
+	beforeB, err := oldHandles["witness-b"].CurrentQuorumPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteQuorumRotation(
+		ctx,
+		plan,
+		oldStore,
+		newStore,
+		head.JournalID,
+	); !errors.Is(err, ErrQuorumRotationAmbiguous) {
+		t.Fatalf("split old/new handles = %v, want %v", err, ErrQuorumRotationAmbiguous)
+	}
+	afterB, err := oldHandles["witness-b"].CurrentQuorumPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterB != beforeB {
+		t.Fatalf("rejected split-handle rotation mutated old handle: before=%+v after=%+v", beforeB, afterB)
+	}
+}
+
+func TestQuorumRotationStopsWhenPolicyTransitionDoesNotConvergeAcrossHandles(t *testing.T) {
+	plan, oldStore, newStore, _, _, head := governedRotationSplitHandleFixture(t)
+	ctx := context.Background()
+
+	if _, err := ExecuteQuorumRotation(
+		ctx,
+		plan,
+		oldStore,
+		newStore,
+		head.JournalID,
+	); !errors.Is(err, ErrQuorumRotationAmbiguous) {
+		t.Fatalf("non-converging shared handles = %v, want %v", err, ErrQuorumRotationAmbiguous)
+	}
+
+	// The first old-side handle may already have entered JOINT, but the
+	// blocking set is not exhausted. OLD remains authoritative while NEW is
+	// still unavailable, so the failed convergence does not create dual truth.
+	if got, err := oldStore.Load(ctx, head.JournalID); err != nil ||
+		!sameSemanticHead(got, head) {
+		t.Fatalf("old quorum was lost after rejected non-converging transition: head=%+v err=%v", got, err)
+	}
+	if _, err := newStore.Load(ctx, head.JournalID); !errors.Is(err, ErrExternalHeadQuorum) {
+		t.Fatalf("new quorum became readable after non-converging transition: %v", err)
+	}
+}
+
+func TestQuorumRotationRejectsSharedHandleHeadDivergenceBeforePolicyMutation(t *testing.T) {
+	plan, oldStore, newStore, oldHandles, newHandles, head :=
+		governedRotationSplitHandleFixture(t)
+	ctx := context.Background()
+
+	divergent := quorumTestHead(head.Sequence, "different-head")
+	newHandles["witness-b"].base = newQuorumTestStore(&divergent)
+
+	before, err := oldHandles["witness-b"].CurrentQuorumPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteQuorumRotation(
+		ctx,
+		plan,
+		oldStore,
+		newStore,
+		head.JournalID,
+	); !errors.Is(err, ErrQuorumRotationContinuity) {
+		t.Fatalf("shared handle head divergence = %v, want %v", err, ErrQuorumRotationContinuity)
+	}
+	after, err := oldHandles["witness-b"].CurrentQuorumPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("head-divergence rejection mutated policy: before=%+v after=%+v", before, after)
+	}
+}
