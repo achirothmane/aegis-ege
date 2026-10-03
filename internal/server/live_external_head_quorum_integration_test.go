@@ -24,7 +24,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-const liveQuorumBundleVersionIntegration = "aegis-ege/live-external-head-quorum-client/v1"
+const (
+	liveQuorumBundleVersionIntegration = "aegis-ege/live-external-head-quorum-client/v1"
+	liveQuorumHistoryPurposeIntegration = "capability-root-history"
+)
 
 type liveQuorumBundleIntegration struct {
 	Version                  string                        `json:"version"`
@@ -87,6 +90,21 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	historyBinding, err := journal.ParseGenesisHistoryBinding(
+		envelope,
+		bundle.CapabilityEnvelopeHash,
+		liveQuorumHistoryPurposeIntegration,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.JournalID != historyBinding.JournalID() {
+		t.Fatalf(
+			"live bundle journal=%q differs from Genesis-bound history=%q",
+			bundle.JournalID,
+			historyBinding.JournalID(),
+		)
 	}
 	policy, err := binding.ActivePolicy(bundle.GenesisEpoch)
 	if err != nil {
@@ -163,8 +181,18 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	history, err := journal.NewGenesisBoundHistoryStore(quorum, historyBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := history.Load(
+		ctx,
+		bundle.JournalID+"-replacement",
+	); !errors.Is(err, journal.ErrHistoryLineageMismatch) {
+		t.Fatalf("live history accepted substituted lineage identity: %v", err)
+	}
 
-	initial, err := quorum.Load(ctx, bundle.JournalID)
+	initial, err := history.Load(ctx, bundle.JournalID)
 	if err != nil {
 		t.Fatalf("load initial live quorum head: %v", err)
 	}
@@ -178,10 +206,10 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 		HeadHash:  integrationQuorumDigest("t1"),
 		KeyID:     initial.KeyID,
 	}
-	if _, err := quorum.CompareAndAdvance(ctx, initial, t1); err != nil {
+	if _, err := history.CompareAndAdvance(ctx, initial, t1); err != nil {
 		t.Fatalf("advance live quorum to T1: %v", err)
 	}
-	t1Current, err := quorum.Load(ctx, bundle.JournalID)
+	t1Current, err := history.Load(ctx, bundle.JournalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +235,7 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 		HeadHash:  integrationQuorumDigest("t2"),
 		KeyID:     initial.KeyID,
 	}
-	if _, err := quorum.CompareAndAdvance(ctx, t1Current, t2); err != nil {
+	if _, err := history.CompareAndAdvance(ctx, t1Current, t2); err != nil {
 		t.Fatalf("2-of-3 advance with witness-c unavailable: %v", err)
 	}
 
@@ -227,7 +255,7 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 		t.Fatalf("restored witness-c sequence=%d want stale T1=1", staleC.Sequence)
 	}
 
-	quorumT2, err := quorum.Load(ctx, bundle.JournalID)
+	quorumT2, err := history.Load(ctx, bundle.JournalID)
 	if err != nil {
 		t.Fatalf("load quorum with one stale witness: %v", err)
 	}
@@ -243,7 +271,7 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 	); err != nil {
 		t.Fatalf("catch up witness-c to T2: %v", err)
 	}
-	synced, err := quorum.Load(ctx, bundle.JournalID)
+	synced, err := history.Load(ctx, bundle.JournalID)
 	if err != nil || synced.Sequence != 2 {
 		t.Fatalf("quorum did not converge at T2: head=%+v err=%v", synced, err)
 	}
@@ -255,7 +283,7 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 	}
 
 	scaleWitness(t, ctx, chaosClient, memberA.DeploymentName, 0)
-	oneDown, err := quorum.Load(ctx, bundle.JournalID)
+	oneDown, err := history.Load(ctx, bundle.JournalID)
 	if err != nil {
 		t.Fatalf("one witness outage broke 2-of-3 quorum: %v", err)
 	}
@@ -264,7 +292,7 @@ func TestKindLiveTwoOfThreeExternalHeadQuorum(t *testing.T) {
 	}
 
 	scaleWitness(t, ctx, chaosClient, memberB.DeploymentName, 0)
-	if _, err := quorum.Load(ctx, bundle.JournalID); !errors.Is(
+	if _, err := history.Load(ctx, bundle.JournalID); !errors.Is(
 		err,
 		journal.ErrExternalHeadQuorum,
 	) {
