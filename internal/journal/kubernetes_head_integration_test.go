@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,9 +64,9 @@ func TestKindM10ExternalHeadDetectsFullLocalRollback(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "journal.jsonl")
 	anchorPath := filepath.Join(dir, "journal.anchor.json")
-	j, err := NewFileJournalWithSecurity(path, anchorPath, signer, keyring, headStore)
+	j, err := CreateAnchoredFileJournal(ctx, path, anchorPath, "kind-m10-history", signer, keyring, headStore)
 	if err != nil {
-		t.Fatalf("NewFileJournalWithSecurity: %v", err)
+		t.Fatalf("CreateAnchoredFileJournal: %v", err)
 	}
 
 	if _, err := j.Append(ctx, testEvent("kind-one", "ALLOW")); err != nil {
@@ -116,6 +117,24 @@ func TestKindM10ExternalHeadDetectsFullLocalRollback(t *testing.T) {
 	got := j.Verify(ctx)
 	if got.Valid || !strings.Contains(got.Error, "external journal head mismatch") {
 		t.Fatalf("expected external anti-rollback mismatch, got %+v", got)
+	}
+
+	// Losing the entire local pair must not manufacture another witness
+	// namespace. The native ConfigMap retains the same history identity/head.
+	for _, p := range []string{path, anchorPath} {
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := OpenAnchoredFileJournal(ctx, path, anchorPath, "kind-m10-history", signer, keyring, headStore); !errors.Is(err, ErrJournalHistoryUnavailable) {
+		t.Fatalf("native witness allowed absent local history to reopen: %v", err)
+	}
+	if _, err := CreateAnchoredFileJournal(ctx, path, anchorPath, "kind-m10-history", signer, keyring, headStore); !errors.Is(err, ErrJournalAlreadyExists) {
+		t.Fatalf("native witness allowed history rebootstrap: %v", err)
+	}
+	retained, err := headStore.Load(ctx, current.JournalID)
+	if err != nil || retained.Sequence != current.Sequence || retained.HeadHash != current.HeadHash || retained.KeyID != current.KeyID {
+		t.Fatalf("native history reset attempt changed independent truth: head=%+v err=%v", retained, err)
 	}
 }
 

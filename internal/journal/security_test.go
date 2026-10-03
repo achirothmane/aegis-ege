@@ -28,7 +28,7 @@ func TestExternalHeadDetectsFullLocalSnapshotRollback(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "journal.jsonl")
 	anchorPath := filepath.Join(dir, "journal.anchor.json")
-	j, err := NewFileJournalWithSecurity(path, anchorPath, signer, keyring, external)
+	j, err := CreateAnchoredFileJournal(context.Background(), path, anchorPath, "snapshot-rollback-history", signer, keyring, external)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestSignerRotationPreservesHistoricalVerification(t *testing.T) {
 	path := filepath.Join(dir, "journal.jsonl")
 	anchorPath := filepath.Join(dir, "journal.anchor.json")
 
-	first, err := NewFileJournalWithSecurity(path, anchorPath, oldSigner, keyring, external)
+	first, err := CreateAnchoredFileJournal(context.Background(), path, anchorPath, "signer-rotation-history", oldSigner, keyring, external)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestSignerRotationPreservesHistoricalVerification(t *testing.T) {
 		t.Fatalf("historical anchor did not verify before rotation: %v", err)
 	}
 
-	rotated, err := NewFileJournalWithSecurity(path, anchorPath, newSigner, keyring, external)
+	rotated, err := OpenAnchoredFileJournal(context.Background(), path, anchorPath, "signer-rotation-history", newSigner, keyring, external)
 	if err != nil {
 		t.Fatalf("open with rotated signer: %v", err)
 	}
@@ -144,6 +144,9 @@ func TestSignerRotationPreservesHistoricalVerification(t *testing.T) {
 	}
 	if newAnchor.KeyID != newSigner.KeyID() {
 		t.Fatalf("expected rotated key id, got %+v", newAnchor)
+	}
+	if newAnchor.JournalID != oldAnchor.JournalID {
+		t.Fatalf("signer rotation replaced governed lineage: old=%s new=%s", oldAnchor.JournalID, newAnchor.JournalID)
 	}
 	if err := verifyAnchor(context.Background(), oldAnchor, keyring); err != nil {
 		t.Fatalf("old historical anchor no longer verifies: %v", err)

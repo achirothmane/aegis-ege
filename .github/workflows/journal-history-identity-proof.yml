@@ -1,0 +1,87 @@
+name: Anchored journal history identity proof
+
+on:
+  pull_request:
+    paths:
+      - 'internal/journal/**'
+      - 'testdata/journal-history/**'
+      - 'docs/journal-history-continuity.md'
+      - '.github/workflows/journal-history-identity-proof.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'internal/journal/**'
+      - 'testdata/journal-history/**'
+      - '.github/workflows/journal-history-identity-proof.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  history-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Falsify the original random-identity constructor
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/journal-history-baseline"
+          mkdir -p "$baseline" journal-history-evidence
+          git archive 536ce01e0ca5009ac4e32440681fbab8f428ff83 | tar -x -C "$baseline"
+          cp testdata/journal-history/history-reset-baseline_test.go.txt \
+            "$baseline/internal/journal/history_identity_test.go"
+          if (cd "$baseline" && go test ./internal/journal \
+            -run '^TestAnchoredJournalCannotRebootstrapAfterLocalHistoryLoss$' -count=1) \
+            > journal-history-evidence/baseline.log 2>&1; then
+            cat journal-history-evidence/baseline.log
+            echo 'Expected the original implementation to reject this regression test.'
+            exit 1
+          fi
+          cat journal-history-evidence/baseline.log
+          grep -q 'local history loss silently created a replacement lineage' journal-history-evidence/baseline.log
+      - name: Verify pinned identity, interrupted creation, trust separation and CAS races
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l internal/journal/anchored_file.go internal/journal/history_identity_test.go internal/journal/journal.go)"
+          go test -race -count=1 -json ./internal/journal | tee journal-history-evidence/journal-tests.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          required = {
+              'TestAnchoredJournalCannotRebootstrapAfterLocalHistoryLoss',
+              'TestAnchoredJournalRejectsSignedForeignHistoryBeforeWitnessLookup',
+              'TestAnchoredJournalChecksWitnessReturnedIdentity',
+              'TestHistoricalTrustIsIndependentOfOperationalOutcome',
+              'TestLocalIntegrityDoesNotEarnHistoricalTrust',
+              'TestAnchoredCreationInterruptionNeverInventsRecovery',
+              'TestAnchoredJournalRelocationPreservesExactHistory',
+              'TestAnchoredJournalNeverEnrollsAroundWitnessLoss',
+              'TestAnchoredCreationRequiresWitnessAvailabilityBeforeWriting',
+              'TestAnchoredConcurrentCreationLinearizesAtWitnessCAS',
+          }
+          events = [json.loads(line) for line in Path('journal-history-evidence/journal-tests.jsonl').read_text().splitlines()]
+          passed = {event.get('Test') for event in events if event.get('Action') == 'pass'}
+          missing = required - passed
+          if missing:
+              raise SystemExit('Missing executed proof cases: ' + ', '.join(sorted(missing)))
+          if any(event.get('Action') == 'skip' for event in events):
+              raise SystemExit('Journal proof must not skip cases')
+          PY
+      - name: Preserve proof logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journal-history-identity-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          path: journal-history-evidence/

@@ -6,7 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-		"encoding/hex"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,11 +29,11 @@ const (
 )
 
 type Event struct {
-	Type           EventType `json:"type"`
-	ActionID       string    `json:"action_id,omitempty"`
-	Target         string    `json:"target,omitempty"`
-	Decision       string    `json:"decision,omitempty"`
-	ReasonCodes    []string  `json:"reason_codes,omitempty"`
+	Type                 EventType `json:"type"`
+	ActionID             string    `json:"action_id,omitempty"`
+	Target               string    `json:"target,omitempty"`
+	Decision             string    `json:"decision,omitempty"`
+	ReasonCodes          []string  `json:"reason_codes,omitempty"`
 	EvidenceDigest       string    `json:"evidence_digest,omitempty"`
 	EvidencePacketDigest string    `json:"evidence_packet_digest,omitempty"`
 	PlanDigest           string    `json:"plan_digest,omitempty"`
@@ -43,8 +43,8 @@ type Event struct {
 	ObservationHandle    string    `json:"observation_handle,omitempty"`
 	AttemptState         string    `json:"attempt_state,omitempty"`
 	OutcomeVerdict       string    `json:"outcome_verdict,omitempty"`
-	PayloadDigest  string    `json:"payload_digest,omitempty"`
-	OccurredAt     time.Time `json:"occurred_at"`
+	PayloadDigest        string    `json:"payload_digest,omitempty"`
+	OccurredAt           time.Time `json:"occurred_at"`
 }
 
 type Entry struct {
@@ -67,21 +67,25 @@ type Anchor struct {
 }
 
 type Verification struct {
-	Valid      bool
-	EntryCount uint64
-	HeadHash   string
-	Error      string
+	// Valid reports the configured integrity/head checks. A local-only valid
+	// chain does not prove continuity; callers must inspect HistoricalTrust.
+	Valid           bool
+	EntryCount      uint64
+	HeadHash        string
+	Error           string
+	HistoricalTrust HistoricalTrust
 }
 
 type FileJournal struct {
-	mu           sync.Mutex
-	path         string
-	anchorPath   string
-	signer       AnchorSigner
-	verifier     AnchorVerifier
-	externalHead ExternalHeadStore
-	publicKey    ed25519.PublicKey
-	now          func() time.Time
+	mu                sync.Mutex
+	path              string
+	anchorPath        string
+	signer            AnchorSigner
+	verifier          AnchorVerifier
+	externalHead      ExternalHeadStore
+	expectedJournalID string
+	publicKey         ed25519.PublicKey
+	now               func() time.Time
 }
 
 func NewFileJournal(path, anchorPath string, privateKey ed25519.PrivateKey) (*FileJournal, error) {
@@ -108,22 +112,14 @@ func NewFileJournalWithSecurity(
 	verifier AnchorVerifier,
 	externalHead ExternalHeadStore,
 ) (*FileJournal, error) {
-	if signer == nil {
-		return nil, fmt.Errorf("journal signer is required")
+	// A random identity is suitable only for local integrity checks. External
+	// continuity requires a relying-context pin and distinct create/open paths.
+	if externalHead != nil {
+		return nil, ErrJournalIdentityRequired
 	}
-	if signer.KeyID() == "" {
-		return nil, fmt.Errorf("journal signer key id is required")
-	}
-	if verifier == nil {
-		return nil, fmt.Errorf("journal anchor verifier is required")
-	}
-	j := &FileJournal{
-		path:         path,
-		anchorPath:   anchorPath,
-		signer:       signer,
-		verifier:     verifier,
-		externalHead: externalHead,
-		now:          time.Now,
+	j, err := newFileJournal(path, anchorPath, signer, verifier)
+	if err != nil {
+		return nil, err
 	}
 	if err := j.initialize(context.Background()); err != nil {
 		return nil, err
@@ -135,14 +131,34 @@ func NewFileJournalWithSecurity(
 	return j, nil
 }
 
+func newFileJournal(path, anchorPath string, signer AnchorSigner, verifier AnchorVerifier) (*FileJournal, error) {
+	if signer == nil {
+		return nil, fmt.Errorf("journal signer is required")
+	}
+	if signer.KeyID() == "" {
+		return nil, fmt.Errorf("journal signer key id is required")
+	}
+	if verifier == nil {
+		return nil, fmt.Errorf("journal anchor verifier is required")
+	}
+	j := &FileJournal{
+		path:       path,
+		anchorPath: anchorPath,
+		signer:     signer,
+		verifier:   verifier,
+		now:        time.Now,
+	}
+	return j, nil
+}
+
 func VerifyFiles(path, anchorPath string, publicKey ed25519.PublicKey) Verification {
 	if len(publicKey) != ed25519.PublicKeySize {
-		return Verification{Error: "invalid Ed25519 public key"}
+		return Verification{Error: "invalid Ed25519 public key", HistoricalTrust: HistoryUntrusted}
 	}
 	keyring := NewEd25519Keyring()
 	keyID := Ed25519KeyID(publicKey)
 	if err := keyring.Add(keyID, publicKey); err != nil {
-		return Verification{Error: err.Error()}
+		return Verification{Error: err.Error(), HistoricalTrust: HistoryUntrusted}
 	}
 	j := &FileJournal{
 		path:       path,
@@ -243,7 +259,7 @@ func (j *FileJournal) Append(ctx context.Context, event Event) (Entry, error) {
 
 func (j *FileJournal) Verify(ctx context.Context) Verification {
 	if err := ctx.Err(); err != nil {
-		return Verification{Error: err.Error()}
+		return Verification{Error: err.Error(), HistoricalTrust: HistoryUntrusted}
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -283,9 +299,12 @@ func (j *FileJournal) initialize(ctx context.Context) error {
 		return fmt.Errorf("create anchor directory: %w", err)
 	}
 
-	journalID, err := randomID()
-	if err != nil {
-		return err
+	journalID := j.expectedJournalID
+	if journalID == "" {
+		journalID, err = randomID()
+		if err != nil {
+			return err
+		}
 	}
 	file, err := os.OpenFile(j.path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -326,12 +345,29 @@ func (j *FileJournal) initialize(ctx context.Context) error {
 }
 
 func (j *FileJournal) verifyUnlocked(ctx context.Context) Verification {
+	verification := j.verifyIntegrityAndHead(ctx)
+	verification.HistoricalTrust = HistoryUntrusted
+	if verification.Valid {
+		verification.HistoricalTrust = HistoryUnverified
+		if j.expectedJournalID != "" && j.externalHead != nil {
+			verification.HistoricalTrust = HistoryTrusted
+		}
+	}
+	return verification
+}
+
+func (j *FileJournal) verifyIntegrityAndHead(ctx context.Context) Verification {
 	anchor, err := readAnchor(j.anchorPath)
 	if err != nil {
 		return Verification{Error: err.Error()}
 	}
 	if anchor.Version != formatVersion {
 		return Verification{Error: fmt.Sprintf("unsupported anchor version %d", anchor.Version)}
+	}
+	// Check the relying context before any lookup. A signed, internally valid
+	// foreign history must not select its own witness namespace.
+	if j.expectedJournalID != "" && anchor.JournalID != j.expectedJournalID {
+		return Verification{Error: fmt.Sprintf("journal identity mismatch: got %q want %q", anchor.JournalID, j.expectedJournalID)}
 	}
 	if j.verifier == nil {
 		return Verification{Error: "journal anchor verifier is not configured"}
@@ -417,7 +453,8 @@ func (j *FileJournal) verifyUnlocked(ctx context.Context) Verification {
 			}
 		}
 		local := externalHeadFromAnchor(anchor)
-		if external.Sequence != local.Sequence ||
+		if external.JournalID != local.JournalID ||
+			external.Sequence != local.Sequence ||
 			external.HeadHash != local.HeadHash ||
 			external.KeyID != local.KeyID {
 			return Verification{
