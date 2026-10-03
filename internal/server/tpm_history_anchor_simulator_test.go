@@ -47,8 +47,12 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := kernelfabric.TaintRecoveryHistoryStore{
+	rawStore := kernelfabric.TaintRecoveryHistoryStore{
 		Dir: filepath.Join(dir, "recovery-history"),
+	}
+	store := kernelfabric.AnchoredTaintRecoveryHistoryStore{
+		Store:  rawStore,
+		Anchor: anchor,
 	}
 	base := time.Date(2026, 10, 3, 2, 10, 0, 0, time.UTC)
 
@@ -57,17 +61,12 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstDigest, err := store.AppendAnchored(
-		context.Background(),
-		signedFirst,
-		publicKey,
-		anchor,
-	)
+	firstDigest, err := store.Append(context.Background(), signedFirst, publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	headAtH1, err := os.ReadFile(filepath.Join(store.Dir, "head.json"))
+	headAtH1, err := os.ReadFile(filepath.Join(rawStore.Dir, "head.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +77,9 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	stateAtH1, ok, err := readTPMNVHistoryAnchorState(cfg.StatePath)
 	if err != nil || !ok {
 		t.Fatalf("read H1 anchor state: ok=%t err=%v", ok, err)
+	}
+	if stateAtH1.Sequence != 1 || stateAtH1.HeadDigest != firstDigest {
+		t.Fatalf("unexpected H1 anchor state: %+v", stateAtH1)
 	}
 
 	second := tpmHistoryAnchorReceipt(
@@ -90,12 +92,7 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondDigest, err := store.AppendAnchored(
-		context.Background(),
-		signedSecond,
-		publicKey,
-		anchor,
-	)
+	secondDigest, err := store.Append(context.Background(), signedSecond, publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,12 +103,11 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil || !ok {
 		t.Fatalf("read H2 anchor state: ok=%t err=%v", ok, err)
 	}
-	if stateAtH2.Generation != stateAtH1.Generation+1 {
-		t.Fatalf(
-			"TPM history generation did not advance exactly once: H1=%d H2=%d",
-			stateAtH1.Generation,
-			stateAtH2.Generation,
-		)
+	if stateAtH2.Generation != stateAtH1.Generation+1 ||
+		stateAtH2.Sequence != stateAtH1.Sequence+1 ||
+		stateAtH2.HeadDigest != secondDigest ||
+		stateAtH2.PreviousHeadDigest != firstDigest {
+		t.Fatalf("TPM history anchor did not advance exactly once: H1=%+v H2=%+v", stateAtH1, stateAtH2)
 	}
 	counterAtH2, err := anchor.helper.readCounter(context.Background())
 	if err != nil {
@@ -124,10 +120,9 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 			stateAtH2.Generation,
 		)
 	}
-	if _, digest, exists, err := store.CurrentAnchored(
+	if _, digest, exists, err := store.Current(
 		context.Background(),
 		publicKey,
-		anchor,
 	); err != nil || !exists || digest != secondDigest {
 		t.Fatalf(
 			"H2 did not verify before rollback scenario: exists=%t digest=%s err=%v",
@@ -137,14 +132,14 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 		)
 	}
 
-	// Simulate restoring the writable volume to the exact H1 snapshot while the
-	// TPM NV counter remains at H2. Both the history head and the anchor's
-	// companion state are old but individually valid.
-	if err := os.WriteFile(filepath.Join(store.Dir, "head.json"), headAtH1, 0o600); err != nil {
+	// Restore the writable volume to the exact H1 snapshot while the TPM NV
+	// counter remains at H2. The old H1 receipt and companion state are each
+	// internally valid, but they are no longer current.
+	if err := os.WriteFile(filepath.Join(rawStore.Dir, "head.json"), headAtH1, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	h2ReceiptPath := filepath.Join(
-		store.Dir,
+		rawStore.Dir,
 		"receipts",
 		strings.TrimPrefix(secondDigest, "sha256:")+".json",
 	)
@@ -158,7 +153,7 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 		t.Fatal(err)
 	}
 
-	unanchored, unanchoredDigest, exists, err := store.Current(publicKey)
+	unanchored, unanchoredDigest, exists, err := rawStore.Current(publicKey)
 	if err != nil {
 		t.Fatalf("restored H1 signature should still verify locally: %v", err)
 	}
@@ -175,12 +170,10 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil || !ok {
 		t.Fatalf("read restored H1 anchor state: ok=%t err=%v", ok, err)
 	}
-	if restoredState.Generation != stateAtH1.Generation {
-		t.Fatalf(
-			"companion state was not restored to H1: got=%d want=%d",
-			restoredState.Generation,
-			stateAtH1.Generation,
-		)
+	if restoredState.Generation != stateAtH1.Generation ||
+		restoredState.Sequence != stateAtH1.Sequence ||
+		restoredState.HeadDigest != firstDigest {
+		t.Fatalf("companion state was not restored to exact H1: %+v", restoredState)
 	}
 	counterAfterRestore, err := anchor.helper.readCounter(context.Background())
 	if err != nil {
@@ -197,13 +190,10 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if _, err := anchor.Current(context.Background()); !errors.Is(err, ErrTPMHistoryAnchorRollback) {
 		t.Fatalf("TPM did not detect restored companion state: %v", err)
 	}
-	if _, _, _, err := store.CurrentAnchored(
+	if _, _, _, err := store.Current(
 		context.Background(),
 		publicKey,
-		anchor,
-	); err == nil ||
-		!errors.Is(err, kernelfabric.ErrTaintRecoveryHistoryRollback) ||
-		!errors.Is(err, ErrTPMHistoryAnchorRollback) {
+	); err == nil || !errors.Is(err, ErrTPMHistoryAnchorRollback) {
 		t.Fatalf("restored signed history was not rejected fail-closed: %v", err)
 	}
 }
@@ -220,7 +210,7 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	cfg := TPMNVHistoryAnchorConfig{
 		NVIndex:   tpm2.TPMHandle(0x0180A152),
 		StatePath: filepath.Join(dir, "history-anchor.json"),
-		IndexAuth: []byte("aegis-history-anchor-crash-test"),
+		IndexAuth: []byte("aegis-history-anchor-interruption-test"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
@@ -238,6 +228,8 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	next := current
 	next.PreviousGeneration = current.Generation
 	next.Generation = current.Generation + 1
+	next.PreviousSequence = current.Sequence
+	next.Sequence = current.Sequence + 1
 	next.PreviousHeadDigest = current.HeadDigest
 	next.HeadDigest = nextDigest
 	next.Digest = ""
@@ -256,12 +248,12 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, err := restarted.Current(context.Background())
+	recovered, err := restarted.Current(context.Background())
 	if err != nil {
 		t.Fatalf("post-increment pending state did not recover: %v", err)
 	}
-	if head != nextDigest {
-		t.Fatalf("pending head was not promoted: got=%s want=%s", head, nextDigest)
+	if recovered.Sequence != next.Sequence || recovered.HeadDigest != nextDigest {
+		t.Fatalf("pending head was not promoted: got=%+v want=(%d,%s)", recovered, next.Sequence, nextDigest)
 	}
 	if _, err := os.Stat(cfg.StatePath + ".pending"); !os.IsNotExist(err) {
 		t.Fatalf("pending state was not consumed: %v", err)
