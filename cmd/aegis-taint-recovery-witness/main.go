@@ -35,15 +35,26 @@ func main() {
 		signedTrust.Manifest.TrustEpoch,
 	)
 	must(err)
+	var signedWitnessProfile kernelfabric.SignedExternalRecoveryWitnessProfile
+	mustJSONFile("EXTERNAL_WITNESS_PROFILE_PATH", &signedWitnessProfile)
+	witnessProfile, err := kernelfabric.VerifyExternalRecoveryWitnessProfile(
+		signedWitnessProfile,
+		trustSignerPublic,
+		root,
+		1,
+		1,
+	)
+	must(err)
 
 	var policy recoverywitnessprofile.StaticPolicy
 	mustJSONFile("WITNESS_POLICY_PATH", &policy)
 	must(policy.Validate())
 
-	handler, err := kernelfabric.NewTaintRecoveryWitnessHandler(
+	handler, err := kernelfabric.NewProfiledTaintRecoveryWitnessHandler(
 		root,
 		witnessPrivate,
 		policy,
+		witnessProfile,
 		time.Now,
 	)
 	must(err)
