@@ -11,6 +11,7 @@ package runtime
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -363,6 +364,13 @@ func ObservationBindingDigest(effectID string, observed State) string {
 }
 
 func digest(parts ...string) string {
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return "sha256:" + hex.EncodeToString(sum[:])
+	h := sha256.New()
+	// Length-prefix exact bytes: separators can occur inside opaque fields.
+	var size [8]byte
+	for _, part := range parts {
+		binary.BigEndian.PutUint64(size[:], uint64(len(part)))
+		h.Write(size[:])
+		h.Write([]byte(part))
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
