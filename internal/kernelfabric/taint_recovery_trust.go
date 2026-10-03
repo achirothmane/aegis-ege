@@ -235,7 +235,6 @@ func canonicalTaintRecoveryTrustManifestPayload(
 	return append([]byte("aegis-ege/taint-recovery-trust/v1\x00"), canonical...), nil
 }
 
-
 func (r *TaintRecoveryTrustRoot) SignerKeyID() string {
 	if r == nil {
 		return ""
