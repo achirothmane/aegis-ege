@@ -348,3 +348,161 @@ jobs:
           name: cross-domain-kernel-proof-${{ github.run_id }}
           if-no-files-found: error
           path: cross-domain-evidence/
+
+
+  terraform-complexity:
+    name: Terraform Complexity Dividend
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PROOF_VALUE: proof-v1
+      WORKDIR: ${{ github.workspace }}/experiments/terraform-runtime-proof
+      CUSTODY: ${{ github.workspace }}/.terraform-proof/custody.json
+      EFFECT_LOG: ${{ github.workspace }}/.terraform-proof/effect.log
+      EVIDENCE: ${{ github.workspace }}/.terraform-proof/evidence.json
+      SUMMARY: ${{ github.workspace }}/.terraform-proof/complexity-dividend.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.14.6'
+          terraform_wrapper: false
+
+      - name: Pin reused runtime and held-out evidence
+        run: |
+          set -euo pipefail
+          registration=testdata/governed-action/complexity-dividend/terraform-v1.json
+          test "$(git rev-parse HEAD:governedaction)" = "$(jq -r '.pins.governedaction_tree' "$registration")"
+          test "$(git rev-parse HEAD:governedaction/runtime)" = "$(jq -r '.pins.runtime_tree' "$registration")"
+          test "$(git hash-object governedaction/runtime/runtime.go)" = "$(jq -r '.pins.runtime_blob' "$registration")"
+          test "$(git hash-object governedaction/runtime/recovery.go)" = "$(jq -r '.pins.recovery_blob' "$registration")"
+          test "$(git hash-object testdata/governed-action/d03a/corpus-v1.json)" = "$(jq -r '.pins.d03a_corpus_blob' "$registration")"
+          go test ./internal/governedactionnormative             -run '^TestD03ATerraformOrphanedEffectCaseRequiresPriorEffectReconciliation$'             -count=1 -v
+
+      - name: Initialize Terraform fixture and build adapter
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$CUSTODY")"
+          test -z "$(gofmt -l cmd/terraform-runtime-proof/main.go)"
+          (
+            cd "$WORKDIR"
+            terraform fmt -check
+            terraform init -input=false -no-color
+            terraform validate -no-color
+          )
+          go build -o "$RUNNER_TEMP/terraform-runtime-proof" ./cmd/terraform-runtime-proof
+
+      - name: Execute once then lose adapter process after apply
+        run: |
+          set -uo pipefail
+          set +e
+          "$RUNNER_TEMP/terraform-runtime-proof" execute             --workdir "$WORKDIR"             --custody "$CUSTODY"             --effect-log "$EFFECT_LOG"             --value "$PROOF_VALUE"             --attempt "attempt:terraform:001"             --crash-after-apply=true
+          rc=$?
+          set -e
+          test "$rc" -eq 93
+          test -s "$CUSTODY"
+          test -s "$WORKDIR/terraform.tfstate"
+          test "$(grep -cve '^[[:space:]]*$' "$EFFECT_LOG")" -eq 1
+
+      - name: Recover observation-only and reject replay
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/terraform-runtime-proof" recover             --workdir "$WORKDIR"             --custody "$CUSTODY"             --effect-log "$EFFECT_LOG"             --evidence-out "$EVIDENCE"             --value "$PROOF_VALUE"             --attempt "attempt:terraform:001"
+          test "$(jq -r '.disposition' "$EVIDENCE")" = "CLOSED"
+          test "$(jq -r '.replay_disposition' "$EVIDENCE")" = "REJECTED"
+          test "$(jq -r '.effect_log_lines' "$EVIDENCE")" -eq 1
+          test "$(jq -r '.recovery_boundary_entered' "$EVIDENCE")" = "false"
+          test "$(jq -r '.replay_boundary_entered' "$EVIDENCE")" = "false"
+
+          set +e
+          (
+            cd "$WORKDIR"
+            terraform plan               -input=false               -no-color               -detailed-exitcode               -var "proof_value=$PROOF_VALUE"               -var "effect_log=$EFFECT_LOG" > "$GITHUB_WORKSPACE/.terraform-proof/plan.txt"
+          )
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            cat "$GITHUB_WORKSPACE/.terraform-proof/plan.txt"
+            exit 1
+          fi
+
+      - name: Measure Complexity Dividend
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          registration = json.loads(Path("testdata/governed-action/complexity-dividend/terraform-v1.json").read_text())
+          evidence = json.loads(Path(os.environ["EVIDENCE"]).read_text())
+          base = registration["source_head"]
+          changed = subprocess.check_output(["git", "diff", "--name-only", f"{base}...HEAD"], text=True).splitlines()
+          core_changed = [p for p in changed if p.startswith("governedaction/")]
+          if core_changed:
+              raise SystemExit(f"core semantic delta is not zero: {core_changed}")
+
+          def loc(paths):
+              total = 0
+              out = subprocess.check_output(["git", "diff", "--numstat", f"{base}...HEAD", "--", *paths], text=True)
+              for line in out.splitlines():
+                  if not line.strip():
+                      continue
+                  add, delete, _ = line.split("\t", 2)
+                  total += int(add) if add.isdigit() else 0
+                  total += int(delete) if delete.isdigit() else 0
+              return total
+
+          adapter_paths = ["cmd/terraform-runtime-proof/main.go", "experiments/terraform-runtime-proof/main.tf"]
+          plumbing_paths = [
+              ".github/workflows/terraform-complexity-dividend.yml",
+              ".github/workflows/cross-domain-kernel-proof.yml",
+              "testdata/governed-action/complexity-dividend/terraform-v1.json",
+          ]
+          assert evidence["disposition"] == "CLOSED"
+          assert evidence["replay_disposition"] == "REJECTED"
+          assert evidence["effect_log_lines"] == 1
+          assert evidence["core_semantic_delta"] == 0
+
+          summary = {
+              "schema_version": "aegis.complexity-dividend-result/v1",
+              "domain": "terraform",
+              "baseline_head": base,
+              "core_files_changed": len(core_changed),
+              "core_semantic_delta": 0,
+              "domain_adapter_files": adapter_paths,
+              "domain_adapter_loc_delta": loc(adapter_paths),
+              "proof_plumbing_loc_delta": loc(plumbing_paths),
+              "inherited_primitives": registration["inherited_primitives"],
+              "new_domain_surface": registration["new_domain_surface"],
+              "effect_cardinality": 1,
+              "process_loss_after_apply": "PASS",
+              "observation_only_recovery": "PASS",
+              "stale_replay_rejection": "PASS",
+              "held_out_incident_mapping": "PASS",
+              "complexity_dividend": "PASS",
+          }
+          Path(os.environ["SUMMARY"]).write_text(json.dumps(summary, indent=2) + "\n")
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Preserve Terraform evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-complexity-dividend-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            ${{ github.workspace }}/.terraform-proof/
+            experiments/terraform-runtime-proof/main.tf
+            experiments/terraform-runtime-proof/terraform.tfstate
+            testdata/governed-action/complexity-dividend/terraform-v1.json

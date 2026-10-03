@@ -1,0 +1,36 @@
+name: Taint history quorum continuity proof
+
+on:
+  pull_request:
+    paths:
+      - "internal/server/taint_recovery_history_quorum_anchor.go"
+      - "internal/server/taint_recovery_history_quorum_anchor_test.go"
+      - "docs/taint-history-cross-host-continuity.md"
+      - ".github/workflows/taint-history-quorum-continuity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quorum-continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Prove TPM replacement and witness partial-commit fail closed
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/server -run '^(TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset|TestConjunctiveHistoryAnchorFailsClosedAfterOneSidedWitnessCommit)$' -count=1 | tee "$RUNNER_TEMP/taint-history-quorum-continuity.log"
+          grep -q -- "--- PASS: TestTPMAndQuorumHistoryAnchorRejectsReplacementTPMReset" "$RUNNER_TEMP/taint-history-quorum-continuity.log"
+          grep -q -- "--- PASS: TestConjunctiveHistoryAnchorFailsClosedAfterOneSidedWitnessCommit" "$RUNNER_TEMP/taint-history-quorum-continuity.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/taint-history-quorum-continuity.log"; then
+            exit 1
+          fi
