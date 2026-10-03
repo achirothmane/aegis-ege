@@ -361,6 +361,11 @@ func validateTaintRecoveryHistoryOwnershipState(
 	return nil
 }
 
+type DeviceBoundTaintRecoveryHistoryAnchor interface {
+	kernelfabric.TaintRecoveryHistoryAnchor
+	DeviceIdentity(context.Context) (string, error)
+}
+
 // OwnedConjunctiveTaintRecoveryHistoryAnchor requires three independent facts
 // before history can be used:
 //   1. the local TPM exact-head state,
@@ -370,13 +375,13 @@ func validateTaintRecoveryHistoryOwnershipState(
 // After ownership transfers to a replacement TPM, the predecessor TPM can no
 // longer satisfy Current() even when it still carries the same history head.
 type OwnedConjunctiveTaintRecoveryHistoryAnchor struct {
-	Local     *TPMNVHistoryAnchor
+	Local     DeviceBoundTaintRecoveryHistoryAnchor
 	Witness   kernelfabric.TaintRecoveryHistoryAnchor
 	Ownership *TaintRecoveryHistoryOwnershipWitness
 }
 
 func NewOwnedConjunctiveTaintRecoveryHistoryAnchor(
-	local *TPMNVHistoryAnchor,
+	local DeviceBoundTaintRecoveryHistoryAnchor,
 	witness kernelfabric.TaintRecoveryHistoryAnchor,
 	ownership *TaintRecoveryHistoryOwnershipWitness,
 ) (*OwnedConjunctiveTaintRecoveryHistoryAnchor, error) {
