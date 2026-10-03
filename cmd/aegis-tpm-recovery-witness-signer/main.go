@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,6 +28,12 @@ func main() {
 	if tpmPath == "" {
 		tpmPath = "/dev/tpmrm0"
 	}
+	mode := requireEnv("WITNESS_TPM_SIGNER_MODE")
+	if mode == "hardware-proof" {
+		must(runHardwareProof(tpmPath))
+		return
+	}
+
 	tpm, err := legacytpm2.OpenTPM(tpmPath)
 	must(err)
 
@@ -39,7 +47,7 @@ func main() {
 	must(err)
 	defer signer.Close()
 
-	switch requireEnv("WITNESS_TPM_SIGNER_MODE") {
+	switch mode {
 	case "identity":
 		encodedPublicKey, err := signer.Verifier().EncodedPublicKey()
 		must(err)
@@ -58,7 +66,7 @@ func main() {
 		return
 	case "serve":
 	default:
-		log.Fatal("WITNESS_TPM_SIGNER_MODE must be identity or serve")
+		log.Fatal("WITNESS_TPM_SIGNER_MODE must be identity, serve, or hardware-proof")
 	}
 
 	if expectedPath := strings.TrimSpace(os.Getenv("EXPECTED_WITNESS_KEY_ID_PATH")); expectedPath != "" {
@@ -101,6 +109,89 @@ func main() {
 	); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func runHardwareProof(tpmPath string) error {
+	hardware, err := kernelfabric.CaptureTPMHardwareIdentityEvidence(tpmPath)
+	if err != nil {
+		return err
+	}
+	expectedEK, err := readRequiredTrimmedFile("EXPECTED_TPM_EK_SHA256_PATH")
+	if err != nil {
+		return err
+	}
+	if hardware.EKSPKISHA256 != expectedEK {
+		return fmt.Errorf(
+			"TPM EK identity changed: got=%q want=%q",
+			hardware.EKSPKISHA256,
+			expectedEK,
+		)
+	}
+
+	tpm, err := legacytpm2.OpenTPM(tpmPath)
+	if err != nil {
+		return err
+	}
+	signer, err := kernelfabric.NewTPMRecoveryWitnessSignerWithAuth(
+		tpm,
+		readOptionalSecret("TPM_OWNER_AUTH_PATH"),
+		readOptionalSecret("WITNESS_TPM_KEY_AUTH_PATH"),
+	)
+	if err != nil {
+		_ = tpm.Close()
+		return err
+	}
+	defer signer.Close()
+
+	expectedKeyID, err := readRequiredTrimmedFile("EXPECTED_WITNESS_KEY_ID_PATH")
+	if err != nil {
+		return err
+	}
+	if signer.KeyID() != expectedKeyID {
+		return fmt.Errorf(
+			"TPM witness key identity changed: got=%q want=%q",
+			signer.KeyID(),
+			expectedKeyID,
+		)
+	}
+	challenge, err := kernelfabric.NewTPMHardwareEvidenceChallenge()
+	if err != nil {
+		return err
+	}
+	receipt, err := kernelfabric.CreateTPMRecoveryWitnessHardwareReceipt(
+		context.Background(),
+		signer,
+		hardware,
+		challenge,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return err
+	}
+	if err := kernelfabric.VerifyTPMRecoveryWitnessHardwareReceipt(receipt); err != nil {
+		return fmt.Errorf("self-verify TPM hardware receipt: %w", err)
+	}
+	payload, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writePublic(
+		requireEnv("TPM_HARDWARE_RECEIPT_PATH"),
+		string(payload),
+	)
+}
+
+func readRequiredTrimmedFile(envName string) (string, error) {
+	path := requireEnv(envName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", envName, err)
+	}
+	value := strings.TrimSpace(string(raw))
+	if value == "" {
+		return "", fmt.Errorf("%s is empty", envName)
+	}
+	return value, nil
 }
 
 func readOptionalSecret(envName string) string {
