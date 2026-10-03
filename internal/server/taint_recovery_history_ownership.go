@@ -4,6 +4,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -90,6 +92,133 @@ func (w *TaintRecoveryHistoryOwnershipWitness) Current(
 		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf("load recovery history ownership witness: %w", err)
 	}
 	return w.decode(head)
+}
+
+func (w *TaintRecoveryHistoryOwnershipWitness) BeginTransfer(
+	ctx context.Context,
+	expected TaintRecoveryHistoryOwnershipState,
+	authorizationDigest string,
+) (TaintRecoveryHistoryOwnershipState, error) {
+	if !validSHA256Ref(authorizationDigest) {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: transfer authorization digest is invalid",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+		)
+	}
+	quiesced := TaintRecoveryHistoryOwnershipState{
+		Epoch:                expected.Epoch + 1,
+		ActiveDeviceIdentity: quiescedRecoveryHistoryOwnershipIdentity(authorizationDigest),
+		AuthorizationDigest:  authorizationDigest,
+	}
+	current, err := w.Current(ctx)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if current == quiesced {
+		return current, nil
+	}
+	if current != expected {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: cannot quiesce current=%+v expected=%+v",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+			current,
+			expected,
+		)
+	}
+	currentHead, err := w.store.Load(ctx, w.witnessID)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	advanced, err := w.store.CompareAndAdvance(ctx, currentHead, journal.ExternalHead{
+		JournalID: w.witnessID,
+		Sequence:  quiesced.Epoch,
+		HeadHash:  quiesced.ActiveDeviceIdentity,
+		KeyID:     quiesced.AuthorizationDigest,
+	})
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf("quiesce recovery history ownership witness: %w", err)
+	}
+	got, err := w.decode(advanced)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if got != quiesced {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: quiesce returned %+v expected %+v",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+			got,
+			quiesced,
+		)
+	}
+	return got, nil
+}
+
+func (w *TaintRecoveryHistoryOwnershipWitness) CompleteTransfer(
+	ctx context.Context,
+	quiesced TaintRecoveryHistoryOwnershipState,
+	destinationDeviceIdentity string,
+	authorizationDigest string,
+) (TaintRecoveryHistoryOwnershipState, error) {
+	if !validSHA256Ref(destinationDeviceIdentity) ||
+		!validSHA256Ref(authorizationDigest) ||
+		quiesced.ActiveDeviceIdentity != quiescedRecoveryHistoryOwnershipIdentity(authorizationDigest) ||
+		quiesced.AuthorizationDigest != authorizationDigest {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: invalid quiesced ownership transfer state",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+		)
+	}
+	final := TaintRecoveryHistoryOwnershipState{
+		Epoch:                quiesced.Epoch + 1,
+		ActiveDeviceIdentity: destinationDeviceIdentity,
+		AuthorizationDigest:  authorizationDigest,
+	}
+	current, err := w.Current(ctx)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if current == final {
+		return TaintRecoveryHistoryOwnershipState{}, ErrTaintRecoveryHistoryOwnershipReplay
+	}
+	if current != quiesced {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: cannot complete current=%+v quiesced=%+v",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+			current,
+			quiesced,
+		)
+	}
+	currentHead, err := w.store.Load(ctx, w.witnessID)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	advanced, err := w.store.CompareAndAdvance(ctx, currentHead, journal.ExternalHead{
+		JournalID: w.witnessID,
+		Sequence:  final.Epoch,
+		HeadHash:  final.ActiveDeviceIdentity,
+		KeyID:     final.AuthorizationDigest,
+	})
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf("complete recovery history ownership transfer: %w", err)
+	}
+	got, err := w.decode(advanced)
+	if err != nil {
+		return TaintRecoveryHistoryOwnershipState{}, err
+	}
+	if got != final {
+		return TaintRecoveryHistoryOwnershipState{}, fmt.Errorf(
+			"%w: completed transfer returned %+v expected %+v",
+			ErrTaintRecoveryHistoryOwnershipMismatch,
+			got,
+			final,
+		)
+	}
+	return got, nil
+}
+
+func quiescedRecoveryHistoryOwnershipIdentity(authorizationDigest string) string {
+	sum := sha256.Sum256([]byte("aegis-ege/recovery-history-ownership-quiesced/v1\x00" + authorizationDigest))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func (w *TaintRecoveryHistoryOwnershipWitness) Transfer(
