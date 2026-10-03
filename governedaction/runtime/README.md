@@ -228,3 +228,69 @@ It does not prove:
 
 Those remain in domain adapters, native enforcement substrates, and the frozen
 governed-action contract.
+
+
+## Crash/restart recovery v1
+
+The first post-v0 hardening step adds an observation-only recovery path:
+
+```text
+previous attempt
+  ↓
+durable custody exists
+  ↓
+process disappears / observation is lost
+  ↓
+restart
+  ↓
+load exact EffectID + AttemptID custody
+  ↓
+verify fresh recovery Attestation
+  ↓
+observe only
+  ↓
+CLOSED | UNKNOWN
+```
+
+Recovery never calls `Execute` and never creates a replacement attempt.
+
+This makes the continuation rule explicit:
+
+```text
+restart / wakeup / possession of old request
+!=
+permission to perform another effect
+```
+
+A fresh recovery Attestation is bound to:
+
+```text
+exact EffectID
++ exact AttemptID
++ exact target
++ exact retained custody owner
++ exact recoverer Identity
+```
+
+The recoverer may be a different principal from the original executor, but v1
+does not transfer custody ownership. It only authorizes observation/reconciliation
+of the already retained attempt. A true ownership takeover requires a later
+atomic custody-transfer/fencing step and is intentionally outside this PR.
+
+If recovery cannot obtain exact trusted evidence for the intended after-state,
+the result remains `UNKNOWN`. That state never grants replay permission.
+
+The executable recovery corpus covers:
+
+- effect entered, observation lost, restart, exact observation, no replay;
+- repeated recovery of the same attempt without additional effects;
+- missing recovery authorization;
+- recoverer substitution;
+- attempt substitution;
+- tampered retained custody;
+- persistent observation failure;
+- observed state mismatch.
+
+The claim remains bounded: native storage must make `LoadCustody` faithful to
+the durable record, and the adapter still owns trust verification, storage
+durability, fencing and observation authenticity.
