@@ -138,12 +138,21 @@ func NewTwoPrincipalRemoteHeadStore(
 	if err != nil {
 		return nil, err
 	}
-	return NewRemoteHeadStore(
+	store, err := NewRemoteHeadStore(
 		manifest.Endpoint,
 		manifest.WitnessRuntimeKeyID,
 		runtimeKey,
 		client,
 	)
+	if err != nil {
+		return nil, err
+	}
+	trustManifestHash, err := WitnessTrustManifestDigest(manifest)
+	if err != nil {
+		return nil, err
+	}
+	store.trustManifestHash = trustManifestHash
+	return store, nil
 }
 
 func CanonicalWitnessTrustManifestPayload(manifest WitnessTrustManifest) ([]byte, error) {
