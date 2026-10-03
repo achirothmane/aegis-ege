@@ -128,7 +128,7 @@ func CanonicalJSONSHA256(raw []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(canonical)
+	sum := sha256.Sum256([]byte(canonical))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
