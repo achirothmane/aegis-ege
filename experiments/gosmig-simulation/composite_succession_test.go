@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -317,37 +316,15 @@ func (s *compositeSuccession) rotate(t *testing.T, a *postgresNativeFenceAdapter
 	if _, err := journal.RequireActiveSuccessorGovernanceAuthority(ctx, s.oldAdmin, journal.SuccessorGovernanceAuthorityJournalID, s.oldBinding); err == nil {
 		t.Fatal("frozen authority remained current")
 	}
-	// Commit the first native freeze, then lose its response. The second call
-	// must resume from durable policy/head state without resetting the history.
-	interrupt := errors.New("lost native witness freeze acknowledgement")
-	s.members["B"].afterTransition = func() error { s.members["B"].afterTransition = nil; return interrupt }
-	if _, err := journal.ExecuteGovernedHistorySuccession(ctx, s.historyPlan, s.oldAdmin, s.newAdmin); err == nil {
-		t.Fatal("injected interrupted transition unexpectedly completed")
-	}
-	if policy, err := s.members["B"].CurrentQuorumPolicy(ctx); err != nil || policy.Phase != journal.QuorumPolicyPhaseJoint {
-		t.Fatalf("first native freeze not durable: %+v %v", policy, err)
-	}
-	for _, check := range []struct {
-		store   *journal.QuorumHeadStore
-		binding journal.GenesisEnrollmentSuccessorGovernanceBinding
-	}{{s.oldAdmin, s.oldBinding}, {s.newAdmin, s.newBinding}} {
-		if _, err := journal.RequireActiveSuccessorGovernanceAuthority(ctx, check.store, journal.SuccessorGovernanceAuthorityJournalID, check.binding); err == nil {
-			t.Fatal("authority current during interrupted frozen handoff")
-		}
-	}
-	result, err := journal.ExecuteGovernedHistorySuccession(ctx, s.historyPlan, s.oldAdmin, s.newAdmin)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Two controller processes exit after native commit without returning a
+	// response. A third rebuilds the plans and pins from durable approved input.
+	restarted := s.resumeWithFreshControllers(t, a, head, frozen, filepath.Dir(anchorPath))
+	result, active := restarted.History, restarted.Authority
 	if portableHead(result.Head) != portableHead(head) {
 		t.Fatal("history succession changed predecessor")
 	}
 	s.observation.HistoryTransitionHash = result.TransitionHash
 	s.observation.QuorumTransitionHash = result.QuorumTransitionHash
-	active, err := journal.ActivateSuccessorGovernanceAuthority(ctx, s.newAdmin, s.signed, s.oldBinding, s.newBinding, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
 	s.observation.AuthorityAfter = portableHead(active)
 	if _, err := journal.RequireActiveSuccessorGovernanceAuthority(ctx, s.oldAdmin, journal.SuccessorGovernanceAuthorityJournalID, s.oldBinding); err == nil {
 		t.Fatal("stale authority resurrected")
