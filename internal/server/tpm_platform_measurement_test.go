@@ -54,9 +54,16 @@ func TestTPMRootExportsGenericMeasuredBootCommitmentAndRejectsDrift(t *testing.T
 	if err != nil || !ok {
 		t.Fatalf("read TPM state: ok=%t err=%v", ok, err)
 	}
+	enrollmentIdentity, err := root.enrollmentHardwareIdentity(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enrollmentIdentity == state.DeviceIdentity {
+		t.Fatal("enrollment-compatible EK SPKI identity must remain distinct from internal TPM Name identity")
+	}
 	expected, err := kernelfabric.NewPlatformMeasurementCommitment(
 		kernelfabric.PlatformMeasurementClassMeasuredBoot,
-		state.DeviceIdentity,
+		enrollmentIdentity,
 		state.MeasuredBootIdentity,
 		state.Generation,
 	)
