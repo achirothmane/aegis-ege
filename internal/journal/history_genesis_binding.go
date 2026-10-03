@@ -152,7 +152,6 @@ func normalizeGovernedHistoryTrustPolicy(
 		)
 	}
 	seenPurpose := make(map[string]struct{}, len(policy.Histories))
-	seenJournal := make(map[string]struct{}, len(policy.Histories))
 	histories := make([]GovernedHistoryIdentity, 0, len(policy.Histories))
 	for _, history := range policy.Histories {
 		history.Purpose = strings.TrimSpace(history.Purpose)
@@ -168,14 +167,7 @@ func normalizeGovernedHistoryTrustPolicy(
 				history.Purpose,
 			)
 		}
-		if _, ok := seenJournal[history.JournalID]; ok {
-			return GovernedHistoryTrustPolicy{}, fmt.Errorf(
-				"journal id %q aliases multiple governed history purposes",
-				history.JournalID,
-			)
-		}
 		seenPurpose[history.Purpose] = struct{}{}
-		seenJournal[history.JournalID] = struct{}{}
 		histories = append(histories, history)
 	}
 	sort.Slice(histories, func(i, j int) bool {
