@@ -1,6 +1,7 @@
 package kernelfabric
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -71,11 +72,13 @@ func TestRemoteRecoveryWitnessSignerRejectsWrongSignature(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var wire recoveryWitnessSignerRequest
 		if err := json.NewDecoder(r.Body).Decode(&wire); err != nil {
-			t.Fatal(err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
 		}
 		payload, err := base64.StdEncoding.DecodeString(wire.Payload)
 		if err != nil {
-			t.Fatal(err)
+			http.Error(w, "bad payload", http.StatusBadRequest)
+			return
 		}
 		_ = json.NewEncoder(w).Encode(recoveryWitnessSignerResponse{
 			Protocol:  RecoveryWitnessSignerProtocolV1,
