@@ -37,11 +37,12 @@ type remoteHeadWire struct {
 }
 
 type remoteHeadResponse struct {
-	Protocol     string         `json:"protocol"`
-	Nonce        string         `json:"nonce"`
-	WitnessKeyID string         `json:"witness_key_id"`
-	Head         remoteHeadWire `json:"head"`
-	Signature    string         `json:"signature"`
+	Protocol     string             `json:"protocol"`
+	Nonce        string             `json:"nonce"`
+	WitnessKeyID string             `json:"witness_key_id"`
+	Head         remoteHeadWire     `json:"head"`
+	Policy       *QuorumPolicyState `json:"policy,omitempty"`
+	Signature    string             `json:"signature"`
 }
 
 type remoteAdvanceRequest struct {
@@ -51,15 +52,16 @@ type remoteAdvanceRequest struct {
 }
 
 type remoteWitnessStatement struct {
-	Protocol     string `json:"protocol"`
-	Operation    string `json:"operation"`
-	Nonce        string `json:"nonce"`
-	WitnessKeyID string `json:"witness_key_id"`
-	JournalID    string `json:"journal_id"`
-	Sequence     uint64 `json:"sequence"`
-	HeadHash     string `json:"head_hash"`
-	KeyID        string `json:"key_id"`
-	StoreVersion string `json:"store_version"`
+	Protocol     string             `json:"protocol"`
+	Operation    string             `json:"operation"`
+	Nonce        string             `json:"nonce"`
+	WitnessKeyID string             `json:"witness_key_id"`
+	JournalID    string             `json:"journal_id"`
+	Sequence     uint64             `json:"sequence"`
+	HeadHash     string             `json:"head_hash"`
+	KeyID        string             `json:"key_id"`
+	StoreVersion string             `json:"store_version"`
+	Policy       *QuorumPolicyState `json:"policy,omitempty"`
 }
 
 func NewRemoteHeadStore(
@@ -108,6 +110,40 @@ func (s *RemoteHeadStore) Load(
 	ctx context.Context,
 	journalID string,
 ) (ExternalHead, error) {
+	return s.loadRemoteHead(ctx, journalID, nil, "load", "")
+}
+
+func (s *RemoteHeadStore) LoadForQuorum(
+	ctx context.Context,
+	journalID string,
+	policy QuorumPolicyState,
+) (ExternalHead, error) {
+	if err := validateQuorumPolicyState(policy); err != nil {
+		return ExternalHead{}, err
+	}
+	return s.loadRemoteHead(ctx, journalID, &policy, "load", "")
+}
+
+func (s *RemoteHeadStore) ObserveQuorumRotationHead(
+	ctx context.Context,
+	journalID string,
+) (ExternalHead, error) {
+	return s.loadRemoteHead(
+		ctx,
+		journalID,
+		nil,
+		"rotation-observe",
+		"/rotation-observe",
+	)
+}
+
+func (s *RemoteHeadStore) loadRemoteHead(
+	ctx context.Context,
+	journalID string,
+	policy *QuorumPolicyState,
+	operation string,
+	pathSuffix string,
+) (ExternalHead, error) {
 	if s == nil || s.client == nil {
 		return ExternalHead{}, errors.New("remote witness store is unavailable")
 	}
@@ -122,38 +158,78 @@ func (s *RemoteHeadStore) Load(
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
-		s.endpoint+"/v1/heads/"+url.PathEscape(journalID),
+		s.endpoint+"/v1/heads/"+url.PathEscape(journalID)+pathSuffix,
 		nil,
 	)
 	if err != nil {
-		return ExternalHead{}, fmt.Errorf("build remote witness load request: %w", err)
+		return ExternalHead{}, fmt.Errorf("build remote witness %s request: %w", operation, err)
 	}
 	request.Header.Set(remoteWitnessNonceHeader, nonce)
+	if policy != nil {
+		encoded, err := encodeRemoteQuorumPolicy(*policy)
+		if err != nil {
+			return ExternalHead{}, err
+		}
+		request.Header.Set(remoteWitnessQuorumPolicyHeader, encoded)
+	}
 
 	response, err := s.client.Do(request)
 	if err != nil {
-		return ExternalHead{}, fmt.Errorf("remote witness load request: %w", err)
+		return ExternalHead{}, fmt.Errorf("remote witness %s request: %w", operation, err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusNotFound {
 		return ExternalHead{}, ErrExternalHeadNotFound
 	}
+	if response.StatusCode == http.StatusPreconditionFailed ||
+		response.StatusCode == http.StatusPreconditionRequired {
+		if policy != nil {
+			return ExternalHead{}, ErrQuorumPolicyMismatch
+		}
+	}
 	if response.StatusCode != http.StatusOK {
-		return ExternalHead{}, remoteWitnessHTTPError("load", response)
+		return ExternalHead{}, remoteWitnessHTTPError(operation, response)
 	}
 
 	result, err := decodeRemoteHeadResponse(response.Body)
 	if err != nil {
 		return ExternalHead{}, err
 	}
-	return s.verifyResponse("load", journalID, nonce, result)
+	return s.verifyResponseWithPolicy(
+		operation,
+		journalID,
+		nonce,
+		result,
+		policy,
+	)
 }
 
 func (s *RemoteHeadStore) CompareAndAdvance(
 	ctx context.Context,
 	previous ExternalHead,
 	next ExternalHead,
+) (ExternalHead, error) {
+	return s.advanceRemoteHead(ctx, previous, next, nil)
+}
+
+func (s *RemoteHeadStore) CompareAndAdvanceForQuorum(
+	ctx context.Context,
+	policy QuorumPolicyState,
+	previous ExternalHead,
+	next ExternalHead,
+) (ExternalHead, error) {
+	if err := validateQuorumPolicyState(policy); err != nil {
+		return ExternalHead{}, err
+	}
+	return s.advanceRemoteHead(ctx, previous, next, &policy)
+}
+
+func (s *RemoteHeadStore) advanceRemoteHead(
+	ctx context.Context,
+	previous ExternalHead,
+	next ExternalHead,
+	policy *QuorumPolicyState,
 ) (ExternalHead, error) {
 	if s == nil || s.client == nil {
 		return ExternalHead{}, errors.New("remote witness store is unavailable")
@@ -187,6 +263,13 @@ func (s *RemoteHeadStore) CompareAndAdvance(
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set(remoteWitnessNonceHeader, nonce)
+	if policy != nil {
+		encoded, err := encodeRemoteQuorumPolicy(*policy)
+		if err != nil {
+			return ExternalHead{}, err
+		}
+		request.Header.Set(remoteWitnessQuorumPolicyHeader, encoded)
+	}
 
 	response, err := s.client.Do(request)
 	if err != nil {
@@ -194,7 +277,14 @@ func (s *RemoteHeadStore) CompareAndAdvance(
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode == http.StatusConflict || response.StatusCode == http.StatusPreconditionFailed {
+	if response.StatusCode == http.StatusPreconditionFailed ||
+		response.StatusCode == http.StatusPreconditionRequired {
+		if policy != nil {
+			return ExternalHead{}, ErrQuorumPolicyMismatch
+		}
+		return ExternalHead{}, ErrExternalHeadConflict
+	}
+	if response.StatusCode == http.StatusConflict {
 		return ExternalHead{}, ErrExternalHeadConflict
 	}
 	if response.StatusCode != http.StatusOK {
@@ -205,7 +295,161 @@ func (s *RemoteHeadStore) CompareAndAdvance(
 	if err != nil {
 		return ExternalHead{}, err
 	}
-	return s.verifyResponse("advance", next.JournalID, nonce, result)
+	return s.verifyResponseWithPolicy(
+		"advance",
+		next.JournalID,
+		nonce,
+		result,
+		policy,
+	)
+}
+
+func (s *RemoteHeadStore) CurrentQuorumPolicy(
+	ctx context.Context,
+) (QuorumPolicyState, error) {
+	if s == nil || s.client == nil {
+		return QuorumPolicyState{}, errors.New("remote witness store is unavailable")
+	}
+	nonce, err := newRemoteWitnessNonce()
+	if err != nil {
+		return QuorumPolicyState{}, err
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		s.endpoint+"/v1/quorum-policy",
+		nil,
+	)
+	if err != nil {
+		return QuorumPolicyState{}, err
+	}
+	request.Header.Set(remoteWitnessNonceHeader, nonce)
+	response, err := s.client.Do(request)
+	if err != nil {
+		return QuorumPolicyState{}, fmt.Errorf(
+			"remote witness current policy request: %w",
+			err,
+		)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return QuorumPolicyState{}, remoteWitnessHTTPError(
+			"policy-current",
+			response,
+		)
+	}
+	result, err := decodeRemotePolicyResponse(response.Body)
+	if err != nil {
+		return QuorumPolicyState{}, err
+	}
+	return s.verifyPolicyResponse("policy-current", nonce, result)
+}
+
+func (s *RemoteHeadStore) CompareAndTransitionQuorumPolicy(
+	ctx context.Context,
+	expected QuorumPolicyState,
+	next QuorumPolicyState,
+	journalID string,
+	expectedHead ExternalHead,
+) error {
+	if s == nil || s.client == nil {
+		return errors.New("remote witness store is unavailable")
+	}
+	if err := ValidateQuorumPolicyTransition(expected, next); err != nil {
+		return err
+	}
+	journalID = strings.TrimSpace(journalID)
+	if journalID == "" {
+		return errors.New("journal id is required")
+	}
+	nonce, err := newRemoteWitnessNonce()
+	if err != nil {
+		return err
+	}
+	response, err := postRemotePolicyRequest(
+		ctx,
+		s.client,
+		s.endpoint,
+		"/v1/quorum-policy/transition",
+		nonce,
+		remotePolicyTransitionRequest{
+			Protocol:     remoteWitnessProtocolV1,
+			Expected:     expected,
+			Next:         next,
+			JournalID:    journalID,
+			ExpectedHead: externalHeadToRemoteWire(expectedHead),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("remote witness policy transition request: %w", err)
+	}
+	defer response.Body.Close()
+	switch response.StatusCode {
+	case http.StatusPreconditionFailed, http.StatusPreconditionRequired:
+		return ErrQuorumPolicyMismatch
+	case http.StatusConflict:
+		return ErrQuorumRotationContinuity
+	case http.StatusOK:
+	default:
+		return remoteWitnessHTTPError("policy-transition", response)
+	}
+	result, err := decodeRemotePolicyResponse(response.Body)
+	if err != nil {
+		return err
+	}
+	verified, err := s.verifyPolicyResponse(
+		"policy-transition",
+		nonce,
+		result,
+	)
+	if err != nil {
+		return err
+	}
+	if verified != next {
+		return ErrQuorumPolicyMismatch
+	}
+	return nil
+}
+
+func (s *RemoteHeadStore) verifyPolicyResponse(
+	operation string,
+	nonce string,
+	result remotePolicyResponse,
+) (QuorumPolicyState, error) {
+	if result.Protocol != remoteWitnessProtocolV1 {
+		return QuorumPolicyState{}, errors.New(
+			"remote witness policy protocol mismatch",
+		)
+	}
+	if result.Nonce != nonce {
+		return QuorumPolicyState{}, errors.New(
+			"remote witness policy freshness nonce mismatch",
+		)
+	}
+	if result.WitnessKeyID != s.witnessKeyID {
+		return QuorumPolicyState{}, errors.New(
+			"remote witness policy key id mismatch",
+		)
+	}
+	if err := validateQuorumPolicyState(result.Policy); err != nil {
+		return QuorumPolicyState{}, err
+	}
+	signature, err := base64.StdEncoding.DecodeString(result.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return QuorumPolicyState{}, errors.New(
+			"invalid remote witness policy signature",
+		)
+	}
+	payload, err := remotePolicySigningPayload(operation, result)
+	if err != nil {
+		return QuorumPolicyState{}, err
+	}
+	if !ed25519.Verify(s.witnessKey, payload, signature) {
+		return QuorumPolicyState{}, errors.New(
+			"remote witness policy signature verification failed",
+		)
+	}
+	return result.Policy, nil
 }
 
 func (s *RemoteHeadStore) verifyResponse(
@@ -213,6 +457,22 @@ func (s *RemoteHeadStore) verifyResponse(
 	journalID string,
 	nonce string,
 	result remoteHeadResponse,
+) (ExternalHead, error) {
+	return s.verifyResponseWithPolicy(
+		operation,
+		journalID,
+		nonce,
+		result,
+		nil,
+	)
+}
+
+func (s *RemoteHeadStore) verifyResponseWithPolicy(
+	operation string,
+	journalID string,
+	nonce string,
+	result remoteHeadResponse,
+	expectedPolicy *QuorumPolicyState,
 ) (ExternalHead, error) {
 	if result.Protocol != remoteWitnessProtocolV1 {
 		return ExternalHead{}, fmt.Errorf(
@@ -240,6 +500,11 @@ func (s *RemoteHeadStore) verifyResponse(
 	}
 	if strings.TrimSpace(result.Head.StoreVersion) == "" {
 		return ExternalHead{}, errors.New("remote witness response is missing CAS store version")
+	}
+	if expectedPolicy != nil {
+		if result.Policy == nil || *result.Policy != *expectedPolicy {
+			return ExternalHead{}, ErrQuorumPolicyMismatch
+		}
 	}
 	signature, err := base64.StdEncoding.DecodeString(result.Signature)
 	if err != nil {
@@ -272,6 +537,7 @@ func remoteWitnessSigningPayload(
 		HeadHash:     response.Head.HeadHash,
 		KeyID:        response.Head.KeyID,
 		StoreVersion: response.Head.StoreVersion,
+		Policy:       response.Policy,
 	}
 	payload, err := json.Marshal(statement)
 	if err != nil {
