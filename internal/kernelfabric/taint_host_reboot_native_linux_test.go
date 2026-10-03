@@ -28,19 +28,34 @@ const (
 )
 
 type taintRebootProofState struct {
-	BootIDHash string                           `json:"boot_id_hash"`
-	PublicKey  string                           `json:"public_key"`
-	PrivateKey string                           `json:"private_key"`
-	Signed     SignedTaintRecoveryAuthorization `json:"signed"`
+	BootIDHash       string                           `json:"boot_id_hash"`
+	PublicKey        string                           `json:"public_key"`
+	PrivateKey       string                           `json:"private_key"`
+	Signed           SignedTaintRecoveryAuthorization `json:"signed"`
+	BootBIDHash      string                           `json:"boot_b_id_hash,omitempty"`
+	BootBSigned      SignedTaintRecoveryAuthorization `json:"boot_b_signed,omitempty"`
+	HistoryPublicKey string                           `json:"history_public_key"`
+	HistoryPrivateKey string                          `json:"history_private_key"`
+	HistoryDigest    string                           `json:"history_digest,omitempty"`
 }
 
-// TestNativeTaintHostRebootBoundary is intentionally executed twice by CI in
-// two separate vimto VM invocations. Each invocation boots a new Linux kernel.
+type freshBootBProofResult struct {
+	PlanDigest       string
+	CgroupID         uint64
+	EnrollmentEpoch  uint64
+	DirtyGeneration  uint64
+	CleanGeneration  uint64
+}
+
+// TestNativeTaintHostRebootBoundary is intentionally executed three times by
+// CI in separate vimto VM invocations. Each invocation boots a new Linux kernel.
 //
 // Phase "before" pins real kernel state in bpffs and emits an authorization
-// bound to boot A. The VM is then destroyed. Phase "after" boots a new kernel,
-// proves the old bpffs pin is absent, proves boot_id changed, rejects the old
-// signed authorization, and accepts only a freshly signed boot-B authorization.
+// bound to boot A. Phase "after" boots B, proves trust reset, performs fresh
+// source enrollment and real effect-boundary checks, then persists a signed
+// historical receipt to an external fsync-backed store. Phase "history" boots
+// C and proves that the receipt remains verifiable as history while all Boot-B
+// effect authority is stale and denied.
 func TestNativeTaintHostRebootBoundary(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("host reboot boundary proof requires root in the disposable VM")
@@ -59,6 +74,8 @@ func TestNativeTaintHostRebootBoundary(t *testing.T) {
 		runTaintRebootBefore(t, proofRoot, statePath)
 	case "after":
 		runTaintRebootAfter(t, proofRoot, statePath)
+	case "history":
+		runTaintRebootHistory(t, proofRoot, statePath)
 	default:
 		t.Fatalf("unknown reboot proof phase %q", os.Getenv(taintRebootPhaseEnv))
 	}
@@ -81,6 +98,13 @@ func runTaintRebootBefore(t *testing.T, proofRoot, statePath string) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate recovery authority key: %v", err)
+	}
+	historyPublicKey, historyPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate recovery history key: %v", err)
+	}
+	if err := os.RemoveAll(statePath + ".history"); err != nil {
+		t.Fatalf("clear durable recovery history: %v", err)
 	}
 	planHash := sha256.Sum256([]byte("aegis-ege/host-reboot-proof-plan/v1"))
 	now := time.Now().UTC()
@@ -133,10 +157,12 @@ func runTaintRebootBefore(t *testing.T, proofRoot, statePath string) {
 	}
 
 	state := taintRebootProofState{
-		BootIDHash: host.BootIDHash,
-		PublicKey:  base64.StdEncoding.EncodeToString(publicKey),
-		PrivateKey: base64.StdEncoding.EncodeToString(privateKey),
-		Signed:     signed,
+		BootIDHash:        host.BootIDHash,
+		PublicKey:         base64.StdEncoding.EncodeToString(publicKey),
+		PrivateKey:        base64.StdEncoding.EncodeToString(privateKey),
+		Signed:            signed,
+		HistoryPublicKey:  base64.StdEncoding.EncodeToString(historyPublicKey),
+		HistoryPrivateKey: base64.StdEncoding.EncodeToString(historyPrivateKey),
 	}
 	payload, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -210,7 +236,56 @@ func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
 		t.Fatalf("fresh boot B authorization did not verify: %v", err)
 	}
 
-	proveFreshBootBEnrollmentAndEffect(t, host.BootIDHash)
+	proof := proveFreshBootBEnrollmentAndEffect(t, host.BootIDHash)
+
+	historyPublicBytes, err := base64.StdEncoding.DecodeString(state.HistoryPublicKey)
+	if err != nil || len(historyPublicBytes) != ed25519.PublicKeySize {
+		t.Fatalf("decode recovery history public key: %v", err)
+	}
+	historyPrivateBytes, err := base64.StdEncoding.DecodeString(state.HistoryPrivateKey)
+	if err != nil || len(historyPrivateBytes) != ed25519.PrivateKeySize {
+		t.Fatalf("decode recovery history private key: %v", err)
+	}
+	historyReceipt := TaintRecoveryHistoryReceipt{
+		Version:             TaintRecoveryHistoryReceiptVersion,
+		ReceiptID:           "host-reboot-proof-boot-b",
+		Event:               TaintRecoveryHistoryEventReenrolled,
+		BootIDHash:          host.BootIDHash,
+		PlanDigest:          proof.PlanDigest,
+		CgroupID:            proof.CgroupID,
+		EnrollmentEpoch:     proof.EnrollmentEpoch,
+		DirtyGeneration:     proof.DirtyGeneration,
+		CleanGeneration:     proof.CleanGeneration,
+		CleanEffectAllowed:  true,
+		TaintedEffectDenied: true,
+		RecordedAt:          time.Now().UTC(),
+	}
+	signedHistory, err := SignTaintRecoveryHistoryReceipt(
+		historyReceipt,
+		ed25519.PrivateKey(historyPrivateBytes),
+	)
+	if err != nil {
+		t.Fatalf("sign durable recovery history: %v", err)
+	}
+	historyStore := TaintRecoveryHistoryStore{Dir: statePath + ".history"}
+	historyDigest, err := historyStore.Append(
+		signedHistory,
+		ed25519.PublicKey(historyPublicBytes),
+	)
+	if err != nil {
+		t.Fatalf("persist durable recovery history: %v", err)
+	}
+
+	state.BootBIDHash = host.BootIDHash
+	state.BootBSigned = freshSigned
+	state.HistoryDigest = historyDigest
+	payload, err = json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatalf("encode boot B handoff state: %v", err)
+	}
+	if err := os.WriteFile(statePath, payload, 0o600); err != nil {
+		t.Fatalf("persist boot B handoff state: %v", err)
+	}
 
 	t.Logf(
 		"reboot trust reset proved: bootA=%s bootB=%s stale_authority=DENY old_kernel_pin=ABSENT fresh_boot_authority=ACCEPT",
@@ -219,7 +294,71 @@ func runTaintRebootAfter(t *testing.T, proofRoot, statePath string) {
 	)
 }
 
-func proveFreshBootBEnrollmentAndEffect(t *testing.T, bootBIDHash string) {
+func runTaintRebootHistory(t *testing.T, proofRoot, statePath string) {
+	t.Helper()
+	payload, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read boot history handoff state: %v", err)
+	}
+	var state taintRebootProofState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		t.Fatalf("decode boot history handoff state: %v", err)
+	}
+	if state.BootBIDHash == "" || state.HistoryDigest == "" {
+		t.Fatal("boot B did not persist durable history metadata")
+	}
+
+	host, err := (LinuxBootstrapHostProvider{}).Snapshot(proofRoot)
+	if err != nil {
+		t.Fatalf("capture boot C identity: %v", err)
+	}
+	if host.BootIDHash == state.BootIDHash || host.BootIDHash == state.BootBIDHash {
+		t.Fatalf("boot C reused prior boot identity: %s", host.BootIDHash)
+	}
+
+	historyPublicBytes, err := base64.StdEncoding.DecodeString(state.HistoryPublicKey)
+	if err != nil || len(historyPublicBytes) != ed25519.PublicKeySize {
+		t.Fatalf("decode recovery history public key: %v", err)
+	}
+	historyStore := TaintRecoveryHistoryStore{Dir: statePath + ".history"}
+	historical, digest, exists, err := historyStore.Current(ed25519.PublicKey(historyPublicBytes))
+	if err != nil {
+		t.Fatalf("verify durable recovery history on boot C: %v", err)
+	}
+	if !exists || digest != state.HistoryDigest {
+		t.Fatalf("durable history head mismatch: exists=%v got=%s want=%s", exists, digest, state.HistoryDigest)
+	}
+	if historical.Receipt.BootIDHash != state.BootBIDHash ||
+		historical.Receipt.Event != TaintRecoveryHistoryEventReenrolled {
+		t.Fatalf("unexpected durable history receipt: %+v", historical.Receipt)
+	}
+
+	publicBytes, err := base64.StdEncoding.DecodeString(state.PublicKey)
+	if err != nil || len(publicBytes) != ed25519.PublicKeySize {
+		t.Fatalf("decode recovery public key: %v", err)
+	}
+	err = VerifySignedTaintRecoveryAuthorizationForBoot(
+		state.BootBSigned,
+		ed25519.PublicKey(publicBytes),
+		time.Now().UTC(),
+		host.BootIDHash,
+	)
+	if err == nil {
+		t.Fatal("boot B effect authority was accepted on boot C")
+	}
+	if !strings.Contains(err.Error(), "boot identity mismatch") {
+		t.Fatalf("boot B authority failed on boot C for unexpected reason: %v", err)
+	}
+
+	t.Logf(
+		"durable recovery truth survived reboot: bootB=%s bootC=%s history=%s historical_truth=VERIFIED boot_b_authority=DENY",
+		state.BootBIDHash,
+		host.BootIDHash,
+		digest,
+	)
+}
+
+func proveFreshBootBEnrollmentAndEffect(t *testing.T, bootBIDHash string) freshBootBProofResult {
 	t.Helper()
 	if len(nativeTaintBPFObject) == 0 {
 		t.Fatal("embedded native taint BPF object is empty")
@@ -341,6 +480,11 @@ func proveFreshBootBEnrollmentAndEffect(t *testing.T, bootBIDHash string) {
 		})
 	}
 
+	planDigest, err := TaintActivationPlanDigest(plan)
+	if err != nil {
+		t.Fatalf("digest fresh boot B plan: %v", err)
+	}
+
 	activated, err := ActivateTaintCgroup(TaintActivationRequest{
 		BPFFSRoot:                     bpffsRoot,
 		Plan:                          plan,
@@ -401,6 +545,13 @@ func proveFreshBootBEnrollmentAndEffect(t *testing.T, bootBIDHash string) {
 		sourceKeys,
 		activated.EnrollmentEpoch,
 	)
+	return freshBootBProofResult{
+		PlanDigest:      planDigest,
+		CgroupID:        activated.CgroupID,
+		EnrollmentEpoch: activated.EnrollmentEpoch,
+		DirtyGeneration: dirty,
+		CleanGeneration: clean,
+	}
 }
 
 func ensureNativeBPFFSMounted() error {
