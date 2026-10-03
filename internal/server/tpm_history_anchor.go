@@ -54,8 +54,15 @@ type tpmNVHistoryAnchorState struct {
 	Sequence             uint64 `json:"sequence"`
 	PreviousSequence     uint64 `json:"previous_sequence,omitempty"`
 	HeadDigest           string `json:"head_digest,omitempty"`
-	PreviousHeadDigest   string `json:"previous_head_digest,omitempty"`
-	Digest                string `json:"digest"`
+	PreviousHeadDigest             string `json:"previous_head_digest,omitempty"`
+	TransitionKind                 string `json:"transition_kind,omitempty"`
+	PredecessorDeviceIdentity      string `json:"predecessor_device_identity,omitempty"`
+	MigrationSourceStateDigest             string `json:"migration_source_state_digest,omitempty"`
+	MigrationAuthorizationDigest           string `json:"migration_authorization_digest,omitempty"`
+	MigrationDestinationAttestationDigest string `json:"migration_destination_attestation_digest,omitempty"`
+	MigrationHistoryWitnessPolicyHash      string `json:"migration_history_witness_policy_hash,omitempty"`
+	MigrationOwnershipWitnessPolicyHash    string `json:"migration_ownership_witness_policy_hash,omitempty"`
+	Digest                                 string `json:"digest"`
 }
 
 var _ kernelfabric.TaintRecoveryHistoryAnchor = (*TPMNVHistoryAnchor)(nil)
@@ -175,6 +182,24 @@ func NewTPMNVHistoryAnchor(
 	return &TPMNVHistoryAnchor{helper: helper, cfg: cfg}, nil
 }
 
+func (a *TPMNVHistoryAnchor) DeviceIdentity(ctx context.Context) (string, error) {
+	if a == nil || a.helper == nil {
+		return "", errors.New("TPM history anchor is unavailable")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.helper.deviceIdentity(ctx)
+}
+
+func (a *TPMNVHistoryAnchor) MeasuredBootIdentity(ctx context.Context) (string, error) {
+	if a == nil || a.helper == nil {
+		return "", errors.New("TPM history anchor is unavailable")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.helper.measuredBootIdentity(ctx)
+}
+
 func (a *TPMNVHistoryAnchor) Current(
 	ctx context.Context,
 ) (kernelfabric.TaintRecoveryHistoryAnchorState, error) {
@@ -259,6 +284,7 @@ func (a *TPMNVHistoryAnchor) CompareAndAdvance(
 	pending.Sequence = next.Sequence
 	pending.PreviousHeadDigest = state.HeadDigest
 	pending.HeadDigest = next.HeadDigest
+	pending.TransitionKind = ""
 	pending.Digest = ""
 
 	pendingPath := a.cfg.StatePath + ".pending"
@@ -382,13 +408,15 @@ func (a *TPMNVHistoryAnchor) recoverLocked(
 
 	committedProtected := protectedTPMHistoryHeadMatches(protectedHead, committed)
 	pendingSuccessor := pendingOK && isTPMHistoryAnchorPendingSuccessor(committed, pending)
+	pendingMigration := pendingOK && isTPMHistoryAnchorPendingMigration(committed, pending)
+	pendingRecoverable := pendingSuccessor || pendingMigration
 	pendingProtected := pendingOK && protectedTPMHistoryHeadMatches(protectedHead, pending)
 
 	if committed.Generation == generation && committedProtected {
 		if !pendingOK {
 			return committed, nil
 		}
-		if pendingSuccessor {
+		if pendingRecoverable {
 			if err := os.Remove(pendingPath); err != nil && !os.IsNotExist(err) {
 				return tpmNVHistoryAnchorState{}, err
 			}
@@ -406,7 +434,7 @@ func (a *TPMNVHistoryAnchor) recoverLocked(
 		)
 	}
 
-	if pendingSuccessor && pendingProtected {
+	if pendingRecoverable && pendingProtected {
 		switch generation {
 		case committed.Generation:
 			advanced, err := a.helper.incrementCounter(ctx)
@@ -468,6 +496,27 @@ func isTPMHistoryAnchorPendingSuccessor(
 		pending.Sequence == committed.Sequence+1 &&
 		pending.PreviousHeadDigest == committed.HeadDigest &&
 		pending.HeadDigest != ""
+}
+
+func isTPMHistoryAnchorPendingMigration(
+	committed,
+	pending tpmNVHistoryAnchorState,
+) bool {
+	return committed.Sequence == 0 &&
+		committed.HeadDigest == "" &&
+		pending.TransitionKind == tpmHistoryTransitionMigrationImport &&
+		pending.PreviousGeneration == committed.Generation &&
+		pending.Generation == committed.Generation+1 &&
+		pending.PreviousSequence == 0 &&
+		pending.PreviousHeadDigest == "" &&
+		pending.Sequence > 0 &&
+		pending.HeadDigest != "" &&
+		validSHA256Ref(pending.PredecessorDeviceIdentity) &&
+		validSHA256Ref(pending.MigrationSourceStateDigest) &&
+		validSHA256Ref(pending.MigrationAuthorizationDigest) &&
+		validSHA256Ref(pending.MigrationDestinationAttestationDigest) &&
+		validSHA256Ref(pending.MigrationHistoryWitnessPolicyHash) &&
+		validSHA256Ref(pending.MigrationOwnershipWitnessPolicyHash)
 }
 
 func publicTPMHistoryAnchorState(
@@ -614,26 +663,52 @@ func sealTPMNVHistoryAnchorState(
 		state.Generation == 0 {
 		return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 	}
+	if err := validateTPMHistoryMigrationLineage(state); err != nil {
+		return tpmNVHistoryAnchorState{}, err
+	}
 	if state.Sequence == 0 {
 		if state.HeadDigest != "" ||
 			state.PreviousSequence != 0 ||
-			state.PreviousHeadDigest != "" {
+			state.PreviousHeadDigest != "" ||
+			state.TransitionKind != "" ||
+			state.PredecessorDeviceIdentity != "" ||
+			state.MigrationSourceStateDigest != "" ||
+			state.MigrationAuthorizationDigest != "" ||
+			state.MigrationDestinationAttestationDigest != "" ||
+			state.MigrationHistoryWitnessPolicyHash != "" ||
+			state.MigrationOwnershipWitnessPolicyHash != "" {
 			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 		}
 	} else {
-		if state.PreviousSequence+1 != state.Sequence {
-			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
-		}
 		if err := validateTPMHistoryHeadDigest(state.HeadDigest); err != nil {
 			return tpmNVHistoryAnchorState{}, err
 		}
-		if state.Sequence > 1 && state.PreviousHeadDigest == "" {
-			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
-		}
-		if state.PreviousHeadDigest != "" {
-			if err := validateTPMHistoryHeadDigest(state.PreviousHeadDigest); err != nil {
-				return tpmNVHistoryAnchorState{}, err
+		switch state.TransitionKind {
+		case "":
+			if state.PreviousSequence+1 != state.Sequence {
+				return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 			}
+			if state.Sequence > 1 && state.PreviousHeadDigest == "" {
+				return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
+			}
+			if state.PreviousHeadDigest != "" {
+				if err := validateTPMHistoryHeadDigest(state.PreviousHeadDigest); err != nil {
+					return tpmNVHistoryAnchorState{}, err
+				}
+			}
+		case tpmHistoryTransitionMigrationImport:
+			if state.PreviousSequence != 0 ||
+				state.PreviousHeadDigest != "" ||
+				state.PredecessorDeviceIdentity == "" ||
+				state.MigrationSourceStateDigest == "" ||
+				state.MigrationAuthorizationDigest == "" ||
+				state.MigrationDestinationAttestationDigest == "" ||
+				state.MigrationHistoryWitnessPolicyHash == "" ||
+				state.MigrationOwnershipWitnessPolicyHash == "" {
+				return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
+			}
+		default:
+			return tpmNVHistoryAnchorState{}, ErrTPMHistoryAnchorInvalid
 		}
 	}
 	state.Digest = ""
@@ -644,6 +719,41 @@ func sealTPMNVHistoryAnchorState(
 	sum := sha256.Sum256(payload)
 	state.Digest = "sha256:" + hex.EncodeToString(sum[:])
 	return state, nil
+}
+
+func validateTPMHistoryMigrationLineage(state tpmNVHistoryAnchorState) error {
+	values := []string{
+		state.PredecessorDeviceIdentity,
+		state.MigrationSourceStateDigest,
+		state.MigrationAuthorizationDigest,
+		state.MigrationDestinationAttestationDigest,
+		state.MigrationHistoryWitnessPolicyHash,
+		state.MigrationOwnershipWitnessPolicyHash,
+	}
+	present := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			present++
+		}
+	}
+	if present == 0 {
+		return nil
+	}
+	if present != len(values) {
+		return ErrTPMHistoryAnchorInvalid
+	}
+	if !validSHA256Ref(state.PredecessorDeviceIdentity) ||
+		!validSHA256Ref(state.MigrationSourceStateDigest) ||
+		!validSHA256Ref(state.MigrationAuthorizationDigest) ||
+		!validSHA256Ref(state.MigrationDestinationAttestationDigest) ||
+		!validSHA256Ref(state.MigrationHistoryWitnessPolicyHash) ||
+		!validSHA256Ref(state.MigrationOwnershipWitnessPolicyHash) {
+		return ErrTPMHistoryAnchorInvalid
+	}
+	if state.PredecessorDeviceIdentity == state.DeviceIdentity {
+		return ErrTPMHistoryAnchorInvalid
+	}
+	return nil
 }
 
 func verifyTPMNVHistoryAnchorState(state tpmNVHistoryAnchorState) error {

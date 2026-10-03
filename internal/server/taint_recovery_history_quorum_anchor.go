@@ -41,6 +41,17 @@ func NewExternalHeadTaintRecoveryHistoryAnchor(
 	}, nil
 }
 
+func (a *ExternalHeadTaintRecoveryHistoryAnchor) QuorumPolicyHash() string {
+	if a == nil || a.store == nil {
+		return ""
+	}
+	provider, ok := a.store.(interface{ QuorumPolicyHash() string })
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(provider.QuorumPolicyHash())
+}
+
 func (a *ExternalHeadTaintRecoveryHistoryAnchor) Current(
 	ctx context.Context,
 ) (kernelfabric.TaintRecoveryHistoryAnchorState, error) {
