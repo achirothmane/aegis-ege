@@ -13,6 +13,45 @@ import (
 	"github.com/achirothmane/aegis-ege/internal/kernelfabric"
 )
 
+type witnessSignerPublicFixture struct {
+	publicPath        string
+	endpointPath      string
+	tlsCertPath       string
+	tlsServerNamePath string
+	privateKey        ed25519.PrivateKey
+}
+
+func newWitnessSignerPublicFixture(t *testing.T, dir string) witnessSignerPublicFixture {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := witnessSignerPublicFixture{
+		publicPath:        filepath.Join(dir, "witness-signer-public"),
+		endpointPath:      filepath.Join(dir, "witness-signer-endpoint"),
+		tlsCertPath:       filepath.Join(dir, "witness-signer-ca.pem"),
+		tlsServerNamePath: filepath.Join(dir, "witness-signer-server-name"),
+		privateKey:        privateKey,
+	}
+	certPEM, _, err := newWitnessTLSCertificate("recovery-witness-signer.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		fixture.publicPath:        base64.StdEncoding.EncodeToString(publicKey) + "\n",
+		fixture.endpointPath:      "https://recovery-witness-signer.example:9443\n",
+		fixture.tlsCertPath:       string(certPEM),
+		fixture.tlsServerNamePath: "recovery-witness-signer.example\n",
+	}
+	for path, value := range files {
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return fixture
+}
+
 func TestExternalProfileAuthorityCustodyBoundary(t *testing.T) {
 	dir := t.TempDir()
 	preparedPath := filepath.Join(dir, "prepared.json")
@@ -33,10 +72,15 @@ func TestExternalProfileAuthorityCustodyBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	signerFixture := newWitnessSignerPublicFixture(t, dir)
 	if err := prepareTaintRecoveryWitness(
 		preparedPath,
 		unsignedPath,
 		publicPath,
+		signerFixture.publicPath,
+		signerFixture.endpointPath,
+		signerFixture.tlsCertPath,
+		signerFixture.tlsServerNamePath,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +95,14 @@ func TestExternalProfileAuthorityCustodyBoundary(t *testing.T) {
 	}
 	if strings.Contains(string(preparedRaw), "profile_authority_private_key") {
 		t.Fatal("prepared activation bundle exposes profile-authority private-key field")
+	}
+
+	witnessPrivateEncoding := base64.StdEncoding.EncodeToString(signerFixture.privateKey)
+	if strings.Contains(string(preparedRaw), witnessPrivateEncoding) {
+		t.Fatal("prepared activation bundle contains B witness signing private key")
+	}
+	if strings.Contains(string(preparedRaw), "witness_private_key") {
+		t.Fatal("prepared activation bundle exposes B witness signing private-key field")
 	}
 
 	if _, err := verifyPreparedTaintRecoveryWitness(
@@ -133,7 +185,16 @@ func TestExternalProfileAuthoritySignatureCannotRetargetPreparedActivation(t *te
 	); err != nil {
 		t.Fatal(err)
 	}
-	if err := prepareTaintRecoveryWitness(preparedPath, unsignedPath, publicPath); err != nil {
+	signerFixture := newWitnessSignerPublicFixture(t, dir)
+	if err := prepareTaintRecoveryWitness(
+		preparedPath,
+		unsignedPath,
+		publicPath,
+		signerFixture.publicPath,
+		signerFixture.endpointPath,
+		signerFixture.tlsCertPath,
+		signerFixture.tlsServerNamePath,
+	); err != nil {
 		t.Fatal(err)
 	}
 

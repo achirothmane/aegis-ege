@@ -298,6 +298,26 @@ func NewProfiledTaintRecoveryWitnessHandler(
 	profile *VerifiedExternalRecoveryWitnessProfile,
 	now func() time.Time,
 ) (http.Handler, error) {
+	signer, err := NewEd25519RecoveryWitnessSigner(witnessPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	return NewProfiledTaintRecoveryWitnessHandlerWithSigner(
+		trustRoot,
+		signer,
+		policy,
+		profile,
+		now,
+	)
+}
+
+func NewProfiledTaintRecoveryWitnessHandlerWithSigner(
+	trustRoot *TaintRecoveryTrustRoot,
+	signer RecoveryWitnessSigner,
+	policy ProfiledTaintRecoveryWitnessPolicy,
+	profile *VerifiedExternalRecoveryWitnessProfile,
+	now func() time.Time,
+) (http.Handler, error) {
 	if profile == nil {
 		return nil, fmt.Errorf("%w: external witness profile is required", ErrTaintRecoveryAuthorization)
 	}
@@ -318,7 +338,7 @@ func NewProfiledTaintRecoveryWitnessHandler(
 		policyHash != profile.profile.PolicyHash {
 		return nil, fmt.Errorf("%w: witness policy continuity does not match external profile", ErrTaintRecoveryAuthorization)
 	}
-	return newTaintRecoveryWitnessHandler(trustRoot, witnessPrivateKey, policy, profile, now)
+	return newTaintRecoveryWitnessHandlerWithSigner(trustRoot, signer, policy, profile, now)
 }
 
 func NewTaintRecoveryWitnessHandler(
@@ -327,12 +347,25 @@ func NewTaintRecoveryWitnessHandler(
 	policy TaintRecoveryWitnessPolicy,
 	now func() time.Time,
 ) (http.Handler, error) {
-	return newTaintRecoveryWitnessHandler(trustRoot, witnessPrivateKey, policy, nil, now)
+	signer, err := NewEd25519RecoveryWitnessSigner(witnessPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	return NewTaintRecoveryWitnessHandlerWithSigner(trustRoot, signer, policy, now)
 }
 
-func newTaintRecoveryWitnessHandler(
+func NewTaintRecoveryWitnessHandlerWithSigner(
 	trustRoot *TaintRecoveryTrustRoot,
-	witnessPrivateKey ed25519.PrivateKey,
+	signer RecoveryWitnessSigner,
+	policy TaintRecoveryWitnessPolicy,
+	now func() time.Time,
+) (http.Handler, error) {
+	return newTaintRecoveryWitnessHandlerWithSigner(trustRoot, signer, policy, nil, now)
+}
+
+func newTaintRecoveryWitnessHandlerWithSigner(
+	trustRoot *TaintRecoveryTrustRoot,
+	signer RecoveryWitnessSigner,
 	policy TaintRecoveryWitnessPolicy,
 	profile *VerifiedExternalRecoveryWitnessProfile,
 	now func() time.Time,
@@ -340,16 +373,12 @@ func newTaintRecoveryWitnessHandler(
 	if trustRoot == nil {
 		return nil, errors.New("recovery trust root is required")
 	}
-	if len(witnessPrivateKey) != ed25519.PrivateKeySize {
-		return nil, errors.New("invalid Ed25519 recovery witness private key")
+	if signer == nil || strings.TrimSpace(signer.KeyID()) == "" {
+		return nil, errors.New("recovery witness signer is required")
 	}
-	witnessKeyID, err := BootstrapKeyID(witnessPrivateKey.Public().(ed25519.PublicKey))
-	if err != nil {
-		return nil, err
-	}
-	if witnessKeyID != trustRoot.manifest.WitnessKeyID {
+	if signer.KeyID() != trustRoot.manifest.WitnessKeyID {
 		return nil, fmt.Errorf(
-			"%w: witness private key is not pinned by recovery trust root",
+			"%w: witness signer key is not pinned by recovery trust root",
 			ErrTaintRecoveryAuthorization,
 		)
 	}
@@ -402,13 +431,23 @@ func newTaintRecoveryWitnessHandler(
 			http.Error(rw, "cannot canonicalize recovery authorization", http.StatusInternalServerError)
 			return
 		}
+		witnessSignature, err := signAndVerifyRecoveryWitnessPayload(
+			request.Context(),
+			signer,
+			trustRoot.witnessKey,
+			payload,
+		)
+		if err != nil {
+			http.Error(rw, "recovery witness signer unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		joint := JointSignedTaintRecoveryAuthorization{
 			Version:            JointTaintRecoveryAuthorizationVersion,
 			Authorization:      wire.Authorization.Authorization,
 			AuthorityKeyID:     wire.Authorization.AuthorityKeyID,
 			AuthoritySignature: wire.Authorization.AuthoritySignature,
 			WitnessKeyID:       trustRoot.manifest.WitnessKeyID,
-			WitnessSignature:   base64.StdEncoding.EncodeToString(ed25519.Sign(witnessPrivateKey, payload)),
+			WitnessSignature:   base64.StdEncoding.EncodeToString(witnessSignature),
 		}
 		commitment, err := JointTaintRecoveryCommitmentDigest(joint)
 		if err != nil {
@@ -422,16 +461,27 @@ func newTaintRecoveryWitnessHandler(
 			SignedAuthorization: joint,
 		}
 		if profile != nil {
-			receipt, err := signWitnessRecoveryReceipt(
+			receipt, err := signWitnessRecoveryReceiptWithSigner(
+				request.Context(),
 				profile.profile,
 				joint.Authorization.AuthorizationID,
 				commitment,
 				nonce,
 				current,
-				witnessPrivateKey,
+				signer,
 			)
 			if err != nil {
-				http.Error(rw, "cannot sign recovery witness receipt", http.StatusInternalServerError)
+				http.Error(rw, "cannot sign recovery witness receipt", http.StatusServiceUnavailable)
+				return
+			}
+			if err := VerifyWitnessRecoveryReceipt(
+				receipt,
+				profile,
+				joint,
+				nonce,
+				trustRoot.witnessKey,
+			); err != nil {
+				http.Error(rw, "recovery witness signer returned invalid receipt signature", http.StatusServiceUnavailable)
 				return
 			}
 			result.Receipt = &receipt
@@ -441,12 +491,41 @@ func newTaintRecoveryWitnessHandler(
 			http.Error(rw, "cannot sign recovery witness response", http.StatusInternalServerError)
 			return
 		}
-		result.ResponseSignature = base64.StdEncoding.EncodeToString(ed25519.Sign(witnessPrivateKey, statement))
+		responseSignature, err := signAndVerifyRecoveryWitnessPayload(
+			request.Context(),
+			signer,
+			trustRoot.witnessKey,
+			statement,
+		)
+		if err != nil {
+			http.Error(rw, "recovery witness response signer unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		result.ResponseSignature = base64.StdEncoding.EncodeToString(responseSignature)
 		rw.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(rw).Encode(result); err != nil {
 			return
 		}
 	}), nil
+}
+
+func signAndVerifyRecoveryWitnessPayload(
+	ctx context.Context,
+	signer RecoveryWitnessSigner,
+	publicKey ed25519.PublicKey,
+	payload []byte,
+) ([]byte, error) {
+	if signer == nil {
+		return nil, errors.New("recovery witness signer is unavailable")
+	}
+	signature, err := signer.Sign(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	if len(signature) != ed25519.SignatureSize || !ed25519.Verify(publicKey, payload, signature) {
+		return nil, errors.New("recovery witness signer returned unverifiable signature")
+	}
+	return signature, nil
 }
 
 func verifyAuthorityRecoveryRequest(
