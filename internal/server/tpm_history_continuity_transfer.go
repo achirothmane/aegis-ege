@@ -477,6 +477,10 @@ func preflightTPMHistoryContinuityDestination(
 		state.MigrationSourceStateDigest != "" ||
 		state.MigrationAuthorizationDigest != "" ||
 		state.MigrationDestinationAttestationDigest != "" ||
+		state.MigrationAttestationGenesisEpoch != 0 ||
+		state.MigrationAttestationTrustRootRef != "" ||
+		state.MigrationAttestationTrustRootEpoch != 0 ||
+		state.MigrationAttestationPolicyHash != "" ||
 		state.MigrationHistoryWitnessPolicyHash != "" ||
 		state.MigrationOwnershipWitnessPolicyHash != "" {
 		return tpmNVHistoryAnchorState{}, fmt.Errorf(
