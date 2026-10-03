@@ -120,3 +120,103 @@ func TestSignedTaintRecoveryAuthorizationExpires(t *testing.T) {
 		t.Fatal("expired recovery authorization verified")
 	}
 }
+
+
+func TestJointTaintRecoveryAuthorizationRequiresBothDistinctPrincipals(t *testing.T) {
+	auth, authorityPublic, authorityPrivate := testTaintRecoveryAuthorization(t)
+	witnessPublic, witnessPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := SignJointTaintRecoveryAuthorization(auth, authorityPrivate, witnessPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := auth.NotBefore.Add(30 * time.Second)
+	if err := VerifyJointTaintRecoveryAuthorization(signed, authorityPublic, witnessPublic, now); err != nil {
+		t.Fatalf("joint recovery authorization rejected: %v", err)
+	}
+
+	missingWitness := signed
+	missingWitness.WitnessSignature = ""
+	if err := VerifyJointTaintRecoveryAuthorization(missingWitness, authorityPublic, witnessPublic, now); err == nil {
+		t.Fatal("authority-only recovery authorization verified")
+	}
+
+	if _, err := SignJointTaintRecoveryAuthorization(auth, authorityPrivate, authorityPrivate); err == nil {
+		t.Fatal("same key accepted as both recovery principals")
+	}
+	if err := VerifyJointTaintRecoveryAuthorization(signed, authorityPublic, authorityPublic, now); err == nil {
+		t.Fatal("same public key accepted for both recovery principals")
+	}
+}
+
+func TestJointTaintRecoveryAuthorizationRejectsCrossPayloadWitnessAndKeySwap(t *testing.T) {
+	auth, authorityPublic, authorityPrivate := testTaintRecoveryAuthorization(t)
+	witnessPublic, witnessPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := SignJointTaintRecoveryAuthorization(auth, authorityPrivate, witnessPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	other := auth
+	other.AuthorizationID = "different-recovery-authorization"
+	other.ExpectedDirty++
+	otherSigned, err := SignJointTaintRecoveryAuthorization(other, authorityPrivate, witnessPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossPayload := signed
+	crossPayload.WitnessSignature = otherSigned.WitnessSignature
+	if err := VerifyJointTaintRecoveryAuthorization(
+		crossPayload,
+		authorityPublic,
+		witnessPublic,
+		auth.NotBefore.Add(30*time.Second),
+	); err == nil {
+		t.Fatal("witness signature over a different recovery payload verified")
+	}
+
+	if err := VerifyJointTaintRecoveryAuthorization(
+		signed,
+		witnessPublic,
+		authorityPublic,
+		auth.NotBefore.Add(30*time.Second),
+	); err == nil {
+		t.Fatal("swapped recovery principals verified")
+	}
+}
+
+func TestJointTaintRecoveryCommitmentBindsBothPrincipals(t *testing.T) {
+	auth, _, authorityPrivate := testTaintRecoveryAuthorization(t)
+	_, witnessPrivateA, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, witnessPrivateB, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := SignJointTaintRecoveryAuthorization(auth, authorityPrivate, witnessPrivateA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := SignJointTaintRecoveryAuthorization(auth, authorityPrivate, witnessPrivateB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestA, err := JointTaintRecoveryCommitmentDigest(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestB, err := JointTaintRecoveryCommitmentDigest(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digestA == digestB {
+		t.Fatal("joint recovery commitment ignored witness identity/signature")
+	}
+}
