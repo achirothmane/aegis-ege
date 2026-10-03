@@ -66,6 +66,7 @@ type tpmNVHistoryAnchorState struct {
 }
 
 var _ kernelfabric.TaintRecoveryHistoryAnchor = (*TPMNVHistoryAnchor)(nil)
+var _ kernelfabric.DurableHeadAnchor = (*TPMNVHistoryAnchor)(nil)
 
 func ProvisionTPMNVHistoryAnchor(
 	ctx context.Context,
