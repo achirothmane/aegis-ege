@@ -9,14 +9,14 @@ import (
 )
 
 type taintRecoveryTrustFixture struct {
-	authorityPublic   ed25519.PublicKey
-	authorityPrivate  ed25519.PrivateKey
-	witnessPublic     ed25519.PublicKey
-	witnessPrivate    ed25519.PrivateKey
-	signerPublic      ed25519.PublicKey
-	signerPrivate     ed25519.PrivateKey
-	signedManifest    SignedTaintRecoveryTrustManifest
-	root              *TaintRecoveryTrustRoot
+	authorityPublic  ed25519.PublicKey
+	authorityPrivate ed25519.PrivateKey
+	witnessPublic    ed25519.PublicKey
+	witnessPrivate   ed25519.PrivateKey
+	signerPublic     ed25519.PublicKey
+	signerPrivate    ed25519.PrivateKey
+	signedManifest   SignedTaintRecoveryTrustManifest
+	root             *TaintRecoveryTrustRoot
 }
 
 func newTaintRecoveryTrustFixture(t *testing.T, epoch uint64) taintRecoveryTrustFixture {
