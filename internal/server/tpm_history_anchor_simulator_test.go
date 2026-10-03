@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -274,25 +273,7 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	}
 }
 
-const tpmHistorySameGenerationHelperEnv = "AEGIS_TPM_HISTORY_SAME_GENERATION_HELPER"
-
 func TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite(t *testing.T) {
-	if os.Getenv(tpmHistorySameGenerationHelperEnv) == "1" {
-		runTPMNVHistoryAnchorSameGenerationScenario(t)
-		return
-	}
-
-	cmd := exec.Command(os.Args[0], "-test.run=^TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite$", "-test.v")
-	cmd.Env = append(os.Environ(), tpmHistorySameGenerationHelperEnv+"=1")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("isolated same-generation TPM history proof failed: %v", err)
-	}
-}
-
-func runTPMNVHistoryAnchorSameGenerationScenario(t *testing.T) {
-	t.Helper()
 
 	sim, err := simulator.Get()
 	if err != nil {
@@ -306,8 +287,8 @@ func runTPMNVHistoryAnchorSameGenerationScenario(t *testing.T) {
 		NVIndex:       tpm2.TPMHandle(0x0180A151),
 		HeadNVIndex:   tpm2.TPMHandle(0x0180A161),
 		StatePath:     filepath.Join(dir, "history-anchor.json"),
-		IndexAuth:     []byte("aegis-history-anchor-same-generation"),
-		HeadIndexAuth: []byte("aegis-history-head-same-generation"),
+		IndexAuth:     []byte("history-anchor-sg"),
+		HeadIndexAuth: []byte("history-head-sg"),
 	}
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
