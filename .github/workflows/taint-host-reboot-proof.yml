@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  two-boot-trust-reset:
+  three-boot-durable-history:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -43,7 +43,7 @@ jobs:
             -Ikernel/bpf \
             -c kernel/bpf/aegis_taint.bpf.c \
             -o internal/kernelfabric/testdata/aegis_taint.bpf.o
-      - name: Execute two independent Linux boots
+      - name: Execute three independent Linux boots
         shell: bash
         env:
           CGO_ENABLED: "0"
