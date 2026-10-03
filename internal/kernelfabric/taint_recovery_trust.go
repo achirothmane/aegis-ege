@@ -36,6 +36,7 @@ type SignedTaintRecoveryTrustManifest struct {
 
 type TaintRecoveryTrustRoot struct {
 	manifest     TaintRecoveryTrustManifest
+	signerKeyID  string
 	authorityKey ed25519.PublicKey
 	witnessKey   ed25519.PublicKey
 }
@@ -108,6 +109,7 @@ func NewTaintRecoveryTrustRoot(
 	}
 	return &TaintRecoveryTrustRoot{
 		manifest:     manifest,
+		signerKeyID:  signed.SignerKeyID,
 		authorityKey: append(ed25519.PublicKey(nil), authorityKey...),
 		witnessKey:   append(ed25519.PublicKey(nil), witnessKey...),
 	}, nil
@@ -231,4 +233,12 @@ func canonicalTaintRecoveryTrustManifestPayload(
 		return nil, err
 	}
 	return append([]byte("aegis-ege/taint-recovery-trust/v1\x00"), canonical...), nil
+}
+
+
+func (r *TaintRecoveryTrustRoot) SignerKeyID() string {
+	if r == nil {
+		return ""
+	}
+	return r.signerKeyID
 }
