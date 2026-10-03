@@ -92,6 +92,12 @@ func main() {
 	preparedBundlePath := requireEnv("TAINT_RECOVERY_PREPARED_BUNDLE")
 	signedProfilePath := requireEnv("SIGNED_WITNESS_PROFILE_PATH")
 
+	verifiedWitness, err := verifyPreparedTaintRecoveryWitness(
+		preparedBundlePath,
+		signedProfilePath,
+	)
+	must(err)
+
 	workloadConfig, err := clientcmd.BuildConfigFromFlags("", workloadAdminPath)
 	must(err)
 	witnessConfig, err := clientcmd.BuildConfigFromFlags("", witnessAdminPath)
@@ -148,12 +154,11 @@ func main() {
 	)
 	must(err)
 
-	must(activateTaintRecoveryWitness(
+	must(activateVerifiedTaintRecoveryWitness(
 		ctx,
 		witnessAdmin,
 		controllerBundlePath,
-		preparedBundlePath,
-		signedProfilePath,
+		verifiedWitness,
 	))
 
 	must(writeRuntimeKubeconfig(workloadRuntimePath, workloadConfig, workloadToken, workloadNamespace))
