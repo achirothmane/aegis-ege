@@ -26,7 +26,7 @@ func TestTPMNVHistoryAnchorRejectsWholeVolumeRollbackToValidSignedHead(t *testin
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer sim.Close()
+	t.Cleanup(func() { _ = sim.Close() })
 	device := transport.FromReadWriter(sim)
 
 	dir := t.TempDir()
@@ -206,7 +206,7 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer sim.Close()
+	t.Cleanup(func() { _ = sim.Close() })
 	device := transport.FromReadWriter(sim)
 
 	dir := t.TempDir()
@@ -220,6 +220,7 @@ func TestTPMNVHistoryAnchorRecoversCommittedPendingAfterInterruption(t *testing.
 	if err := ProvisionTPMNVHistoryAnchor(context.Background(), device, cfg); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { undefineTPMHistoryAnchorNV(t, device, cfg) })
 	anchor, err := NewTPMNVHistoryAnchor(device, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +278,7 @@ func TestTPMNVHistoryAnchorRejectsSameGenerationCompanionRewrite(t *testing.T) {
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer sim.Close()
+	t.Cleanup(func() { _ = sim.Close() })
 	device := transport.FromReadWriter(sim)
 
 	dir := t.TempDir()
@@ -375,7 +376,7 @@ func TestTPMNVHistoryAnchorRecoversExactHeadBeforeCounterInterruption(t *testing
 	if err != nil {
 		t.Skipf("TPM simulator unavailable: %v", err)
 	}
-	defer sim.Close()
+	t.Cleanup(func() { _ = sim.Close() })
 	device := transport.FromReadWriter(sim)
 
 	dir := t.TempDir()
