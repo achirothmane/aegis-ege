@@ -135,12 +135,41 @@ The current corpus proves:
 8. A later retry can complete the transition through the remaining quorum without rolling the early member backward.
 9. An absent majority can initialize sequence zero consistently.
 
-## Trust composition
+## Genesis-bound trust composition
 
-`QuorumHeadStore` assumes each member store has already authenticated its witness identity.
+`QuorumHeadStore` no longer accepts a free runtime threshold.
 
-For remote witnesses, that means each member may be a `RemoteHeadStore` created from an authorized witness trust manifest.
+Construction requires a `GenesisQuorumBinding` derived from the exact capability-envelope bytes whose SHA-256 digest is already pinned by the verified Genesis manifest as:
 
-Production must additionally bind the quorum membership set and threshold into Genesis or an equivalently governed relying context. Otherwise a workload operator could replace the 2-of-3 set itself, defeating the quorum while leaving the quorum algorithm correct.
+```text
+GenesisManifest
+  .threat_model
+  .capability_envelope_hash
+```
 
-That membership-binding step is the next trust boundary after this executable quorum proof.
+The bound capability envelope carries:
+
+```text
+external_witness_quorum:
+    protocol
+    threshold
+    members:
+        id
+        trust_manifest_hash
+```
+
+The runtime member set must match that governed set exactly. The constructor rejects:
+
+- a missing or extra witness;
+- a witness ID replacement;
+- the same witness ID with a different trust-manifest digest;
+- a threshold change;
+- a non-majority policy;
+- duplicate witness IDs;
+- capability-envelope bytes whose digest does not match the Genesis pin.
+
+For remote witnesses, `trust_manifest_hash` is the SHA-256 digest of the normalized canonical `WitnessTrustManifest`. That manifest already binds the witness principal, endpoint, trust epoch, runtime key ID, and runtime public key, while two-principal verification establishes its authority before a `RemoteHeadStore` is created.
+
+The aggregate quorum `StoreVersion` also records the governed quorum-policy hash, so receipts identify which exact quorum policy produced the observation.
+
+A legitimate witness-set or threshold change therefore requires a new governed capability envelope and corresponding Genesis transition. Safe cross-Genesis quorum rotation is a separate transition problem and is not claimed by this proof.
