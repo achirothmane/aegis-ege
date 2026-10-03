@@ -1,0 +1,44 @@
+name: Authorized history continuity transfer proof
+
+on:
+  pull_request:
+    paths:
+      - "internal/journal/quorum_head_store.go"
+      - "internal/journal/quorum_head_store_test.go"
+      - "internal/server/taint_recovery_history_quorum_anchor.go"
+      - "internal/server/taint_recovery_history_ownership.go"
+      - "internal/server/tpm_history_anchor.go"
+      - "internal/server/tpm_history_continuity_transfer.go"
+      - "internal/server/tpm_history_continuity_transfer_test.go"
+      - "docs/taint-history-authorized-continuity-transfer.md"
+      - ".github/workflows/authorized-history-continuity-transfer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  continuity-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - run: go mod download
+      - name: Prove governed TPM replacement preserves exact history
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          set -o pipefail
+          go test -v ./internal/journal -run 'TestQuorumHeadStore(ConvergesAuthorizedSplitTransition|AuthorizedConvergenceRejectsThirdState)' -count=1 | tee "$RUNNER_TEMP/quorum-convergence.log"
+          grep -q -- "--- PASS: TestQuorumHeadStoreConvergesAuthorizedSplitTransition" "$RUNNER_TEMP/quorum-convergence.log"
+          grep -q -- "--- PASS: TestQuorumHeadStoreAuthorizedConvergenceRejectsThirdState" "$RUNNER_TEMP/quorum-convergence.log"
+          go test -v ./internal/server -run '^(TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource|TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption)$' -count=1 | tee "$RUNNER_TEMP/history-continuity-transfer.log"
+          grep -q -- "--- PASS: TestAuthorizedTPMHistoryContinuityTransferPreservesHeadAndRetiresSource" "$RUNNER_TEMP/history-continuity-transfer.log"
+          grep -q -- "--- PASS: TestTPMHistoryContinuityTransferResumesAfterQuiescedWitnessInterruption" "$RUNNER_TEMP/history-continuity-transfer.log"
+          if grep -q -- "--- SKIP:" "$RUNNER_TEMP/quorum-convergence.log" "$RUNNER_TEMP/history-continuity-transfer.log"; then
+            exit 1
+          fi
