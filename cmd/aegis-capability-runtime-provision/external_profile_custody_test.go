@@ -14,6 +14,7 @@ import (
 )
 
 type witnessSignerPublicFixture struct {
+	algorithmPath     string
 	publicPath        string
 	endpointPath      string
 	tlsCertPath       string
@@ -28,6 +29,7 @@ func newWitnessSignerPublicFixture(t *testing.T, dir string) witnessSignerPublic
 		t.Fatal(err)
 	}
 	fixture := witnessSignerPublicFixture{
+		algorithmPath:     filepath.Join(dir, "witness-signer-algorithm"),
 		publicPath:        filepath.Join(dir, "witness-signer-public"),
 		endpointPath:      filepath.Join(dir, "witness-signer-endpoint"),
 		tlsCertPath:       filepath.Join(dir, "witness-signer-ca.pem"),
@@ -39,6 +41,7 @@ func newWitnessSignerPublicFixture(t *testing.T, dir string) witnessSignerPublic
 		t.Fatal(err)
 	}
 	files := map[string]string{
+		fixture.algorithmPath:     kernelfabric.RecoveryWitnessSignatureEd25519 + "\n",
 		fixture.publicPath:        base64.StdEncoding.EncodeToString(publicKey) + "\n",
 		fixture.endpointPath:      "https://recovery-witness-signer.example:9443\n",
 		fixture.tlsCertPath:       string(certPEM),
@@ -77,6 +80,7 @@ func TestExternalProfileAuthorityCustodyBoundary(t *testing.T) {
 		preparedPath,
 		unsignedPath,
 		publicPath,
+		signerFixture.algorithmPath,
 		signerFixture.publicPath,
 		signerFixture.endpointPath,
 		signerFixture.tlsCertPath,
@@ -190,6 +194,7 @@ func TestExternalProfileAuthoritySignatureCannotRetargetPreparedActivation(t *te
 		preparedPath,
 		unsignedPath,
 		publicPath,
+		signerFixture.algorithmPath,
 		signerFixture.publicPath,
 		signerFixture.endpointPath,
 		signerFixture.tlsCertPath,
