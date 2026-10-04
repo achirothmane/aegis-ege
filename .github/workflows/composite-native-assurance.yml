@@ -119,7 +119,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$COMPOSITE_ARTIFACT_DIR"
           test "$(git rev-parse HEAD)" = "$COMPOSITE_BUILD_SHA"
-          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/semantic_closure_test.go experiments/gosmig-simulation/custody_elimination*test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
+          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/semantic_closure_test.go experiments/gosmig-simulation/custody_elimination*test.go experiments/gosmig-simulation/effect_record_unification_test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
           go test -race -mod=readonly -count=1 ./evidenceverify ./cmd/aegis-evidence-inspect | tee "$COMPOSITE_ARTIFACT_DIR/unit.log"
           go build -mod=readonly -trimpath -o "$EVIDENCE_VERIFY_BINARY" ./cmd/aegis-evidence-inspect
           # This production binary may depend only on the standard library and
@@ -168,6 +168,12 @@ jobs:
               'TestPostgresCompositeNoCustodyHistoricalCompletionDoesNotCloseDrift',
               'TestPostgresCompositeNoCustodyGenesisHistorySuccession/CLOSED',
               'TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN',
+              'TestPostgresCompositeUnifiedEffectRecordCrashRecovery/CLOSED',
+              'TestPostgresCompositeUnifiedEffectRecordCrashRecovery/UNKNOWN',
+              'TestPostgresCompositeUnifiedEffectRecordCrashRecovery/PRE_COMMIT',
+              'TestPostgresCompositeUnifiedEffectRecordReplayExclusion',
+              'TestPostgresCompositeUnifiedEffectRecordConcurrentSuccessors',
+              'TestPostgresCompositeUnifiedEffectRecordHistoricalCauseDoesNotCloseDrift',
           }
           passed = {r.get('Test') for r in rows if r['Action'] == 'pass'}
           assert expected <= passed, (expected - passed)
