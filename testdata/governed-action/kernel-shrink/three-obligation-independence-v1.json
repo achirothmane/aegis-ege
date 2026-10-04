@@ -1,0 +1,36 @@
+{
+  "schema_version": "aegis.three-obligation-independence/v1",
+  "baseline_source_head": "93b8fc2cd4ce89eafce08205843abd34c3d89a2f",
+  "candidate_test_path": "experiments/gosmig-simulation/semantic_independence_test.go",
+  "candidate_test_blob": "b9f0ef0eaf0c8cea0d33bacb24c44ea8db68770b",
+  "claim_profile": "postgresql/native-fence/v1 + EXACT_EFFECT",
+  "representation_baseline": "one physical business-effect row is also the exact causal completion; no separate mutable custody register; no separate completion table",
+  "coordinates": [
+    "continuing authority at commitment",
+    "exact actual-attempt causal attribution",
+    "current required postcondition"
+  ],
+  "separating_pairs": [
+    {
+      "target": "continuing authority at commitment",
+      "fixed_projection": ["exact physical cause", "current required postcondition"],
+      "witness": "same exact effect/attempt/owner/transition and same current state; authority absent at physical commitment, then present again at observation"
+    },
+    {
+      "target": "exact actual-attempt causal attribution",
+      "fixed_projection": ["trusted admission", "current required postcondition"],
+      "witness": "same requested claim/admission/current state and one logical effect; another valid attempt is the actual committer"
+    },
+    {
+      "target": "current required postcondition",
+      "fixed_projection": ["trusted admission", "exact physical cause"],
+      "witness": "same admitted request and byte-identical historical cause; target state changes after the genuine commit"
+    }
+  ],
+  "bounded_independence_claim": "within this native profile no one of the three coordinates is a deterministic function of the other two retained projections",
+  "generic_runtime_changed": false,
+  "production_verifier_changed": false,
+  "new_primitive_added": false,
+  "global_minimality_proven": false,
+  "constitutional_anchors_preserved": [235, 236, 239, 240, 241]
+}
