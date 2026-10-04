@@ -1,0 +1,52 @@
+{
+  "schema_version": "aegis.conditional-collapse/v1",
+  "baseline_source_head": "413229f06e7843e1e465062a795035d2c8272595",
+  "constitutional_anchors_preserved": [
+    235,
+    236,
+    239,
+    240,
+    241,
+    242
+  ],
+  "definitions": {
+    "A": "continuing governed authority for exact subject/effect/target/epoch/generation/boundary at actual commitment",
+    "C": "exact physical effect caused by the exact claimed governed attempt/executor",
+    "P": "current independently selected required claim predicate"
+  },
+  "source_pins": {
+    "experiments/gosmig-simulation/conditional_collapse_test.go": "16a98387a10329a67585522662dbb14eacea810e",
+    "internal/kubeadapter/acp_conditional_collapse_integration_test.go": "a59c31ac99880f696fb1411169723ae7ce8d1efa",
+    "cmd/github-rerun-proof/conditional_collapse_test.go": "c327a509f1a952d5f5010bc82e94ccca906c8c66",
+    "evidenceverify/claim_coordinates_test.go": "ac54e46d008954219466654ee9c56479e5ffa9fc",
+    "experiments/acpbasis/model.py": "8cc7811d2cfe91033537744073e8c983a19c9e22",
+    "experiments/acpbasis/test_model.py": "9683ccc1683d94690389a7f3baa36f6a3cbf4313",
+    "experiments/acpbasis/test_native_ledger.py": "9725155bc8412f990544934099a120f5cd765d09"
+  },
+  "finite_model_profiles": 7,
+  "finite_model_reachable_states": 256,
+  "mutable_committed_cube": [
+    "000",
+    "001",
+    "010",
+    "011",
+    "100",
+    "101",
+    "110",
+    "111"
+  ],
+  "no_effect_cube_coordinate": "undefined; not fabricated as A=0",
+  "native_domains": [
+    "PostgreSQL",
+    "Kubernetes",
+    "POSIX publish-only event store"
+  ],
+  "github_native_scope": "one actual provider rerun reused for read-only foreign-claim limitation; authority/drift pairs are snapshot fixtures",
+  "production_code_changed": false,
+  "fourth_axis_added": false,
+  "final_classification": "B within declared bounded class; universal status unresolved",
+  "kernel_tree": "6c6b1e754a369cf8d30f627af1ead8b9b3835f14",
+  "production_files": 8,
+  "production_lines": 1550,
+  "production_bytes": 51499
+}

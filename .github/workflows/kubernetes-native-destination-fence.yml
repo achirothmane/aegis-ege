@@ -6,6 +6,7 @@ on:
       - 'scripts/*kernel_shrink.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'internal/kubeadapter/native_destination_fence_integration_test.go'
+      - 'internal/kubeadapter/acp_conditional_collapse_integration_test.go'
       - 'governedaction/runtime/fenced.go'
       - 'governedaction/runtime/runtime.go'
       - 'testdata/governed-action/native-destination-fence/kubernetes-v1.json'
@@ -91,6 +92,16 @@ jobs:
               runtime_reduction_registration: "implementation-reduction.json",
               claim: "single Kubernetes object profile only"
             }' > "$RUNNER_TEMP/kubernetes-native-destination-fence/result.json"
+
+      - name: Try native A/C/P separation with the exact API object boundary
+        env:
+          ACP_KUBE_ARTIFACT_DIR: ${{ runner.temp }}/kubernetes-native-destination-fence/acp-cube
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l internal/kubeadapter/acp_conditional_collapse_integration_test.go)"
+          go test -race -tags=integration -count=1 -v -run '^TestKindACPConditionalCollapse$' ./internal/kubeadapter | tee "$RUNNER_TEMP/kubernetes-native-destination-fence/acp-test.log"
+          ! grep -q -- '--- SKIP' "$RUNNER_TEMP/kubernetes-native-destination-fence/acp-test.log"
+          test "$(grep -c -- '--- PASS: TestKindACPConditionalCollapse/' "$RUNNER_TEMP/kubernetes-native-destination-fence/acp-test.log")" -eq 8
 
       - name: Preserve Kubernetes native fence evidence
         uses: actions/upload-artifact@v4

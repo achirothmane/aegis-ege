@@ -132,6 +132,26 @@ jobs:
             ${{ runner.temp }}/github-run-after.json
             ${{ runner.temp }}/github-rerun-native-evidence.json
 
+      - name: Try exact foreign-attempt attribution from the same native provider state
+        env:
+          ACP_GITHUB_REQUIRE: '1'
+          ACP_GITHUB_NATIVE_DIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -v -run '^TestACPGitHubNativeForeignClaim$' ./cmd/github-rerun-proof | tee "$RUNNER_TEMP/github-acp-native.log"
+          ! grep -q -- '--- SKIP' "$RUNNER_TEMP/github-acp-native.log"
+          grep -q -- '--- PASS: TestACPGitHubNativeForeignClaim' "$RUNNER_TEMP/github-acp-native.log"
+
+      - name: Preserve native GitHub conditional-collapse result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-acp-native-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/github-acp-native.log
+            ${{ runner.temp }}/github-acp-native-foreign-claim.json
+
   kubernetes:
     name: Kubernetes native effect
     runs-on: ubuntu-latest
