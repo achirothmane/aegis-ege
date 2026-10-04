@@ -10,6 +10,7 @@ on:
       - 'scripts/*kernel_shrink.py'
       - 'scripts/run_semantic_closure.py'
       - 'scripts/run_custody_elimination.py'
+      - 'scripts/run_effect_record_unification.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/**'
       - 'internal/journal/**'
@@ -27,6 +28,7 @@ on:
       - 'scripts/*kernel_shrink.py'
       - 'scripts/run_semantic_closure.py'
       - 'scripts/run_custody_elimination.py'
+      - 'scripts/run_effect_record_unification.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/**'
       - 'internal/journal/**'
@@ -189,6 +191,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/run_custody_elimination.py --out "$COMPOSITE_ARTIFACT_DIR/live-custody-reduction" --native-test-binary "$COMPOSITE_NATIVE_BINARY"
+          git diff --exit-code
+
+      - name: Unify physical effect and causal completion, then falsify replay-exclusion erasure
+        run: |
+          set -euo pipefail
+          python3 scripts/run_effect_record_unification.py --out "$COMPOSITE_ARTIFACT_DIR/live-effect-record-unification" --native-test-binary "$COMPOSITE_NATIVE_BINARY"
           git diff --exit-code
 
       - name: Preserve executable pre-fix claim-downgrade counterexample
