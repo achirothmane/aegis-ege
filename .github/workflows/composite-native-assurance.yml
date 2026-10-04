@@ -8,6 +8,7 @@ on:
       - 'experiments/gosmig-simulation/**'
       - 'experiments/kernelshrink/**'
       - 'scripts/*kernel_shrink.py'
+      - 'scripts/run_semantic_closure.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/**'
       - 'internal/journal/**'
@@ -23,6 +24,7 @@ on:
       - 'experiments/gosmig-simulation/**'
       - 'experiments/kernelshrink/**'
       - 'scripts/*kernel_shrink.py'
+      - 'scripts/run_semantic_closure.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/**'
       - 'internal/journal/**'
@@ -50,11 +52,16 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_verify*kernel*.py' -v
           python3 scripts/verify_kernel_shrink.py
-          test -z "$(gofmt -l governedaction/*.go governedaction/runtime/runtime.go governedaction/runtime/recovery.go governedaction/runtime/fenced.go experiments/kernelshrink evidenceverify/shrink_test.go)"
+          test -z "$(gofmt -l governedaction/*.go governedaction/runtime/runtime.go governedaction/runtime/recovery.go governedaction/runtime/fenced.go experiments/kernelshrink evidenceverify/shrink_test.go evidenceverify/semantic_closure_test.go)"
       - name: Differential replay and binding elimination counterexamples
         run: |
           set -euo pipefail
           python3 scripts/run_kernel_shrink.py --out "$RUNNER_TEMP/kernel-shrink"
+          git diff --exit-code
+      - name: Try live closure and custody merges on the actual evaluator
+        run: |
+          set -euo pipefail
+          python3 scripts/run_semantic_closure.py --out "$RUNNER_TEMP/semantic-closure-unit"
           git diff --exit-code
       - name: Preserve reduction evidence
         if: always()
@@ -62,7 +69,9 @@ jobs:
         with:
           name: kernel-shrink-${{ github.run_id }}
           if-no-files-found: error
-          path: ${{ runner.temp }}/kernel-shrink/
+          path: |
+            ${{ runner.temp }}/kernel-shrink/
+            ${{ runner.temp }}/semantic-closure-unit/
 
   composite-postgres:
     runs-on: ubuntu-latest
@@ -108,7 +117,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$COMPOSITE_ARTIFACT_DIR"
           test "$(git rev-parse HEAD)" = "$COMPOSITE_BUILD_SHA"
-          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
+          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/semantic_closure_test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
           go test -race -mod=readonly -count=1 ./evidenceverify ./cmd/aegis-evidence-inspect | tee "$COMPOSITE_ARTIFACT_DIR/unit.log"
           go build -mod=readonly -trimpath -o "$EVIDENCE_VERIFY_BINARY" ./cmd/aegis-evidence-inspect
           # This production binary may depend only on the standard library and
@@ -146,10 +155,19 @@ jobs:
               'TestPostgresCompositeMatchingStateAndForeignEffectDoNotProveCausality',
               'TestPostgresCompositeGenesisHistoryCustodianLostAcknowledgement/CLOSED',
               'TestPostgresCompositeGenesisHistoryCustodianLostAcknowledgement/UNKNOWN',
+              'TestPostgresCompositeSemanticClosurePairs/owned',
+              'TestPostgresCompositeSemanticClosurePairs/foreign-attempt',
+              'TestPostgresCompositeSemanticClosurePairs/changed-postcondition',
           }
           passed = {r.get('Test') for r in rows if r['Action'] == 'pass'}
           assert expected <= passed, (expected - passed)
           PY
+
+      - name: Falsify live merges in the read-only consumer using native effects
+        run: |
+          set -euo pipefail
+          python3 scripts/run_semantic_closure.py --out "$COMPOSITE_ARTIFACT_DIR/live-semantic-reduction" --native-test-binary "$COMPOSITE_NATIVE_BINARY"
+          git diff --exit-code
 
       - name: Preserve executable pre-fix claim-downgrade counterexample
         if: github.event_name == 'pull_request'

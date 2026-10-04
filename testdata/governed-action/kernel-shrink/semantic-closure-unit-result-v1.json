@@ -1,0 +1,22 @@
+{
+  "schema_version": "aegis.live-semantic-reduction-result/v1",
+  "baseline_source_head": "48083a69307fd9b482ac45bea146346720e09ea8",
+  "mode": "unit-real-evaluator",
+  "unchanged_controls_passed": true,
+  "killed_alternatives": [
+    {
+      "alternative": "custody-as-commit",
+      "counterexample": "foreign-attempt",
+      "false_judgment": "CLOSED with claims_supported=true"
+    },
+    {
+      "alternative": "commit-as-closure",
+      "counterexample": "changed-postcondition",
+      "false_judgment": "CLOSED with claims_supported=true"
+    }
+  ],
+  "source_restored_sha256": "0cf9acbf38d795577f56d92c7a06b2f412ed1d9a0e088b0d473ab8c4ee53c2dd",
+  "restored_controls_passed": true,
+  "semantic_relations_removed": 0,
+  "global_minimality_proven": false
+}

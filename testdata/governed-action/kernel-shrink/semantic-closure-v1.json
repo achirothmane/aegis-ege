@@ -1,0 +1,30 @@
+{
+  "schema_version": "aegis.live-semantic-reduction/v1",
+  "baseline_source_head": "48083a69307fd9b482ac45bea146346720e09ea8",
+  "source_path": "evidenceverify/verify.go",
+  "source_blob": "4060d00725596af16b95b0b5ea6a59ea4473e487",
+  "candidate": "derive independently sufficient closure evidence from exact trusted admission and retained effect custody",
+  "alternatives": [
+    {
+      "name": "custody-as-commit",
+      "erased_relation": "independently attested causal commit for this exact attempt",
+      "replacement": "derive a commit tuple from the admitted request and retained custody tuple when no receipt exists",
+      "counterexample": "foreign-attempt"
+    },
+    {
+      "name": "commit-as-closure",
+      "erased_relation": "the independently observed state still equals the required after-state",
+      "replacement": "derive closure from the exact retained causal commit without checking the current postcondition",
+      "counterexample": "changed-postcondition"
+    }
+  ],
+  "control": "owned",
+  "scope": "one effect, exact-effect independent policy, native PostgreSQL fenced custody; pairwise necessity of the tested closure relations only",
+  "runtime_carriers_before": 4,
+  "runtime_carriers_after": 4,
+  "retained_obligations_before": 3,
+  "retained_obligations_after": 3,
+  "semantic_reduction_claimed": false,
+  "global_minimality_proven": false,
+  "native_trust_limit": "fixture-provisioned signing roots and one PostgreSQL failure domain; not independent operator or physical Genesis evidence"
+}
