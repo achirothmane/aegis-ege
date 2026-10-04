@@ -1,0 +1,23 @@
+{
+  "schema_version": "aegis.effect-record-unification/v1",
+  "baseline_source_head": "b94b59a2ab6b9a0c0cc1eb1050513d0eff5381c2",
+  "candidate_source_path": "experiments/gosmig-simulation/effect_record_unification_test.go",
+  "candidate_source_blob": "78cbf92714e5f4c9aec53409ffc82fd89aa065b0",
+  "candidate": "remove the separate completion table after #240; let one native business-effect row also retain the exact causal completion and stable replay-exclusion key",
+  "separate_mutable_custody_register": "absent",
+  "separate_completion_table": "absent",
+  "retained_relations": [
+    "independently trusted exact admission",
+    "stable logical effect identity and replay exclusion",
+    "actual attempt/cause metadata carried by the physical effect row",
+    "independent current-state closure verification"
+  ],
+  "erasure_trial": "remove both the effect_id uniqueness constraint and the live pre-insert existing-effect lookup while preserving admission, authority locking, target locking, causal metadata fields and independent verifier",
+  "counterexample": "lost acknowledgement; executor exits after commit; fresh authorized successor; two physical business-effect rows",
+  "claim_scope": "one append-like PostgreSQL effect contained in one transaction; independently surviving caller; current-state closure remains independently checked",
+  "production_kernel_changed": false,
+  "global_minimality_proven": false,
+  "universal_obligation_count_reduced": false,
+  "novel_primitive_claimed": false,
+  "constitutional_anchors_preserved": [235, 236, 239, 240]
+}
