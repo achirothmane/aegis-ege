@@ -1,0 +1,103 @@
+{
+  "schema_version": "aegis.kernel-shrink-result/v1",
+  "baseline_source_head": "4cb43bb779bf902734f7c675545a2b5a4807a184",
+  "equivalent_traces": 176,
+  "baseline_runtime_passed": true,
+  "reduced_runtime_passed": true,
+  "independent_verifier_passed": true,
+  "killed_mutations": [
+    {
+      "relation": "binding-domains",
+      "failing_tests": [
+        "TestKernelShrinkBindingProjectionEquivalence"
+      ]
+    },
+    {
+      "relation": "retention",
+      "failing_tests": [
+        "TestKernelShrinkCustodyCannotDisappearAfterLostAcknowledgement"
+      ]
+    },
+    {
+      "relation": "effect",
+      "failing_tests": [
+        "TestKernelShrinkSignedCommitRequiresBoundRelations/effect",
+        "TestKernelShrinkSignedCommitRequiresBoundRelations"
+      ]
+    },
+    {
+      "relation": "attempt",
+      "failing_tests": [
+        "TestKernelShrinkSignedCommitRequiresBoundRelations/attempt",
+        "TestKernelShrinkSignedCommitRequiresBoundRelations"
+      ]
+    },
+    {
+      "relation": "custody",
+      "failing_tests": [
+        "TestKernelShrinkSignedCommitRequiresBoundRelations/custody",
+        "TestKernelShrinkSignedCommitRequiresBoundRelations"
+      ]
+    },
+    {
+      "relation": "owner",
+      "failing_tests": [
+        "TestKernelShrinkSignedCommitRequiresBoundRelations/owner",
+        "TestKernelShrinkSignedCommitRequiresBoundRelations"
+      ]
+    },
+    {
+      "relation": "authority",
+      "failing_tests": [
+        "TestKernelShrinkSignedCommitRequiresBoundRelations/authority",
+        "TestKernelShrinkSignedCommitRequiresBoundRelations"
+      ]
+    },
+    {
+      "relation": "basis",
+      "failing_tests": [
+        "TestKernelShrinkSignedCommitRequiresBoundRelations/basis",
+        "TestKernelShrinkSignedCommitRequiresBoundRelations"
+      ]
+    },
+    {
+      "relation": "history",
+      "failing_tests": [
+        "TestKernelShrinkHistoryCannotBindForeignBundle"
+      ]
+    },
+    {
+      "relation": "claim-standard",
+      "failing_tests": [
+        "TestIndependentPolicyRejectsBundleClaimDowngrade"
+      ]
+    }
+  ],
+  "measurements": {
+    "source_bytes_before": 30657,
+    "source_bytes_after": 30047,
+    "source_lines_before": 987,
+    "source_lines_after": 955,
+    "public_surface_changed": false,
+    "imports_changed": false
+  },
+  "fixture_demotion": {
+    "baseline_source_head": "2c2c35bb050d26d66a4579379df73b59d70e03c8",
+    "race_test_outcomes_preserved": 142,
+    "retired_production_package": "github.com/achirothmane/aegis-ege/governedaction/taintflow",
+    "production_measurements": {
+      "before": {
+        "files": 9,
+        "source_lines": 1720,
+        "source_bytes": 55724
+      },
+      "after": {
+        "files": 8,
+        "source_lines": 1550,
+        "source_bytes": 51499
+      }
+    }
+  },
+  "native_assurance": "separate constitutional CI corpus required",
+  "irreducible_core_objects_proven": false
+}

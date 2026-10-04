@@ -1,4 +1,4 @@
-package taintflow
+package governedaction_test
 
 import (
 	"errors"
@@ -12,9 +12,9 @@ import (
 
 var (
 	ErrMissingReference = errors.New("taint-flow reference is required")
-	ErrUnknownProcess    = errors.New("taint-flow process is unknown")
-	ErrUnknownChannel    = errors.New("taint-flow channel is unknown")
-	ErrInvalidLabel      = errors.New("taint-flow label is invalid")
+	ErrUnknownProcess   = errors.New("taint-flow process is unknown")
+	ErrUnknownChannel   = errors.New("taint-flow channel is unknown")
+	ErrInvalidLabel     = errors.New("taint-flow label is invalid")
 )
 
 // Tracker is a monotonic in-memory taint propagation model used only by the
@@ -31,7 +31,7 @@ type Tracker struct {
 	channels     map[string]map[string]struct{}
 }
 
-func New(monitorRef, monitorEpoch string) (*Tracker, error) {
+func newTaintTracker(monitorRef, monitorEpoch string) (*Tracker, error) {
 	if strings.TrimSpace(monitorRef) == "" || strings.TrimSpace(monitorEpoch) == "" {
 		return nil, ErrMissingReference
 	}

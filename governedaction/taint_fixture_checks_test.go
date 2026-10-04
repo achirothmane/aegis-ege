@@ -1,4 +1,4 @@
-package taintflow
+package governedaction_test
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestForkCopiesAllParentTaints(t *testing.T) {
-	tracker, err := New("monitor:synthetic-taintflow", "epoch-1")
+	tracker, err := newTaintTracker("monitor:synthetic-taintflow", "epoch-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestForkCopiesAllParentTaints(t *testing.T) {
 }
 
 func TestFileOrIPCTransferPropagatesTaintMonotonically(t *testing.T) {
-	tracker, err := New("monitor:synthetic-taintflow", "epoch-1")
+	tracker, err := newTaintTracker("monitor:synthetic-taintflow", "epoch-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestFileOrIPCTransferPropagatesTaintMonotonically(t *testing.T) {
 }
 
 func TestTrackerRejectsUnknownLineage(t *testing.T) {
-	tracker, err := New("monitor:synthetic-taintflow", "epoch-1")
+	tracker, err := newTaintTracker("monitor:synthetic-taintflow", "epoch-1")
 	if err != nil {
 		t.Fatal(err)
 	}

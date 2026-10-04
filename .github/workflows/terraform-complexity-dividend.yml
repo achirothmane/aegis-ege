@@ -143,6 +143,9 @@ jobs:
                              registration.get("reference_runtime_extension", {}).get("files", [])}
           shrink = json.loads(Path("testdata/governed-action/kernel-shrink/registration-v1.json").read_text())
           reduction_files = {"governedaction/" + item["path"] for item in shrink["replacements"]}
+          demotion = json.loads(Path("testdata/governed-action/kernel-shrink/fixture-demotion-v1.json").read_text())
+          reduction_files.update("governedaction/" + item[key] for item in demotion["moves"] for key in ("baseline_path", "test_only_path"))
+          reduction_files.update("governedaction/" + demotion[key]["path"] for key in ("corpus_caller", "documentation"))
           frozen_core_changed = [p for p in core_changed if p not in extension_files]
           unregistered_core_changed = [p for p in frozen_core_changed if p not in reduction_files]
           if unregistered_core_changed:
@@ -189,6 +192,7 @@ jobs:
               "unregistered_core_files_changed": len(unregistered_core_changed),
               "registered_reduction_files_changed": sorted(p for p in core_changed if p in reduction_files),
               "runtime_implementation_reduction": shrink["measurements"],
+              "module_fixture_demotion": demotion["production_measurements"],
               "registered_extension_files_changed": sorted(p for p in core_changed if p in extension_files),
               "core_semantic_delta_scope": "unchanged normative contract; registered implementation reduction",
               "reference_runtime_extension_native_proof": False,
