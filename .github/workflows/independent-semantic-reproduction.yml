@@ -1,0 +1,51 @@
+name: Independent semantic reproduction
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/precedence_repro/**'
+      - 'scripts/run_independent_reproduction.py'
+      - 'testdata/governed-action/kernel-shrink/**'
+      - 'docs/governed-action/kernel-shrink/cycle-8.md'
+      - 'docs/governed-action/kernel-shrink/prior-art-cycle-8.json'
+      - '.github/workflows/independent-semantic-reproduction.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/precedence_repro/**'
+      - 'scripts/run_independent_reproduction.py'
+      - 'testdata/governed-action/kernel-shrink/independent-reproduction-v1.json'
+      - '.github/workflows/independent-semantic-reproduction.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  independent-reproduction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install experiment-only signature dependency
+        run: python -m pip install cryptography==46.0.0
+      - name: Execute isolated reproductions, compare only afterward, preserve baseline
+        run: |
+          set -euo pipefail
+          python -B scripts/run_independent_reproduction.py --out "$RUNNER_TEMP/independent-reproduction"
+          git diff --exit-code
+      - name: Preserve original and comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-reproduction-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/independent-reproduction/

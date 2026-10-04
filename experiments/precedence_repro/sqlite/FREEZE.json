@@ -1,0 +1,28 @@
+{
+  "discovered_states": 9776,
+  "emit_results_command": "python explore.py --output OUTPUT_DIRECTORY --depth 5",
+  "external_publication": false,
+  "fixed_contract_decision_disagreements": 0,
+  "native_oracle_transitions": 60096,
+  "profile_count": 16,
+  "report_sha256": "d05df88ddd1e0d923de3b15359cfcc095d6acfff75db13c4f3b045889d5b8242",
+  "results_sha256": "ec428ba3887ea8944c4ce6c77a7f0ba3422db0e1529ece1012ca63905403494d",
+  "semantic_input": "specification.md only",
+  "source_files_sha256": {
+    "README.md": "d96aaf664c92a34fd267f071a03f04dfa1c21d332497f57593504bced5783f71",
+    "crash_worker.py": "bc1de00354bffe7d37288173a60f22c759eeb79bd93baa63b67813461736f0b2",
+    "explore.py": "836420d0bc8bf795d50df3215c15d9fde172407ca19e8bdb4cfffca3f7d0d458",
+    "focused.py": "ec3bdbf3bc34e5bdcbfc899f0e060a401fea574d901bccc96b086d3671254742",
+    "oracle.py": "e718c9dccdc1a741bdc3eff212e94bfa71a786569145fa761f60c020acab62f4",
+    "specification.md": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac",
+    "sqlite_model.py": "e3b4cc36370ada23fe84b302a910a07b7f620de62b6a0db1615d10d28dc0c600",
+    "test_sqlite.py": "948e1ec4c3cdb4989368144df5820b3557807b34af7e3fa7ff55ff17489e8ccc"
+  },
+  "source_tree_sha256": "9515569cb595260c9a6950d709f83601c053e6f9592d70beb258920e894f7c51",
+  "specification_sha256": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac",
+  "status": "frozen-before-parent-comparison",
+  "tests": {
+    "command": "python -m unittest -v test_sqlite",
+    "passed": 14
+  }
+}
