@@ -9,6 +9,7 @@ on:
       - 'experiments/kernelshrink/**'
       - 'scripts/*kernel_shrink.py'
       - 'scripts/run_semantic_closure.py'
+      - 'scripts/run_custody_elimination.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/**'
       - 'internal/journal/**'
@@ -25,6 +26,7 @@ on:
       - 'experiments/kernelshrink/**'
       - 'scripts/*kernel_shrink.py'
       - 'scripts/run_semantic_closure.py'
+      - 'scripts/run_custody_elimination.py'
       - 'testdata/governed-action/kernel-shrink/**'
       - 'governedaction/**'
       - 'internal/journal/**'
@@ -117,7 +119,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$COMPOSITE_ARTIFACT_DIR"
           test "$(git rev-parse HEAD)" = "$COMPOSITE_BUILD_SHA"
-          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/semantic_closure_test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
+          test -z "$(gofmt -l evidenceverify cmd/aegis-evidence-inspect experiments/gosmig-simulation/*succession*test.go experiments/gosmig-simulation/composite_native_test.go experiments/gosmig-simulation/semantic_closure_test.go experiments/gosmig-simulation/custody_elimination*test.go experiments/gosmig-simulation/native_destination_fence_test.go internal/genesisbootstrap/composite_fixture_export_test.go)"
           go test -race -mod=readonly -count=1 ./evidenceverify ./cmd/aegis-evidence-inspect | tee "$COMPOSITE_ARTIFACT_DIR/unit.log"
           go build -mod=readonly -trimpath -o "$EVIDENCE_VERIFY_BINARY" ./cmd/aegis-evidence-inspect
           # This production binary may depend only on the standard library and
@@ -158,6 +160,14 @@ jobs:
               'TestPostgresCompositeSemanticClosurePairs/owned',
               'TestPostgresCompositeSemanticClosurePairs/foreign-attempt',
               'TestPostgresCompositeSemanticClosurePairs/changed-postcondition',
+              'TestPostgresCompositeNoCustodyCrashRecovery/CLOSED',
+              'TestPostgresCompositeNoCustodyCrashRecovery/UNKNOWN',
+              'TestPostgresCompositeNoCustodyCrashRecovery/PRE_COMMIT',
+              'TestPostgresCompositeNoCustodyReplayRetention',
+              'TestPostgresCompositeNoCustodyConcurrentSuccessors',
+              'TestPostgresCompositeNoCustodyHistoricalCompletionDoesNotCloseDrift',
+              'TestPostgresCompositeNoCustodyGenesisHistorySuccession/CLOSED',
+              'TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN',
           }
           passed = {r.get('Test') for r in rows if r['Action'] == 'pass'}
           assert expected <= passed, (expected - passed)
@@ -167,6 +177,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/run_semantic_closure.py --out "$COMPOSITE_ARTIFACT_DIR/live-semantic-reduction" --native-test-binary "$COMPOSITE_NATIVE_BINARY"
+          git diff --exit-code
+
+      - name: Try custody elimination and falsify erasure of native completion retention
+        run: |
+          set -euo pipefail
+          python3 scripts/run_custody_elimination.py --out "$COMPOSITE_ARTIFACT_DIR/live-custody-reduction" --native-test-binary "$COMPOSITE_NATIVE_BINARY"
           git diff --exit-code
 
       - name: Preserve executable pre-fix claim-downgrade counterexample
