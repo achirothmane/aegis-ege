@@ -22,6 +22,7 @@ type noCustodyFixture struct {
 	req    r.Request
 	policy v.Policy
 	keys   map[string]ed25519.PrivateKey
+	epoch  uint64
 }
 
 func setupNoCustody(t *testing.T) *noCustodyFixture {
@@ -52,7 +53,7 @@ func setupNoCustody(t *testing.T) *noCustodyFixture {
 	}
 	req.Admission.BindingDigest = binding
 	a.req = req
-	f := &noCustodyFixture{a: a, req: req, keys: map[string]ed25519.PrivateKey{}, policy: v.Policy{Schema: v.Schema, BuildSHA: os.Getenv("COMPOSITE_BUILD_SHA"), CaseID: "no-custody", DestinationProfile: "postgresql/native-fence/v1", AdmissionPolicyHash: v.ContentDigest([]byte("one append; stable exact effect key; transactional receipt retention; current admission authority fence")), RequiredClaimType: "EXACT_EFFECT", MaximumGrade: "native", PublicKeys: map[string]string{}, RoleKeys: map[string]string{}}}
+	f := &noCustodyFixture{a: a, req: req, epoch: 1, keys: map[string]ed25519.PrivateKey{}, policy: v.Policy{Schema: v.Schema, BuildSHA: os.Getenv("COMPOSITE_BUILD_SHA"), CaseID: "no-custody", DestinationProfile: "postgresql/native-fence/v1", AdmissionPolicyHash: v.ContentDigest([]byte("one append; stable exact effect key; transactional receipt retention; current admission authority fence")), RequiredClaimType: "EXACT_EFFECT", MaximumGrade: "native", PublicKeys: map[string]string{}, RoleKeys: map[string]string{}}}
 	for _, role := range []string{"admission", "execution", "destination"} {
 		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
@@ -65,7 +66,7 @@ func setupNoCustody(t *testing.T) *noCustodyFixture {
 }
 
 func (f *noCustodyFixture) admission(req r.Request, generation uint64) v.Admission {
-	return v.Admission{BuildSHA: f.policy.BuildSHA, CaseID: f.policy.CaseID, PolicyHash: f.policy.AdmissionPolicyHash, RequestBinding: req.Admission.BindingDigest, ObservedBefore: noCustodyState(req.Current), AllowedOperation: req.Transition.Operation, AuthorityEpoch: 1, AuthorityGeneration: generation, AuthorityActive: true}
+	return v.Admission{BuildSHA: f.policy.BuildSHA, CaseID: f.policy.CaseID, PolicyHash: f.policy.AdmissionPolicyHash, RequestBinding: req.Admission.BindingDigest, ObservedBefore: noCustodyState(req.Current), AllowedOperation: req.Transition.Operation, AuthorityEpoch: f.epoch, AuthorityGeneration: generation, AuthorityActive: true}
 }
 
 func (f *noCustodyFixture) seal(t *testing.T, role string, value any) v.Envelope {
@@ -110,15 +111,29 @@ func (f *noCustodyFixture) successor(t *testing.T) r.Request {
 
 func (f *noCustodyFixture) inspect(t *testing.T, name string, req r.Request, generation uint64, d v.Destination, closure, causality string, supported bool) v.Report {
 	t.Helper()
+	b, _ := f.bundle(t, req, generation, d, closure, causality)
+	return f.consume(t, name, b, closure, causality, supported)
+}
+
+func (f *noCustodyFixture) bundle(t *testing.T, req r.Request, generation uint64, d v.Destination, closure, causality string) (v.Bundle, v.Execution) {
+	t.Helper()
 	effect, err := r.EffectIdentity(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d.BuildSHA, d.CaseID, d.Profile = f.policy.BuildSHA, f.policy.CaseID, f.policy.DestinationProfile
 	q := v.Request{Subject: v.Identity{ID: req.Subject.ID, Kind: req.Subject.Kind}, Executor: v.Identity{ID: req.Executor.ID, Kind: req.Executor.Kind}, Before: noCustodyState(req.Current), After: noCustodyState(req.Transition.To), Operation: req.Transition.Operation, AttemptID: req.AttemptID, AdmissionBinding: req.Admission.BindingDigest}
-	e := v.Execution{BuildSHA: f.policy.BuildSHA, CaseID: f.policy.CaseID, Grade: "native", ClaimType: "EXACT_EFFECT", IntentID: "intent:no-custody", Request: q, EffectID: effect, CustodyGeneration: 1, AuthorityEpoch: 1, AuthorityGeneration: generation, Admitted: true, ClaimedClosure: closure, ClaimedCausality: causality, ClaimedHistory: "UNTRUSTED_HISTORY"}
+	e := v.Execution{BuildSHA: f.policy.BuildSHA, CaseID: f.policy.CaseID, Grade: f.policy.MaximumGrade, ClaimType: "EXACT_EFFECT", IntentID: "intent:no-custody", Request: q, EffectID: effect, CustodyGeneration: 1, AuthorityEpoch: f.epoch, AuthorityGeneration: generation, Admitted: true, ClaimedClosure: closure, ClaimedCausality: causality, ClaimedHistory: "UNTRUSTED_HISTORY"}
+	if f.policy.Succession != nil {
+		e.EvidenceGrades = &f.policy.Succession.Grades
+	}
 	dest := f.seal(t, "destination", d)
 	b := v.Bundle{Schema: v.Schema, Admission: f.seal(t, "admission", f.admission(req, generation)), Execution: f.seal(t, "execution", e), Destination: &dest}
+	return b, e
+}
+
+func (f *noCustodyFixture) consume(t *testing.T, name string, b v.Bundle, closure, causality string, supported bool) v.Report {
+	t.Helper()
 	dir := t.TempDir()
 	if root := os.Getenv("COMPOSITE_ARTIFACT_DIR"); root != "" {
 		dir = filepath.Join(root, "custody-elimination", name)

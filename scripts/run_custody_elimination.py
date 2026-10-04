@@ -24,6 +24,8 @@ CASES = {
     REPLAY,
     "TestPostgresCompositeNoCustodyConcurrentSuccessors",
     "TestPostgresCompositeNoCustodyHistoricalCompletionDoesNotCloseDrift",
+    "TestPostgresCompositeNoCustodyGenesisHistorySuccession/CLOSED",
+    "TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN",
 }
 RETAIN = """\tif err := retainNativeCompletion(ctx, tx, req, effect, admission); err != nil {
 \t\treturn err
@@ -63,6 +65,9 @@ def pins(data):
         original = subprocess.check_output(["git", "show", data["baseline_source_head"] + ":" + path], cwd=ROOT)
         if blob(original) != expected or (ROOT / path).read_bytes() != original:
             raise RuntimeError("constitutional source changed: " + path)
+    for path, expected in data["candidate_test_source_blobs"].items():
+        if blob((ROOT / path).read_bytes()) != expected:
+            raise RuntimeError("registered candidate assertion changed: " + path)
 
 
 def native_command(binary, pattern):

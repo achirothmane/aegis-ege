@@ -18,7 +18,10 @@
     "experiments/gosmig-simulation/composite_succession_test.go": "3150615a50c585e7e10160852308d62f06c206f7",
     "experiments/gosmig-simulation/semantic_closure_test.go": "ab7d5690dd2514578bb193c2a103ac0043800e18",
     "scripts/run_semantic_closure.py": "81925c58149033ccc6b68158a7b044ae64f8be87",
-    "testdata/governed-action/kernel-shrink/semantic-closure-v1.json": "7cae2b2d3a00967bd117c59eae5784fd0679a2d0"
+    "testdata/governed-action/kernel-shrink/semantic-closure-v1.json": "7cae2b2d3a00967bd117c59eae5784fd0679a2d0",
+    "experiments/gosmig-simulation/succession_controller_process_test.go": "eadf17e2312c89b097641dd6be5c74de2989d887",
+    "experiments/gosmig-simulation/succession_postgres_test.go": "2a1015881e64de3942afb011ed9c06bbcfd40dbd",
+    "experiments/gosmig-simulation/succession_falsification_test.go": "b9c45a21447b112856b356a41db3504464aa7f21"
   },
   "separate_mutable_custody_register": "absent; native custody table dropped before each trial",
   "retained_relation": "stable effect key -> immutable atomic completion -> actual attempt/cause; retained until all eligible retries are excluded",
@@ -36,5 +39,16 @@
   "production_kernel_changed": false,
   "global_custody_elimination_claimed": false,
   "global_minimality_proven": false,
-  "novel_primitive_claimed": false
+  "novel_primitive_claimed": false,
+  "candidate_test_source_blobs": {
+    "experiments/gosmig-simulation/custody_elimination_test.go": "b99ab4e4c4a8101c03d940afd1f910c5d0b53e51",
+    "experiments/gosmig-simulation/custody_elimination_process_test.go": "749e1f7261ec45093807e95329e651de6f7f3a9a",
+    "experiments/gosmig-simulation/custody_elimination_succession_test.go": "4beefbfcc60a06e1992350ceed08c077f8104bc8"
+  },
+  "composed_history_succession": "same #235 Genesis-bound native SQL rotation, controller deaths, exact predecessor continuity and stale custodian denial; CLOSED and UNKNOWN on the new path",
+  "evidence_grades": {
+    "effect": "native",
+    "succession": "native",
+    "genesis": "simulation"
+  }
 }

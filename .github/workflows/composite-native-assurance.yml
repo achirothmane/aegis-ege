@@ -166,6 +166,8 @@ jobs:
               'TestPostgresCompositeNoCustodyReplayRetention',
               'TestPostgresCompositeNoCustodyConcurrentSuccessors',
               'TestPostgresCompositeNoCustodyHistoricalCompletionDoesNotCloseDrift',
+              'TestPostgresCompositeNoCustodyGenesisHistorySuccession/CLOSED',
+              'TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN',
           }
           passed = {r.get('Test') for r in rows if r['Action'] == 'pass'}
           assert expected <= passed, (expected - passed)

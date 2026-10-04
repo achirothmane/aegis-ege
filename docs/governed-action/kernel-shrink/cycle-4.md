@@ -11,8 +11,11 @@ model oracle or change the frozen generic runtime to fit the alternative.
 
 Every trial drops the native `custody` table. The alternate executor has no
 reserve/load/phase/transfer operation and no mutable current effect-owner
-generation. There is no durable per-attempt input file. A surviving independent
-caller supplies the requested claim to fresh executor/observer processes.
+generation. The executor has no durable per-attempt input file. A surviving
+independent caller supplies the requested claim to fresh executor/observer
+processes. The composed history case also retains immutable authorization and
+outcome facts in the existing history substrate; they do not select a current
+effect owner or supply a missing causal receipt.
 
 The destination locks the target, checks the signed exact admission against the
 current locked authority epoch/generation, and checks a stable logical effect
@@ -54,6 +57,7 @@ non-idempotent append. This is permitted by K02's effect/state separation.
 | Executor exits 99 after SQL effect/receipt writes but before commit | Both writes roll back; original is `UNKNOWN`; a separately authorized successor may commit exactly once |
 | Two simultaneously authorized successor attempts | One append and one immutable actual committer; losing attempt's false exact closure is rejected |
 | Valid historical completion followed by a later target-state change | Receipt is byte-identical and causality remains exact; current false `CLOSED` is rejected |
+| Custody-less native effect composed with Genesis/history-custodian succession, in `CLOSED` and `UNKNOWN` worlds | Two controller deaths and fresh reconstruction preserve the exact predecessor; old authority/custodian are denied; new history continues without another effect or recreating effect custody |
 | Remove only the native completion retention write | The lost-ACK successor commits a second physical append; the precise retention assertion fails with `committed_effects=2` |
 
 Process barriers establish transaction visibility before the abrupt exit;
@@ -73,10 +77,17 @@ are rejected. The exact source is restored and every positive case rerun.
 This witness falsifies erasing retention from this alternative, not every
 possible custody-less architecture or every completion representation.
 
+The composed cases call the existing #235 rotation implementation, native SQL
+custodian fence, abrupt controller exits and independently verified continuity
+checks on the **new** effect path. They also retain the old falsification corpus
+and reject history reopening/reset after local log loss. Effect and succession
+grades stay native; fixture Genesis and the aggregate grade stay simulation.
+Removing effect custody grants no history-custodian or destination permission.
+
 The composite gate still requires all six #235 and three #239 native cases,
-plus these six candidate cases without skips. Fourteen old source blobs are
-pinned in the new additive manifest, including the #236 consumer and #239
-tests/manifest/harness. The earlier 142 standalone outcomes, 176 differential
+plus these eight candidate cases without skips. Seventeen old source blobs and
+the three new assertion/helper sources are pinned in the new additive manifest,
+including the #236 consumer and #239 tests/manifest/harness. The earlier 142 standalone outcomes, 176 differential
 traces, ten removal witnesses and immutable historical source pins remain
 required. The old source and old evidence grades are not repinned.
 
