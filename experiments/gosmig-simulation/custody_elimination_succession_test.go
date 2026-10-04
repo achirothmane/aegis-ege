@@ -36,7 +36,10 @@ func TestPostgresCompositeNoCustodyGenesisHistorySuccession(t *testing.T) {
 
 func noCustodyHistorySuccession(t *testing.T, name string) {
 	f := setupNoCustody(t)
-	f.policy.CaseID = "no-custody-succession:" + name
+	// Preserve the constitutional helper's UNKNOWN-specific promotion witness.
+	// The independent policy, exact request and artifact directory distinguish
+	// this alternate profile from the existing custody-backed history corpus.
+	f.policy.CaseID = name
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

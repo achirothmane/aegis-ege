@@ -43,7 +43,7 @@
   "candidate_test_source_blobs": {
     "experiments/gosmig-simulation/custody_elimination_test.go": "b99ab4e4c4a8101c03d940afd1f910c5d0b53e51",
     "experiments/gosmig-simulation/custody_elimination_process_test.go": "749e1f7261ec45093807e95329e651de6f7f3a9a",
-    "experiments/gosmig-simulation/custody_elimination_succession_test.go": "4beefbfcc60a06e1992350ceed08c077f8104bc8"
+    "experiments/gosmig-simulation/custody_elimination_succession_test.go": "2184add1535a7383adb5bcac9f8eeb108bf7a16e"
   },
   "composed_history_succession": "same #235 Genesis-bound native SQL rotation, controller deaths, exact predecessor continuity and stale custodian denial; CLOSED and UNKNOWN on the new path",
   "evidence_grades": {
