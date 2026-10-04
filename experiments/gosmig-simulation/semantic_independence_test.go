@@ -14,9 +14,9 @@ import (
 // basis over the reduced #241 representation. Each pair keeps two coordinates
 // equal while changing the third:
 //
-//   authority    is not derivable from exact cause + current postcondition;
-//   exact cause  is not derivable from admission + current postcondition;
-//   postcondition is not derivable from admission + exact cause.
+//	authority    is not derivable from exact cause + current postcondition;
+//	exact cause  is not derivable from admission + current postcondition;
+//	postcondition is not derivable from admission + exact cause.
 //
 // The test does not claim a global minimality theorem. It proves only that, for
 // this independently verified PostgreSQL EXACT_EFFECT profile, collapsing any
