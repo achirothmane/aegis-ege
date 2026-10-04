@@ -101,3 +101,14 @@ See
 Run `go test -race -count=1 ./...` from this directory. Repository CI also runs
 the unchanged frozen oracle, CRM/D02 tests, native PostgreSQL crash schedules and
 KinD integration tests. See [D04 scope and evidence](../docs/governed-action/d04-shared-library.md).
+
+## Synthetic model retirement
+
+The historical `governedaction/taintflow` simulation package described above is
+now a test-only fixture in `taint_fixture_test.go`. Its complete propagation
+algorithm, three original tracker tests and all M00-M15 corpus cases are retained;
+only the test namespace and constructor name change. Normal module builds no
+longer compile or expose the simulation package. `CheckTaintEgress` and every
+execution/recovery API remain unchanged. This retires an experimental simulation
+import path; it does not remove a trusted production monitor or prove complete
+mediation. See [kernel shrink cycle 2](../docs/governed-action/kernel-shrink/cycle-2.md).

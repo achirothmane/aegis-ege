@@ -1,0 +1,48 @@
+{
+  "schema_version": "aegis.kernel-fixture-demotion/v1",
+  "baseline_source_head": "2c2c35bb050d26d66a4579379df73b59d70e03c8",
+  "constitutional_anchors": [
+    235,
+    236
+  ],
+  "runtime_registration_blob": "f47863be1c060dd580692d6ef11e6532c72bfb73",
+  "moves": [
+    {
+      "baseline_path": "taintflow/tracker.go",
+      "baseline_blob": "8e545215de7123c02609b660bb88b847ab373356",
+      "test_only_path": "taint_fixture_test.go",
+      "test_only_blob": "5265e56afb0a2eb7b41a0f2d63c624858397c446"
+    },
+    {
+      "baseline_path": "taintflow/tracker_test.go",
+      "baseline_blob": "6091e5cea86f03d1523b83a3493d75539aed2894",
+      "test_only_path": "taint_fixture_checks_test.go",
+      "test_only_blob": "ebe198865020737bb3317100ceba1187d1257dc3"
+    }
+  ],
+  "corpus_caller": {
+    "path": "origin_corpus_test.go",
+    "baseline_blob": "676fcd82537cee369f6295b4a9b48fe38379997f",
+    "current_blob": "0c656075a8dc027e3c994458c86afb80c9b2c0d6"
+  },
+  "documentation": {
+    "path": "README.md",
+    "baseline_blob": "5f71cf9e41de27278590a6fe3613f8a902d0f92a",
+    "current_blob": "c6d1dd977ada55efc8c97287dd3d9bfdb7708a7b"
+  },
+  "production_measurements": {
+    "before": {
+      "files": 9,
+      "source_lines": 1720,
+      "source_bytes": 55724
+    },
+    "after": {
+      "files": 8,
+      "source_lines": 1550,
+      "source_bytes": 51499
+    }
+  },
+  "scope": "test-only synthetic model retirement; no execution, policy, closure, or primitive change",
+  "historical_native_results_upgraded": false,
+  "current_native_assurance_required": true
+}

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	ga "github.com/achirothmane/aegis-ege/governedaction"
-	"github.com/achirothmane/aegis-ege/governedaction/taintflow"
 )
 
 //go:embed testdata/muse-class/corpus-v0.json
@@ -234,7 +233,7 @@ func TestMuseClassCorpusRegistrationAndExecutableCases(t *testing.T) {
 }
 
 func executeTaintScenario(s museTaintScenario) error {
-	tracker, err := taintflow.New(s.MonitorRef, s.MonitorEpoch)
+	tracker, err := newTaintTracker(s.MonitorRef, s.MonitorEpoch)
 	if err != nil {
 		return err
 	}

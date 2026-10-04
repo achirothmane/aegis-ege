@@ -80,6 +80,7 @@ jobs:
           cp "$RUNNER_TEMP/native-destination-fence.log" "$RUNNER_TEMP/native-destination-fence/test.log"
           cp testdata/governed-action/native-destination-fence/postgresql-v1.json              "$RUNNER_TEMP/native-destination-fence/registration.json"
           cp testdata/governed-action/kernel-shrink/registration-v1.json "$RUNNER_TEMP/native-destination-fence/implementation-reduction.json"
+          cp testdata/governed-action/kernel-shrink/fixture-demotion-v1.json "$RUNNER_TEMP/native-destination-fence/module-fixture-demotion.json"
           jq -n             --arg head "${{ github.event.pull_request.head.sha }}"             '{
               schema_version: "aegis.native-destination-fence-proof-result/v1",
               source_head: $head,

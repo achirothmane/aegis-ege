@@ -1,4 +1,4 @@
-package taintflow
+package governedaction_test
 
 import (
 	"errors"
@@ -31,7 +31,7 @@ type Tracker struct {
 	channels     map[string]map[string]struct{}
 }
 
-func New(monitorRef, monitorEpoch string) (*Tracker, error) {
+func newTaintTracker(monitorRef, monitorEpoch string) (*Tracker, error) {
 	if strings.TrimSpace(monitorRef) == "" || strings.TrimSpace(monitorEpoch) == "" {
 		return nil, ErrMissingReference
 	}

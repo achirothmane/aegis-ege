@@ -11,6 +11,7 @@ from verify_cross_domain_kernel_tree import entries, git, verify
 
 
 REGISTRATION = "testdata/governed-action/kernel-shrink/registration-v1.json"
+DEMOTION = "testdata/governed-action/kernel-shrink/fixture-demotion-v1.json"
 ALLOWED = {"runtime/runtime.go", "runtime/recovery.go", "runtime/fenced.go"}
 
 
@@ -24,7 +25,59 @@ def surface(source):
     return public, imports
 
 
-def verify_reduction(baseline, current, replacements, read_blob):
+def production_size(tree, read_blob):
+    files = [read_blob(entry[2]) for path, entry in tree.items()
+             if path.endswith(".go") and not path.endswith("_test.go")]
+    return {"files": len(files), "source_lines": sum(len(raw.splitlines()) for raw in files),
+            "source_bytes": sum(map(len, files))}
+
+
+def verify_fixture_demotion(tree, data, read_blob):
+    """Permit only a byte-preserving move of the synthetic model into tests."""
+    if data["schema_version"] != "aegis.kernel-fixture-demotion/v1":
+        raise ValueError("unsupported fixture demotion")
+    expected = dict(tree)
+    pairs = {"taintflow/tracker.go": ("taint_fixture_test.go", b"func New(", b"func newTaintTracker("),
+             "taintflow/tracker_test.go": ("taint_fixture_checks_test.go", b" := New(", b" := newTaintTracker(")}
+    seen = set()
+    for item in data["moves"]:
+        path, destination = item["baseline_path"], item["test_only_path"]
+        if path not in pairs or path in seen or destination != pairs[path][0]:
+            raise ValueError("unapproved or duplicate fixture move")
+        seen.add(path)
+        old = ("100644", "blob", item["baseline_blob"])
+        new = ("100644", "blob", item["test_only_blob"])
+        if tree.get(path) != old or destination in tree:
+            raise ValueError("fixture baseline or destination differs")
+        raw = read_blob(old[2])
+        renamed = raw.replace(b"package taintflow\n", b"package governedaction_test\n")
+        renamed = renamed.replace(pairs[path][1], pairs[path][2])
+        if read_blob(new[2]) != renamed:
+            raise ValueError("fixture move changed the model or its tests")
+        del expected[path]
+        expected[destination] = new
+    if seen != set(pairs):
+        raise ValueError("both model and all original tests must move")
+    for kind, path in (("corpus_caller", "origin_corpus_test.go"), ("documentation", "README.md")):
+        item = data[kind]
+        if item["path"] != path or tree.get(path) != ("100644", "blob", item["baseline_blob"]):
+            raise ValueError("unapproved supporting replacement or baseline")
+        before, after = read_blob(item["baseline_blob"]), read_blob(item["current_blob"])
+        if kind == "corpus_caller":
+            wanted = before.replace(b'\t"github.com/achirothmane/aegis-ege/governedaction/taintflow"\n', b"")
+            wanted = wanted.replace(b"taintflow.New(", b"newTaintTracker(")
+            if after != wanted:
+                raise ValueError("corpus changed beyond the fixture namespace")
+        elif not after.startswith(before):
+            raise ValueError("documentation must preserve historical bytes")
+        expected[path] = ("100644", "blob", item["current_blob"])
+    measured = {"before": production_size(tree, read_blob), "after": production_size(expected, read_blob)}
+    if measured != data["production_measurements"]:
+        raise ValueError("fixture demotion measurements differ")
+    return expected
+
+
+def verify_reduction(baseline, current, replacements, read_blob, demotion=None):
     expected = dict(baseline)
     seen = set()
     before_bytes = after_bytes = before_lines = after_lines = 0
@@ -47,6 +100,8 @@ def verify_reduction(baseline, current, replacements, read_blob):
         expected[path] = new
     if seen != ALLOWED:
         raise ValueError("reduction must register all three runtime paths")
+    if demotion is not None:
+        expected = verify_fixture_demotion(expected, demotion, read_blob)
     if current != expected:
         changed = sorted(p for p in set(current) | set(expected) if current.get(p) != expected.get(p))
         raise ValueError("unregistered tree delta: " + ", ".join(changed))
@@ -90,11 +145,22 @@ def registration():
     return data, baseline
 
 
+def fixture_registration(data, baseline):
+    demotion = json.loads(Path(DEMOTION).read_text())
+    if demotion["runtime_registration_blob"] != git("hash-object", REGISTRATION).decode().strip():
+        raise ValueError("cycle-1 registration was rewritten")
+    # The complete prior implementation must still satisfy its original gate.
+    prior = entries(demotion["baseline_source_head"] + ":governedaction")
+    verify_reduction(baseline, prior, data["replacements"], lambda sha: git("cat-file", "blob", sha))
+    return demotion
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--working-tree", action="store_true")
     args = parser.parse_args()
     data, baseline = registration()
+    demotion = fixture_registration(data, baseline)
     if args.working_tree:
         current = {}
         for p in Path("governedaction").rglob("*"):
@@ -105,11 +171,13 @@ def main():
                 current[str(p.relative_to("governedaction"))] = (mode, "blob", git("hash-object", "-w", str(p)).decode().strip())
     else:
         current = entries("HEAD:governedaction")
-    measured = verify_reduction(baseline, current, data["replacements"], lambda sha: git("cat-file", "blob", sha))
+    measured = verify_reduction(baseline, current, data["replacements"], lambda sha: git("cat-file", "blob", sha), demotion)
     if measured != data["measurements"]:
         raise ValueError("registered measurements differ from exact source")
     print("PASS: immutable v1 baseline and exact reduced runtime implementation")
     print(json.dumps(measured, sort_keys=True))
+    print("PASS: synthetic model is test-only; model, tests and corpus are preserved")
+    print(json.dumps(demotion["production_measurements"], sort_keys=True))
     print("Historical native results remain scoped to their original source. Current CI must reprove the reduced source.")
 
 

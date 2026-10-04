@@ -1,6 +1,7 @@
 import unittest
+from copy import deepcopy
 
-from verify_kernel_shrink import verify_reduction
+from verify_kernel_shrink import production_size, verify_fixture_demotion, verify_reduction
 
 
 class ReductionTreeVerificationTests(unittest.TestCase):
@@ -77,6 +78,80 @@ class ReductionTreeVerificationTests(unittest.TestCase):
         before = b"package runtime\ntype Request struct {\n Subject     string\n}\n"
         after = b"package runtime\ntype Request struct {\n\tSubject string\n}\n"
         self.assertEqual(surface(before), surface(after))
+
+
+class FixtureDemotionVerificationTests(unittest.TestCase):
+    def setUp(self):
+        self.blobs = {
+            "model": b"package taintflow\nfunc New() {\n keepAllLabels()\n}\n",
+            "checks": b"package taintflow\nfunc TestPropagation() {\n tracker := New()\n assertAllLabels(tracker)\n}\n",
+            "caller": b'package governedaction_test\nimport (\n\t"github.com/achirothmane/aegis-ege/governedaction/taintflow"\n)\nfunc corpus() { taintflow.New(); assertOriginalCorpus() }\n',
+            "readme": b"Historical model scope.\n",
+        }
+        self.tree = {path: ("100644", "blob", blob) for path, blob in
+                     (("taintflow/tracker.go", "model"), ("taintflow/tracker_test.go", "checks"),
+                      ("origin_corpus_test.go", "caller"), ("README.md", "readme"))}
+        self.blobs["model-test"] = self.blobs["model"].replace(b"package taintflow", b"package governedaction_test").replace(b"func New(", b"func newTaintTracker(")
+        self.blobs["checks-test"] = self.blobs["checks"].replace(b"package taintflow", b"package governedaction_test").replace(b" := New(", b" := newTaintTracker(")
+        self.blobs["caller-new"] = self.blobs["caller"].replace(b'\t"github.com/achirothmane/aegis-ege/governedaction/taintflow"\n', b"").replace(b"taintflow.New(", b"newTaintTracker(")
+        self.blobs["readme-new"] = self.blobs["readme"] + b"Now test-only.\n"
+        self.data = {"schema_version": "aegis.kernel-fixture-demotion/v1", "moves": [
+            {"baseline_path": "taintflow/tracker.go", "baseline_blob": "model", "test_only_path": "taint_fixture_test.go", "test_only_blob": "model-test"},
+            {"baseline_path": "taintflow/tracker_test.go", "baseline_blob": "checks", "test_only_path": "taint_fixture_checks_test.go", "test_only_blob": "checks-test"}],
+            "corpus_caller": {"path": "origin_corpus_test.go", "baseline_blob": "caller", "current_blob": "caller-new"},
+            "documentation": {"path": "README.md", "baseline_blob": "readme", "current_blob": "readme-new"}}
+        self.expected = {"taint_fixture_test.go": ("100644", "blob", "model-test"),
+                         "taint_fixture_checks_test.go": ("100644", "blob", "checks-test"),
+                         "origin_corpus_test.go": ("100644", "blob", "caller-new"), "README.md": ("100644", "blob", "readme-new")}
+        self.data["production_measurements"] = {"before": production_size(self.tree, self.blobs.__getitem__),
+                                                "after": production_size(self.expected, self.blobs.__getitem__)}
+
+    def check(self, data=None):
+        return verify_fixture_demotion(self.tree, data or self.data, self.blobs.__getitem__)
+
+    def test_only_exact_model_and_test_moves_pass(self):
+        self.assertEqual(self.check(), self.expected)
+        self.assertEqual(self.data["production_measurements"]["after"]["files"], 0)
+
+    def test_model_or_original_test_edit_fails_even_when_registered(self):
+        for key in ("model-test", "checks-test"):
+            raw = self.blobs[key]
+            self.blobs[key] = raw + b"// changed fixture\n"
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.check()
+            self.blobs[key] = raw
+
+    def test_production_destination_unknown_move_and_missing_tests_fail(self):
+        for change in ("production", "unknown", "missing"):
+            data = deepcopy(self.data)
+            if change == "production":
+                data["moves"][0]["test_only_path"] = "taint_fixture.go"
+            elif change == "unknown":
+                data["moves"][0]["baseline_path"] = "taint.go"
+            else:
+                data["moves"].pop()
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.check(data)
+
+    def test_corpus_assertions_cannot_be_rewritten(self):
+        self.blobs["caller-new"] = self.blobs["caller-new"].replace(b"assertOriginalCorpus()", b"acceptEverything()")
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_historical_documentation_cannot_be_replaced(self):
+        self.blobs["readme-new"] = b"New scope replaces old evidence.\n"
+        with self.assertRaises(ValueError):
+            self.check()
+
+    def test_baseline_repin_and_false_measurement_fail(self):
+        for change in ("baseline", "measurement"):
+            data = deepcopy(self.data)
+            if change == "baseline":
+                data["moves"][0]["baseline_blob"] = "checks"
+            else:
+                data["production_measurements"]["after"]["files"] = 1
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.check(data)
 
 
 if __name__ == "__main__":

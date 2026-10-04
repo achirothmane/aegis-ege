@@ -5,11 +5,14 @@ not runtime logic, a replacement verifier, or a formal/native assurance claim.
 """
 
 import argparse
+import io
 import json
 import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 
-from verify_kernel_shrink import registration
+from verify_kernel_shrink import fixture_registration, registration
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,18 +45,53 @@ def traces(raw):
     return rows
 
 
+def test_outcomes(raw):
+    events = [json.loads(line) for line in raw.decode().splitlines() if line.startswith("{")]
+    if any(e["Action"] in {"skip", "fail"} for e in events):
+        raise RuntimeError("fixture preservation suite skipped or failed")
+    # Only the package namespace moves; preserve every original test/subtest.
+    return sorted(e["Test"] for e in events if e["Action"] == "pass" and "Test" in e)
+
+
+def replay_fixture_demotion(data, current, out):
+    with tempfile.TemporaryDirectory(dir=out) as temporary:
+        archived = subprocess.check_output(["git", "archive", data["baseline_source_head"] + ":governedaction"], cwd=ROOT)
+        with tarfile.open(fileobj=io.BytesIO(archived)) as archive:
+            archive.extractall(temporary, filter="data")
+        baseline = run(["go", "test", "-race", "-mod=readonly", "-count=1", "-json", "./..."],
+                       out / "fixture-baseline-tests.jsonl", Path(temporary))
+        packages = ["go", "list", "-mod=readonly", "./..."]
+        old = run(packages, out / "fixture-baseline-packages.txt", Path(temporary)).stdout.decode().splitlines()
+    new = run(packages, out / "fixture-current-packages.txt", ROOT / "governedaction").stdout.decode().splitlines()
+    retired = "github.com/achirothmane/aegis-ege/governedaction/taintflow"
+    if retired not in old or new != [package for package in old if package != retired]:
+        raise RuntimeError("demotion did not retire exactly the simulation package")
+    preserved = test_outcomes(baseline.stdout)
+    if not preserved or preserved != test_outcomes(current.stdout):
+        raise RuntimeError("fixture demotion changed the test corpus")
+    required = {"TestForkCopiesAllParentTaints", "TestFileOrIPCTransferPropagatesTaintMonotonically",
+                "TestTrackerRejectsUnknownLineage", "TestMuseClassCorpusRegistrationAndExecutableCases"}
+    if not required <= set(preserved):
+        raise RuntimeError("original fixture or M00-M15 corpus tests are missing")
+    run(["go", "build", "-mod=readonly", "./..."], out / "fixture-production-build.log", ROOT / "governedaction")
+    return {"baseline_source_head": data["baseline_source_head"], "race_test_outcomes_preserved": len(preserved),
+            "retired_production_package": retired, "production_measurements": data["production_measurements"]}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     out = Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    data, _ = registration()
+    data, tree = registration()
+    demotion = fixture_registration(data, tree)
     paths = ["governedaction/" + item["path"] for item in data["replacements"]]
     current = {p: (ROOT / p).read_bytes() for p in paths}
     command = ["go", "test", "-mod=readonly", "-count=1", "-json", "./experiments/kernelshrink"]
     reduced = run(command, out / "reduced-traces.jsonl")
-    run(["go", "test", "-race", "-mod=readonly", "-count=1", "./..."], out / "reduced-runtime.log", ROOT / "governedaction")
+    current_runtime = run(["go", "test", "-race", "-mod=readonly", "-count=1", "-json", "./..."], out / "reduced-runtime.jsonl", ROOT / "governedaction")
+    fixture = replay_fixture_demotion(demotion, current_runtime, out)
     try:
         for p in paths:
             old = subprocess.check_output(["git", "show", data["baseline_source_head"] + ":" + p], cwd=ROOT)
@@ -105,7 +143,7 @@ def main():
     for p, raw in current.items():
         if (ROOT / p).read_bytes() != raw:
             raise RuntimeError(f"source restoration failed: {p}")
-    summary = {"schema_version": "aegis.kernel-shrink-result/v1", "baseline_source_head": data["baseline_source_head"], "equivalent_traces": len(traces(reduced.stdout)), "baseline_runtime_passed": True, "reduced_runtime_passed": True, "independent_verifier_passed": True, "killed_mutations": killed, "measurements": data["measurements"], "native_assurance": "separate constitutional CI corpus required", "irreducible_core_objects_proven": False}
+    summary = {"schema_version": "aegis.kernel-shrink-result/v1", "baseline_source_head": data["baseline_source_head"], "equivalent_traces": len(traces(reduced.stdout)), "baseline_runtime_passed": True, "reduced_runtime_passed": True, "independent_verifier_passed": True, "killed_mutations": killed, "measurements": data["measurements"], "fixture_demotion": fixture, "native_assurance": "separate constitutional CI corpus required", "irreducible_core_objects_proven": False}
     (out / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"PASS: {summary['equivalent_traces']} identical baseline/reduced traces; {len(killed)} binding counterexamples retained; exact source restored")
 
