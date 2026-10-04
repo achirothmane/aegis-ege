@@ -113,7 +113,11 @@ func TestPostgresCompositeACPSeparatingCube(t *testing.T) {
 				t.Fatalf("truth/claim/history dimensions were conflated: %+v", report)
 			}
 			if root := os.Getenv("COMPOSITE_ARTIFACT_DIR"); root != "" {
-				writeCompositeJSON(t, filepath.Join(root, "acp-cube", name+".json"), struct {
+				dir := filepath.Join(root, "acp-cube")
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				writeCompositeJSON(t, filepath.Join(dir, name+".json"), struct {
 					Coordinates acpCoordinates `json:"coordinates"`
 					Destination v.Destination  `json:"native_facts"`
 					Report      v.Report       `json:"independent_report"`
