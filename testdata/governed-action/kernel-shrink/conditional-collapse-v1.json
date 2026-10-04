@@ -16,7 +16,7 @@
   },
   "source_pins": {
     "experiments/gosmig-simulation/conditional_collapse_test.go": "7669326507f693c5a1eafa1d7dbb43ad5de3b75e",
-    "internal/kubeadapter/acp_conditional_collapse_integration_test.go": "c81bfb2c7a48cf1057e662486bd54be89df3ab45",
+    "internal/kubeadapter/acp_conditional_collapse_integration_test.go": "a59c31ac99880f696fb1411169723ae7ce8d1efa",
     "cmd/github-rerun-proof/conditional_collapse_test.go": "c327a509f1a952d5f5010bc82e94ccca906c8c66",
     "evidenceverify/claim_coordinates_test.go": "ac54e46d008954219466654ee9c56479e5ffa9fc",
     "experiments/acpbasis/model.py": "8cc7811d2cfe91033537744073e8c983a19c9e22",

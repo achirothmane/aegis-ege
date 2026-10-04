@@ -156,6 +156,9 @@ This cycle does not claim the offline verifier enforces wall-clock freshness.
 
 No domain semantics were added to the production kernel. Differences in
 realization are allowed; every domain is not forced into PostgreSQL's certificate.
+Kubernetes's C truth is known from the supervised actual invocation, cross-checked
+against its native commit version. Retained custody by itself is not a causal
+certificate, and the experiment does not reinterpret #239 to make it one.
 
 ## Prior-art challenge
 

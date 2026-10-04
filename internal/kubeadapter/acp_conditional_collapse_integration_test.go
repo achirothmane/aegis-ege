@@ -83,7 +83,9 @@ func TestKindACPConditionalCollapse(t *testing.T) {
 			}
 			coords := [3]bool{
 				committed.Data[kubeFenceAuthorityActive] == "true" && committed.Annotations[kubeFenceAdmissionBinding] == claim.Admission.BindingDigest,
-				custody.AttemptID == claim.AttemptID && custody.Owner.Equal(claim.Executor),
+				// The supervisor knows which exact request actually drove this
+				// native write. Custody alone is not a causal receipt (#239).
+				actual.AttemptID == claim.AttemptID && actual.Executor.Equal(claim.Executor),
 				current.Equal(claim.Transition.To),
 			}
 			if coords != ([3]bool{mask&4 != 0, mask&2 != 0, mask&1 != 0}) || kubeNativeEffectCount(t, a) != 1 {
@@ -92,11 +94,12 @@ func TestKindACPConditionalCollapse(t *testing.T) {
 			result := struct {
 				Coordinates       [3]bool           `json:"coordinates_A_C_P"`
 				ActualCommit      *corev1.ConfigMap `json:"actual_native_commit_version"`
+				ActualRequest     r.Request         `json:"supervised_actual_request"`
 				Current           r.State           `json:"current_state"`
 				ExactEffectOracle bool              `json:"exact_effect_truth_oracle"`
 				PortableProfile   string            `json:"portable_verifier_profile"`
 				Retry             string            `json:"retry"`
-			}{coords, committed, current, coords[0] && coords[1] && coords[2], "UNSUPPORTED: do not manufacture a PostgreSQL certificate", "no replay; effect already exists"}
+			}{coords, committed, actual, current, coords[0] && coords[1] && coords[2], "UNSUPPORTED: do not manufacture a PostgreSQL certificate", "no replay; effect already exists"}
 			raw, err := json.MarshalIndent(result, "", "  ")
 			if err != nil {
 				t.Fatal(err)
