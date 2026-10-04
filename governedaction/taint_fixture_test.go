@@ -12,9 +12,9 @@ import (
 
 var (
 	ErrMissingReference = errors.New("taint-flow reference is required")
-	ErrUnknownProcess    = errors.New("taint-flow process is unknown")
-	ErrUnknownChannel    = errors.New("taint-flow channel is unknown")
-	ErrInvalidLabel      = errors.New("taint-flow label is invalid")
+	ErrUnknownProcess   = errors.New("taint-flow process is unknown")
+	ErrUnknownChannel   = errors.New("taint-flow channel is unknown")
+	ErrInvalidLabel     = errors.New("taint-flow label is invalid")
 )
 
 // Tracker is a monotonic in-memory taint propagation model used only by the

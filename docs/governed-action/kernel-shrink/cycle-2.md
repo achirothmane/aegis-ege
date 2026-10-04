@@ -33,8 +33,9 @@ Muse-class test corpus. The entire model now resides in
 `governedaction/taint_fixture_test.go`; its three original tests reside in
 `governedaction/taint_fixture_checks_test.go`.
 
-The only model changes are its test-package namespace and private constructor
-name. The corpus loses one import and calls that constructor directly. Fork,
+The only model changes are its test-package namespace, private constructor
+name and three gofmt column alignments. The corpus loses one import and calls
+that constructor directly. Fork,
 write/read propagation, error identities, locking and label ordering are
 unchanged. All sixteen M00-M15 cases retain their original classifications.
 
@@ -54,7 +55,8 @@ is unchanged. No claim is made about unobserved external consumers.
 The new [fixture registration](../../../testdata/governed-action/kernel-shrink/fixture-demotion-v1.json)
 pins the exact old/new files and production measurements. The source checker
 first validates the immutable historical baselines and the complete #237 module.
-It then permits only these two byte-preserving test moves, the exact caller
+It then permits only these two source-preserving test moves (including the three
+explicit column alignments), the exact caller
 namespace change and an append-only README note. All other module entries must
 match. Six new checker tests reject altered model/test bodies, a production
 destination, missing original tests, changed corpus assertions, rewritten
@@ -88,7 +90,8 @@ future changes anywhere in the module trigger the composite assurance gate.
 The 170 production lines move into the test suite, rather than disappearing
 from the repository. Proof tooling also grows: 70 added source-checker lines,
 42 replay-harness lines and 76 checker-test lines, with small CI updates.
-Those costs are separate from production measurements. No runtime dependency,
+Four additional checker lines constrain the historical gofmt correction. Those
+costs are separate from production measurements. No runtime dependency,
 privilege, adapter requirement or semantic primitive is added.
 
 ## Stopping decision

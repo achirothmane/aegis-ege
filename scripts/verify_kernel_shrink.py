@@ -52,6 +52,10 @@ def verify_fixture_demotion(tree, data, read_blob):
         raw = read_blob(old[2])
         renamed = raw.replace(b"package taintflow\n", b"package governedaction_test\n")
         renamed = renamed.replace(pairs[path][1], pairs[path][2])
+        # The historical subpackage was outside D04's root-file format check.
+        # Permit only its three known gofmt column corrections, not token edits.
+        for name in (b"ErrUnknownProcess   ", b"ErrUnknownChannel   ", b"ErrInvalidLabel     "):
+            renamed = renamed.replace(b"\t" + name + b" =", b"\t" + name + b"=")
         if read_blob(new[2]) != renamed:
             raise ValueError("fixture move changed the model or its tests")
         del expected[path]

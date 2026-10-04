@@ -107,7 +107,8 @@ KinD integration tests. See [D04 scope and evidence](../docs/governed-action/d04
 The historical `governedaction/taintflow` simulation package described above is
 now a test-only fixture in `taint_fixture_test.go`. Its complete propagation
 algorithm, three original tracker tests and all M00-M15 corpus cases are retained;
-only the test namespace and constructor name change. Normal module builds no
+only the test namespace, constructor name and three gofmt columns change. Normal
+module builds no
 longer compile or expose the simulation package. `CheckTaintEgress` and every
 execution/recovery API remain unchanged. This retires an experimental simulation
 import path; it does not remove a trusted production monitor or prove complete

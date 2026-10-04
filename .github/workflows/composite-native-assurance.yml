@@ -50,7 +50,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_verify*kernel*.py' -v
           python3 scripts/verify_kernel_shrink.py
-          test -z "$(gofmt -l governedaction experiments/kernelshrink evidenceverify/shrink_test.go)"
+          test -z "$(gofmt -l governedaction/*.go governedaction/runtime/runtime.go governedaction/runtime/recovery.go governedaction/runtime/fenced.go experiments/kernelshrink evidenceverify/shrink_test.go)"
       - name: Differential replay and binding elimination counterexamples
         run: |
           set -euo pipefail

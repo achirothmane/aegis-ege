@@ -11,7 +11,7 @@
       "baseline_path": "taintflow/tracker.go",
       "baseline_blob": "8e545215de7123c02609b660bb88b847ab373356",
       "test_only_path": "taint_fixture_test.go",
-      "test_only_blob": "5265e56afb0a2eb7b41a0f2d63c624858397c446"
+      "test_only_blob": "1a3fa8ca4de4089ed5a31fdd124dbf562023faa2"
     },
     {
       "baseline_path": "taintflow/tracker_test.go",
@@ -28,7 +28,7 @@
   "documentation": {
     "path": "README.md",
     "baseline_blob": "5f71cf9e41de27278590a6fe3613f8a902d0f92a",
-    "current_blob": "c6d1dd977ada55efc8c97287dd3d9bfdb7708a7b"
+    "current_blob": "66f86aead92c998c8c029ce4d1f9d0d467932201"
   },
   "production_measurements": {
     "before": {
