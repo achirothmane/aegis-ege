@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "checks": 16,
+  "profiles": 16,
+  "finiteStates": 12288,
+  "scenarios": 23,
+  "retainedPairFunctionTests": 768,
+  "byteIdenticalRepeatRun": true
+}

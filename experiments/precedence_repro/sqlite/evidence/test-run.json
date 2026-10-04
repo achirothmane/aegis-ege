@@ -1,0 +1,16 @@
+{
+  "command": "python -m unittest -v test_sqlite",
+  "evidence_origin": "Actual unittest output from completed native test run; metadata recorded after the run.",
+  "exit_code": 0,
+  "reported_elapsed_seconds": 4.3,
+  "result": "OK",
+  "source_sha256": {
+    "crash_worker.py": "bc1de00354bffe7d37288173a60f22c759eeb79bd93baa63b67813461736f0b2",
+    "explore.py": "836420d0bc8bf795d50df3215c15d9fde172407ca19e8bdb4cfffca3f7d0d458",
+    "focused.py": "ec3bdbf3bc34e5bdcbfc899f0e060a401fea574d901bccc96b086d3671254742",
+    "oracle.py": "e718c9dccdc1a741bdc3eff212e94bfa71a786569145fa761f60c020acab62f4",
+    "sqlite_model.py": "e3b4cc36370ada23fe84b302a910a07b7f620de62b6a0db1615d10d28dc0c600",
+    "test_sqlite.py": "948e1ec4c3cdb4989368144df5820b3557807b34af7e3fa7ff55ff17489e8ccc"
+  },
+  "tests_run": 14
+}

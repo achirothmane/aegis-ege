@@ -1,0 +1,22 @@
+{
+  "schema": "cedar-chronicle-provenance-v1",
+  "semanticInput": "input-specification.md",
+  "semanticInputSha256": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac",
+  "runtime": "v24.19.0",
+  "construction": "Independently named finite event/history model in JavaScript, built only from frozen specification.",
+  "isolation": "No repository, prior implementation, helper, fixture, constructor, model oracle, report or other clean-room output was read. No external publication.",
+  "testCommand": "node checks.js",
+  "emitCommand": "node chronicle.js --out DIR",
+  "stdoutCommand": "node chronicle.js --stdout",
+  "verification": {
+    "ok": true,
+    "checks": 16,
+    "profiles": 16,
+    "finiteStates": 12288,
+    "scenarios": 23,
+    "retainedPairFunctionTests": 768,
+    "byteIdenticalRepeatRun": true
+  },
+  "frozenBeforeRootComparison": true,
+  "assumptions": "See results/analysis.json limits and results/report.md. Contract diagnostics explicitly vary surrounding obligations, not semantic truth axes."
+}

@@ -1,0 +1,169 @@
+{
+  "baseline_source_head": "271c40bbf46d75f8c3c09c04fe651195e572ab2b",
+  "comparison_contract": "Compare discovered corners and all possible retained-pair functions; state counts differ legitimately by abstraction. Preserve any disagreement.",
+  "constitutional_anchors": [
+    235,
+    236,
+    239,
+    240,
+    241,
+    242,
+    243
+  ],
+  "exclusions": [
+    "Aegis production/runtime packages",
+    "experiments/acpbasis implementation",
+    "Cycle 7 helpers and report",
+    "existing cube constructors",
+    "existing result oracles",
+    "existing expected-outcome fixtures",
+    "other producer code and results"
+  ],
+  "frozen_event_manifest": "experiments/precedence_repro/event_model/manifest.sha256",
+  "frozen_sqlite_manifest": "experiments/precedence_repro/sqlite/FREEZE.json",
+  "independence_limit": "Source/context independence in one orchestrated software run; not an external human laboratory or model-family independence.",
+  "interface_mapping_stage": "Parent-authored only after both producer freezes; never read by the independent producers.",
+  "isolation": "Two fresh-context agents received only the frozen semantic specification; no repository, prior model, fixture, oracle, report, other producer source or expected cube. Source and results frozen before parent comparison.",
+  "original_repository_preservation": "Every preexisting Git blob is checked against baseline before and after execution.",
+  "producers": [
+    {
+      "corners_path": [
+        "reachable_committed_corners_discovered"
+      ],
+      "cross_profile_mapping": {
+        "erasable:guard=0:sole=0": "erasable:authority=0:creator=0",
+        "erasable:guard=0:sole=1": "erasable:authority=0:creator=1",
+        "erasable:guard=1:sole=0": "erasable:authority=1:creator=0",
+        "erasable:guard=1:sole=1": "erasable:authority=1:creator=1",
+        "expiring:guard=0:sole=0": "expiring:authority=0:creator=0",
+        "expiring:guard=0:sole=1": "expiring:authority=0:creator=1",
+        "expiring:guard=1:sole=0": "expiring:authority=1:creator=0",
+        "expiring:guard=1:sole=1": "expiring:authority=1:creator=1",
+        "mutable:guard=0:sole=0": "mutable:authority=0:creator=0",
+        "mutable:guard=0:sole=1": "mutable:authority=0:creator=1",
+        "mutable:guard=1:sole=0": "mutable:authority=1:creator=0",
+        "mutable:guard=1:sole=1": "mutable:authority=1:creator=1",
+        "retained:guard=0:sole=0": "retained:authority=0:creator=0",
+        "retained:guard=0:sole=1": "retained:authority=0:creator=1",
+        "retained:guard=1:sole=0": "retained:authority=1:creator=0",
+        "retained:guard=1:sole=1": "retained:authority=1:creator=1"
+      },
+      "directory": "experiments/precedence_repro/sqlite",
+      "id": "sqlite",
+      "profile_mapping": {
+        "erasable:guard=0:sole=0": "immutable-event-erasure-enabled",
+        "expiring:guard=0:sole=0": "immutable-expiring-predicate",
+        "mutable:guard=0:sole=0": "mutable-open-boundary",
+        "mutable:guard=0:sole=1": "mutable-sole-origin",
+        "mutable:guard=1:sole=0": "mutable-atomic-fence",
+        "retained:guard=0:sole=0": "immutable-event",
+        "retained:guard=1:sole=1": "immutable-fenced-sole-origin"
+      },
+      "profiles_path": [
+        "exploration",
+        "profiles"
+      ],
+      "result_command": [
+        "python3",
+        "-B",
+        "explore.py",
+        "--output",
+        "{out}",
+        "--depth",
+        "5"
+      ],
+      "result_file": "results.json",
+      "test_command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_sqlite"
+      ]
+    },
+    {
+      "corners_path": [
+        "reachableCorners"
+      ],
+      "cross_profile_mapping": {
+        "atomic-exclusive-erasable": "erasable:authority=1:creator=1",
+        "atomic-exclusive-expiring": "expiring:authority=1:creator=1",
+        "atomic-exclusive-mutable": "mutable:authority=1:creator=1",
+        "atomic-exclusive-permanent": "retained:authority=1:creator=1",
+        "atomic-multiple-erasable": "erasable:authority=1:creator=0",
+        "atomic-multiple-expiring": "expiring:authority=1:creator=0",
+        "atomic-multiple-mutable": "mutable:authority=1:creator=0",
+        "atomic-multiple-permanent": "retained:authority=1:creator=0",
+        "open-exclusive-erasable": "erasable:authority=0:creator=1",
+        "open-exclusive-expiring": "expiring:authority=0:creator=1",
+        "open-exclusive-mutable": "mutable:authority=0:creator=1",
+        "open-exclusive-permanent": "retained:authority=0:creator=1",
+        "open-multiple-erasable": "erasable:authority=0:creator=0",
+        "open-multiple-expiring": "expiring:authority=0:creator=0",
+        "open-multiple-mutable": "mutable:authority=0:creator=0",
+        "open-multiple-permanent": "retained:authority=0:creator=0"
+      },
+      "directory": "experiments/precedence_repro/event_model",
+      "id": "event_model",
+      "profile_mapping": {
+        "atomic-exclusive-permanent": "immutable-fenced-sole-origin",
+        "atomic-multiple-mutable": "mutable-atomic-fence",
+        "open-exclusive-mutable": "mutable-sole-origin",
+        "open-multiple-erasable": "immutable-event-erasure-enabled",
+        "open-multiple-expiring": "immutable-expiring-predicate",
+        "open-multiple-mutable": "mutable-open-boundary",
+        "open-multiple-permanent": "immutable-event"
+      },
+      "profile_name_field": "profile.id",
+      "profiles_path": [
+        "experiments"
+      ],
+      "result_command": [
+        "node",
+        "chronicle.js",
+        "--out",
+        "{out}"
+      ],
+      "result_file": "analysis.json",
+      "test_command": [
+        "node",
+        "checks.js"
+      ]
+    }
+  ],
+  "schema": "aegis.independent-semantic-reproduction/v1",
+  "semantic_input": "experiments/precedence_repro/specification.md",
+  "source_sha256": {
+    ".github/workflows/independent-semantic-reproduction.yml": "d6f095542479e8a1933c4f259c52def2a24f4bec79332bd658f1fa818c273a1d",
+    "experiments/precedence_repro/README.md": "72af080b9480bff9e3d4164d3c7926b56d421c69c95c24212149b1dd1fcafde1",
+    "experiments/precedence_repro/event_model/README.md": "a46fa3a0307eb23ae1e3fe3a9f0145ceb5a7298cc79cf312407ef09735951cb9",
+    "experiments/precedence_repro/event_model/checks.js": "7871270ad47f89ef93041a79a681ca7ac83c8ca017812ea7e32a6cf062e485c0",
+    "experiments/precedence_repro/event_model/chronicle.js": "3873929f192bed80eed33b9de8c5551853b51492234576099fad3aba6313a8de",
+    "experiments/precedence_repro/event_model/input-specification.md": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac",
+    "experiments/precedence_repro/event_model/manifest.sha256": "c244257241ae3a67e86720a59f25da5331e3cad61fe11347c762054fdf4e59e7",
+    "experiments/precedence_repro/event_model/provenance.json": "8bc3ed7880d603db0fc4d5b79b6234ee044f3ece64a03486aac700cf3dddb934",
+    "experiments/precedence_repro/event_model/results/analysis.json": "08855a12817f13c3c2199f69ffb9e18071cf9a410da6211ccef28ab77db09769",
+    "experiments/precedence_repro/event_model/results/report.md": "2a09b29c3306858f31d809ddb9876bd7229907a7cfb735a8db583eb7c3ec7941",
+    "experiments/precedence_repro/event_model/results/trace-witnesses.json": "0603f4d7a108cf53052784c97875f008ddda4e2261de036327367725417dc859",
+    "experiments/precedence_repro/event_model/verification.json": "790c724b8938cc711c3dfbce0eee00e91f80fcb7729786234deb23b13602fbdd",
+    "experiments/precedence_repro/specification.md": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac",
+    "experiments/precedence_repro/sqlite/FREEZE.json": "2b26b2ff944d061f469bb26e00e281d84069ce6d266545f9bfc034bba2a03430",
+    "experiments/precedence_repro/sqlite/README.md": "d96aaf664c92a34fd267f071a03f04dfa1c21d332497f57593504bced5783f71",
+    "experiments/precedence_repro/sqlite/SHA256SUMS": "8fad460e3e5f586ecfcf1b5942c8fd434ef7985f788c4e7fdbaf250c09d034f5",
+    "experiments/precedence_repro/sqlite/crash_worker.py": "bc1de00354bffe7d37288173a60f22c759eeb79bd93baa63b67813461736f0b2",
+    "experiments/precedence_repro/sqlite/evidence/report.md": "d05df88ddd1e0d923de3b15359cfcc095d6acfff75db13c4f3b045889d5b8242",
+    "experiments/precedence_repro/sqlite/evidence/results.json": "ec428ba3887ea8944c4ce6c77a7f0ba3422db0e1529ece1012ca63905403494d",
+    "experiments/precedence_repro/sqlite/evidence/test-run.json": "5d8b195a3e997076c364b168147f38337f7fd49b7698b8cfc246d3493c1e5b11",
+    "experiments/precedence_repro/sqlite/explore.py": "836420d0bc8bf795d50df3215c15d9fde172407ca19e8bdb4cfffca3f7d0d458",
+    "experiments/precedence_repro/sqlite/focused.py": "ec3bdbf3bc34e5bdcbfc899f0e060a401fea574d901bccc96b086d3671254742",
+    "experiments/precedence_repro/sqlite/oracle.py": "e718c9dccdc1a741bdc3eff212e94bfa71a786569145fa761f60c020acab62f4",
+    "experiments/precedence_repro/sqlite/specification.md": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac",
+    "experiments/precedence_repro/sqlite/sqlite_model.py": "e3b4cc36370ada23fe84b302a910a07b7f620de62b6a0db1615d10d28dc0c600",
+    "experiments/precedence_repro/sqlite/test_sqlite.py": "948e1ec4c3cdb4989368144df5820b3557807b34af7e3fa7ff55ff17489e8ccc",
+    "experiments/precedence_repro/substitute.py": "ce739a6817e3bff32e3b8caea0cf069c8031d5c2dc2879c6ba831a31cbb5b58f",
+    "experiments/precedence_repro/test_substitute.py": "e9978bf75187438e8e3a879af92f7de9d34d4f21dec6d8dc92c51d035ee029f5",
+    "scripts/run_independent_reproduction.py": "959132217dbf6992e35daca9e20f899be37636994dc66f1cc06c1dcf1dda6599"
+  },
+  "specification_sha256": "50e59249ff4fa50300ec9df39228b960acaf1a5e6a01513b1f3d8452f1ae12ac"
+}
