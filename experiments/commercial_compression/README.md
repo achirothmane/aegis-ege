@@ -56,7 +56,9 @@ private fixture seed, existing journal or previous evidence is required.
    recovery retry. No new root, role, configuration schema or reconciliation code
    is added. Both ordinary and Aegis implementations reuse equally.
 
-There are eight first-effect steps for A and nine for B (step 4 is B-only).
+There are seven numbered first-effect setup stages for A and eight for B
+(step 4 is B-only). B also performs the additional pinned-source checkout within
+stage 2; count that command separately when comparing executable commands.
 Step 9 is the marginal second operation, not first-effect setup. Commands wrapped
 by the runner are still counted. The initial infrastructure provisioning interval
 is recorded separately and must be added to either variant's clean setup interval
@@ -96,3 +98,7 @@ Public output contains signed evidence, public roots, questions, result reports,
 timings and source counts. Never upload `compression-state` kubeconfig files,
 `compression-private` credentials, or the clean workspace `private` directories.
 Cleanup: `kind delete cluster --name compression-test`.
+
+The corpus includes three shared evidence controls and five B-only mapping/wire
+controls. The frozen registration remains unchanged; all corrections and the
+seven timing-only source exclusions are listed in [AMENDMENTS.md](AMENDMENTS.md).

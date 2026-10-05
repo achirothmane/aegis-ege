@@ -1,6 +1,6 @@
 """Customer recovery contract; Aegis does not supply the native recovery driver."""
 
-import time
+import time  # MEASUREMENT_ONLY
 import uuid
 
 import ordinary
@@ -8,22 +8,55 @@ from collector import observe
 from integration import rejected
 
 
-def recover(journal, logical_id, owner, reader, audit_path, key, root, variant,
-            binary=None, unavailable=False, claim=None):
+def recover(
+    journal,
+    logical_id,
+    owner,
+    reader,
+    audit_path,
+    key,
+    root,
+    variant,
+    binary=None,
+    unavailable=False,
+    claim=None,
+):
     if not journal.takeover(logical_id, owner):
-        return rejected("another recovery owner won the durable CAS"), {"owner_won": False}
-    return reconcile(journal, logical_id, reader, audit_path, key, root, variant,
-                     binary, unavailable, claim)
+        return rejected("another recovery owner won the durable CAS"), {
+            "owner_won": False
+        }
+    return reconcile(
+        journal,
+        logical_id,
+        reader,
+        audit_path,
+        key,
+        root,
+        variant,
+        binary,
+        unavailable,
+        claim,
+    )
 
 
-def reconcile(journal, logical_id, reader, audit_path, key, root, variant,
-              binary=None, unavailable=False, claim=None):
-    started = time.monotonic_ns()
+def reconcile(
+    journal,
+    logical_id,
+    reader,
+    audit_path,
+    key,
+    root,
+    variant,
+    binary=None,
+    unavailable=False,
+    claim=None,
+):
+    started = time.monotonic_ns()  # MEASUREMENT_ONLY
     retained = journal.load(logical_id)
     question = retained["question"]
     challenge = str(uuid.uuid4())
     envelope = observe(reader, audit_path, question, challenge, key, unavailable, claim)
-    collected = time.monotonic_ns()
+    collected = time.monotonic_ns()  # MEASUREMENT_ONLY
     package = None
     if variant == "aegis":
         import aegis
@@ -32,13 +65,16 @@ def reconcile(journal, logical_id, reader, audit_path, key, root, variant,
         result = aegis.assess(envelope, question, root, challenge, package, binary)
     else:
         result = ordinary.assess(envelope, question, root, challenge)
-    finished = time.monotonic_ns()
+    finished = time.monotonic_ns()  # MEASUREMENT_ONLY
     # A justified UNKNOWN is retained as knowledge, never a workflow success.
     journal.complete(logical_id, result)
     return result, {
-        "owner_won": True, "collection_ms": (collected - started) / 1e6,
-        "judgment_ms": (finished - collected) / 1e6,
-        "total_ms": (finished - started) / 1e6,
-        "envelope": envelope, "question": question, "challenge": challenge,
+        "owner_won": True,
+        "collection_ms": (collected - started) / 1e6,  # MEASUREMENT_ONLY
+        "judgment_ms": (finished - collected) / 1e6,  # MEASUREMENT_ONLY
+        "total_ms": (finished - started) / 1e6,  # MEASUREMENT_ONLY
+        "envelope": envelope,
+        "question": question,
+        "challenge": challenge,
         "package": package,
     }

@@ -30,13 +30,19 @@ def assess(envelope, question, root, challenge):
         reason = (
             "exact authorized native commit and fresh required image"
             if closed
-            else "no single winning audit commit"
-            if record is None
-            else "a different attempt/executor won"
-            if not exact
-            else "authority at commit is unsupported"
-            if not authority
-            else "current required image is false or unavailable"
+            else (
+                "no single winning audit commit"
+                if record is None
+                else (
+                    "a different attempt/executor won"
+                    if not exact
+                    else (
+                        "authority at commit is unsupported"
+                        if not authority
+                        else "current required image is false or unavailable"
+                    )
+                )
+            )
         )
         return {
             "closure": "CLOSED" if closed else "UNKNOWN",

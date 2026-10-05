@@ -51,6 +51,9 @@ class Journal:
     def complete(self, effect, result):
         self.db.execute(
             "UPDATE step SET status=?,result=? WHERE id=?",
-            ("completed" if result["closure"] == "CLOSED" else "observed_unknown",
-             json.dumps(result), effect),
+            (
+                "completed" if result["closure"] == "CLOSED" else "observed_unknown",
+                json.dumps(result),
+                effect,
+            ),
         )

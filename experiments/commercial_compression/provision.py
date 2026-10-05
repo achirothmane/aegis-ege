@@ -45,35 +45,79 @@ def main():
     admin = state / "admin-kubeconfig.yaml"
     start = time.monotonic()
     subprocess.run(
-        ["kind", "create", "cluster", "--name", args.name, "--config", str(config),
-         "--kubeconfig", str(admin), "--wait", "60s"], check=True,
+        [
+            "kind",
+            "create",
+            "cluster",
+            "--name",
+            args.name,
+            "--config",
+            str(config),
+            "--kubeconfig",
+            str(admin),
+            "--wait",
+            "60s",
+        ],
+        check=True,
     )
     subprocess.run(
-        ["docker", "exec", args.name + "-control-plane", "chmod", "0644",
-         "/var/log/compression/audit.log"], check=True,
+        [
+            "docker",
+            "exec",
+            args.name + "-control-plane",
+            "chmod",
+            "0644",
+            "/var/log/compression/audit.log",
+        ],
+        check=True,
     )
     for name in ("admission.json", "admission-binding.json"):
         subprocess.run(
-            ["kubectl", "--kubeconfig", str(admin), "apply", "-f",
-             str(Path(__file__).parent / name)], check=True,
+            [
+                "kubectl",
+                "--kubeconfig",
+                str(admin),
+                "apply",
+                "-f",
+                str(Path(__file__).parent / name),
+            ],
+            check=True,
         )
     status = subprocess.run(
-        ["kubectl", "--kubeconfig", str(admin), "get", "validatingadmissionpolicy",
-         "commercial-compression-image-fence", "-o", "json"],
-        capture_output=True, text=True, check=True,
+        [
+            "kubectl",
+            "--kubeconfig",
+            str(admin),
+            "get",
+            "validatingadmissionpolicy",
+            "commercial-compression-image-fence",
+            "-o",
+            "json",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     data = json.loads(status.stdout)
-    warnings = data.get("status", {}).get("typeChecking", {}).get("expressionWarnings", [])
+    warnings = (
+        data.get("status", {}).get("typeChecking", {}).get("expressionWarnings", [])
+    )
     if warnings:
         raise RuntimeError("admission policy warnings: " + json.dumps(warnings))
     metadata = {
-        "cluster": args.name, "provision_seconds": time.monotonic() - start,
-        "audit_mode": "blocking", "audit_level": "RequestResponse",
+        "cluster": args.name,
+        "provision_seconds": time.monotonic() - start,
+        "audit_mode": "blocking",
+        "audit_level": "RequestResponse",
         "audit_file": str(audit / "audit.log"),
-        "kubectl_version": json.loads(subprocess.run(
-            ["kubectl", "--kubeconfig", str(admin), "version", "-o", "json"],
-            check=True, capture_output=True, text=True,
-        ).stdout),
+        "kubectl_version": json.loads(
+            subprocess.run(
+                ["kubectl", "--kubeconfig", str(admin), "version", "-o", "json"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+        ),
     }
     (state / "provision.json").write_text(json.dumps(metadata, indent=2))
 

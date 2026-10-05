@@ -61,9 +61,7 @@ def open_evidence(envelope, question, root, challenge):
         if not isinstance(patch, list):
             continue
         tests = {p["path"]: p["value"] for p in patch if p["op"] == "test"}
-        writes = {
-            p["path"]: p["value"] for p in patch if p["op"] in ("add", "replace")
-        }
+        writes = {p["path"]: p["value"] for p in patch if p["op"] in ("add", "replace")}
         if writes.get(PREFIX + "effect") != question["logical_id"]:
             continue
         image_path = "/spec/template/spec/containers/0/image"
@@ -88,7 +86,9 @@ def open_evidence(envelope, question, root, challenge):
             or response["spec"]["template"]["spec"]["containers"][0]["image"]
             != writes.get(image_path)
         ):
-            raise ValueError("audit authenticated winner and physical response disagree")
+            raise ValueError(
+                "audit authenticated winner and physical response disagree"
+            )
         records[event["auditID"]] = {
             "effect": writes[PREFIX + "effect"],
             "attempt": writes[PREFIX + "attempt"],

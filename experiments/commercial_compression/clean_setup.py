@@ -12,8 +12,9 @@ from pathlib import Path
 
 
 def execute(args, env=None, cwd=None):
-    result = subprocess.run(args, env=env, cwd=cwd, capture_output=True, text=True,
-                            timeout=180)
+    result = subprocess.run(
+        args, env=env, cwd=cwd, capture_output=True, text=True, timeout=180
+    )
     if result.returncode:
         raise RuntimeError(result.stderr)
     return result.stdout
@@ -41,31 +42,53 @@ def worker(args):
     journal.issue(q, frozen_patch(q))
     emitted = writer.patch(q["name"], frozen_patch(q))
     assert emitted["accepted"], emitted
-    first, first_data = recover(journal, q["logical_id"], "successor", reader,
-                                args.audit, key, root, args.variant, args.binary)
+    first, first_data = recover(
+        journal,
+        q["logical_id"],
+        "successor",
+        reader,
+        args.audit,
+        key,
+        root,
+        args.variant,
+        args.binary,
+    )
     assert first["closure"] == "CLOSED", first
     first_finished = time.monotonic()
     first_seconds = first_finished - started
     second_start = time.monotonic()
     # No new checker, recovery function, destination settings, root or permissions.
-    second_q = question(admin.get(q["name"]), args.namespace, q["before_image"],
-                        "worker-1", "rollback")
+    second_q = question(
+        admin.get(q["name"]), args.namespace, q["before_image"], "worker-1", "rollback"
+    )
     second_journal = Journal(args.workspace / "operation2.sqlite")
     second_journal.issue(second_q, frozen_patch(second_q))
     emitted = writer.patch(q["name"], frozen_patch(second_q))
     assert emitted["accepted"], emitted
-    second, second_data = recover(second_journal, second_q["logical_id"], "successor",
-                                  reader, args.audit, key, root, args.variant, args.binary)
+    second, second_data = recover(
+        second_journal,
+        second_q["logical_id"],
+        "successor",
+        reader,
+        args.audit,
+        key,
+        root,
+        args.variant,
+        args.binary,
+    )
     assert second["closure"] == "CLOSED", second
     data = {
-        "variant": args.variant, "namespace": args.namespace,
+        "variant": args.variant,
+        "namespace": args.namespace,
         "first_effect_setup_and_execution_seconds": first_seconds,
         "first_effect_finished_monotonic": first_finished,
         "second_operation_seconds": time.monotonic() - second_start,
-        "first_result": first, "second_result": second,
+        "first_result": first,
+        "second_result": second,
         "first_recovery_ms": first_data["total_ms"],
         "second_recovery_ms": second_data["total_ms"],
-        "second_new_custom_loc": 0, "second_new_destination_settings": 0,
+        "second_new_custom_loc": 0,
+        "second_new_destination_settings": 0,
         "second_changed_operator_inputs": ["image", "operation_label"],
         "python_prefix": sys.prefix,
         "ambiguities": [],
@@ -75,7 +98,9 @@ def worker(args):
     public.mkdir()
     for number, captured in ((1, first_data), (2, second_data)):
         for field in ("envelope", "question", "challenge", "package"):
-            (public / f"operation{number}-{field}.json").write_text(json.dumps(captured[field], indent=2))
+            (public / f"operation{number}-{field}.json").write_text(
+                json.dumps(captured[field], indent=2)
+            )
     (public / "root.json").write_text(json.dumps({"observer_root": root}))
 
 
@@ -96,8 +121,12 @@ def main():
         return
     args.out.mkdir(parents=True, exist_ok=True)
     samples = []
-    for variant, label in (("ordinary", "a1"), ("aegis", "b1"),
-                           ("aegis", "b2"), ("ordinary", "a2")):
+    for variant, label in (
+        ("ordinary", "a1"),
+        ("aegis", "b1"),
+        ("aegis", "b2"),
+        ("ordinary", "a2"),
+    ):
         start = time.monotonic()
         private_setups = args.out.parent.parent / "compression-clean-private"
         private_setups.mkdir(exist_ok=True)
@@ -115,8 +144,17 @@ def main():
         execute([sys.executable, "-m", "venv", str(venv)], env)
         python = venv / "bin/python"
         dependency_start = time.monotonic()
-        execute([str(python), "-m", "pip", "install", "--no-cache-dir",
-                 "cryptography==46.0.0"], env)
+        execute(
+            [
+                str(python),
+                "-m",
+                "pip",
+                "install",
+                "--no-cache-dir",
+                "cryptography==46.0.0",
+            ],
+            env,
+        )
         dependency_seconds = time.monotonic() - dependency_start
         build_seconds = 0.0
         binary = workspace / "aegis-evidence-inspect"
@@ -126,32 +164,75 @@ def main():
             env["GOCACHE"] = str(workspace / "fresh-go-cache")
             env["CGO_ENABLED"] = "0"
             build_start = time.monotonic()
-            execute(["go", "build", "-mod=readonly", "-trimpath", "-o", str(binary),
-                     "./cmd/aegis-evidence-inspect"], env, str(args.base))
+            execute(
+                [
+                    "go",
+                    "build",
+                    "-mod=readonly",
+                    "-trimpath",
+                    "-o",
+                    str(binary),
+                    "./cmd/aegis-evidence-inspect",
+                ],
+                env,
+                str(args.base),
+            )
             build_seconds = time.monotonic() - build_start
-        command = [str(python), "-B", str(kit / "clean_setup.py"), "--worker-stage",
-                   "--variant", variant, "--namespace", "compression-"+label,
-                   "--workspace", str(workspace), "--admin", str(args.admin.resolve()),
-                   "--audit", str(args.audit.resolve()), "--out", str(args.out.resolve())]
+        command = [
+            str(python),
+            "-B",
+            str(kit / "clean_setup.py"),
+            "--worker-stage",
+            "--variant",
+            variant,
+            "--namespace",
+            "compression-" + label,
+            "--workspace",
+            str(workspace),
+            "--admin",
+            str(args.admin.resolve()),
+            "--audit",
+            str(args.audit.resolve()),
+            "--out",
+            str(args.out.resolve()),
+        ]
         if variant == "aegis":
             command.extend(["--binary", str(binary)])
         execute(command, env, str(kit))
         data = json.loads((workspace / "measurements.json").read_text())
-        data.update({
-            "label": label, "total_clean_setup_seconds": time.monotonic() - start,
-            "total_clean_setup_to_first_effect_seconds": data["first_effect_finished_monotonic"] - start,
-            "dependency_install_seconds": dependency_seconds,
-            "fresh_go_build_seconds": build_seconds,
-            "source_copy": "fresh kit; new venv, namespace, journal, observer key and challenge",
-            "shared_prerequisites": "CI Python/Docker/kubectl/KinD; shared fresh control plane; Go for B",
-            "go_module_download_cache": "shared hosted-runner cache after initial pinned build",
-            "author_local_state_used": False,
-        })
+        data.update(
+            {
+                "label": label,
+                "total_clean_setup_seconds": time.monotonic() - start,
+                "total_clean_setup_to_first_effect_seconds": data[
+                    "first_effect_finished_monotonic"
+                ]
+                - start,
+                "dependency_install_seconds": dependency_seconds,
+                "fresh_go_build_seconds": build_seconds,
+                "source_copy": "fresh kit; new venv, namespace, journal, observer key and challenge",
+                "shared_prerequisites": "CI Python/Docker/kubectl/KinD; shared fresh control plane; Go for B",
+                "go_module_download_cache": "shared hosted-runner cache after initial pinned build",
+                "author_local_state_used": False,
+            }
+        )
         samples.append(data)
     (args.out / "setup-results.json").write_text(json.dumps(samples, indent=2))
-    print(json.dumps([{k: d[k] for k in ("label", "total_clean_setup_seconds",
-                                       "second_operation_seconds")}
-                      for d in samples]))
+    print(
+        json.dumps(
+            [
+                {
+                    k: d[k]
+                    for k in (
+                        "label",
+                        "total_clean_setup_seconds",
+                        "second_operation_seconds",
+                    )
+                }
+                for d in samples
+            ]
+        )
+    )
 
 
 if __name__ == "__main__":
