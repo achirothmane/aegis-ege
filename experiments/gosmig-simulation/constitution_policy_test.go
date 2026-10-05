@@ -19,28 +19,28 @@ import (
 
 type normativeCondition struct {
 	Field string `json:"field"`
-	Value bool `json:"value"`
+	Value bool   `json:"value"`
 }
 
 type normativeRule struct {
-	ID string `json:"id"`
-	Source string `json:"source"`
-	Kind string `json:"kind"`
+	ID         string               `json:"id"`
+	Source     string               `json:"source"`
+	Kind       string               `json:"kind"`
 	Conditions []normativeCondition `json:"conditions,omitempty"`
-	Minimum int `json:"minimum,omitempty"`
-	Threshold float64 `json:"threshold,omitempty"`
+	Minimum    int                  `json:"minimum,omitempty"`
+	Threshold  float64              `json:"threshold,omitempty"`
 }
 
 type normativePolicy struct {
-	ID string `json:"id"`
-	Source string `json:"source"`
-	Rules []normativeRule `json:"rules"`
+	ID     string          `json:"id"`
+	Source string          `json:"source"`
+	Rules  []normativeRule `json:"rules"`
 }
 
 type normativeSpecification struct {
-	Schema string `json:"schema"`
-	ConflictDisposition string `json:"conflict_disposition"`
-	Constitutions []normativePolicy `json:"constitutions"`
+	Schema              string            `json:"schema"`
+	ConflictDisposition string            `json:"conflict_disposition"`
+	Constitutions       []normativePolicy `json:"constitutions"`
 }
 
 // compileNormativePolicies is a small transparent DSL compiler. It validates
@@ -107,58 +107,58 @@ func normativePolicyHash(policy normativePolicy) string {
 }
 
 type normativeFacts struct {
-	RecordID string `json:"record_id"`
-	RequestBinding string `json:"request_binding"`
-	Before v.State `json:"before"`
-	AccountableOwner string `json:"accountable_owner"`
-	ControlRecord string `json:"control_record"`
-	Flags map[string]bool `json:"flags"`
-	Uncertainty float64 `json:"uncertainty"`
+	RecordID         string          `json:"record_id"`
+	RequestBinding   string          `json:"request_binding"`
+	Before           v.State         `json:"before"`
+	AccountableOwner string          `json:"accountable_owner"`
+	ControlRecord    string          `json:"control_record"`
+	Flags            map[string]bool `json:"flags"`
+	Uncertainty      float64         `json:"uncertainty"`
 }
 
 type normativeEvent struct {
-	Kind string `json:"kind"`
-	RequestBinding string `json:"request_binding"`
-	Before v.State `json:"before"`
-	FactsDigest string `json:"facts_digest"`
-	Sequence uint64 `json:"sequence"`
-	Uncertainty float64 `json:"uncertainty"`
-	Statement string `json:"statement"`
+	Kind           string  `json:"kind"`
+	RequestBinding string  `json:"request_binding"`
+	Before         v.State `json:"before"`
+	FactsDigest    string  `json:"facts_digest"`
+	Sequence       uint64  `json:"sequence"`
+	Uncertainty    float64 `json:"uncertainty"`
+	Statement      string  `json:"statement"`
 }
 
 type normativeRoot struct {
-	Role string `json:"role"`
-	Principal string `json:"principal"`
-	Key ed25519.PublicKey `json:"key"`
+	Role      string            `json:"role"`
+	Principal string            `json:"principal"`
+	Key       ed25519.PublicKey `json:"key"`
 }
 
 // These public roots are supplied by the relying party separately from both
 // policy and producer evidence. The translator has no root field.
 type normativeEvidence struct {
-	Facts []v.Envelope `json:"facts"`
+	Facts  []v.Envelope `json:"facts"`
 	Events []v.Envelope `json:"events"`
 }
 
 type normativeRuleResult struct {
-	ID string `json:"id"`
-	Source string `json:"source"`
-	Kind string `json:"kind"`
-	Outcome string `json:"outcome"`
-	Required int `json:"required,omitempty"`
+	ID              string   `json:"id"`
+	Source          string   `json:"source"`
+	Kind            string   `json:"kind"`
+	Outcome         string   `json:"outcome"`
+	Required        int      `json:"required,omitempty"`
 	ValidPrincipals []string `json:"valid_principals,omitempty"`
-	Witnesses []string `json:"witnesses,omitempty"`
+	Witnesses       []string `json:"witnesses,omitempty"`
 }
 
 type normativeEvaluation struct {
-	PolicyID string `json:"policy_id"`
-	PolicyHash string `json:"policy_hash"`
-	EvidenceDigest string `json:"evidence_digest"`
-	FactsDigest string `json:"facts_digest"`
-	AccountableOwner string `json:"accountable_owner"`
-	ControlRecord string `json:"control_record"`
-	Decision string `json:"decision"`
-	Rules []normativeRuleResult `json:"rules"`
-	Errors []string `json:"errors"`
+	PolicyID         string                `json:"policy_id"`
+	PolicyHash       string                `json:"policy_hash"`
+	EvidenceDigest   string                `json:"evidence_digest"`
+	FactsDigest      string                `json:"facts_digest"`
+	AccountableOwner string                `json:"accountable_owner"`
+	ControlRecord    string                `json:"control_record"`
+	Decision         string                `json:"decision"`
+	Rules            []normativeRuleResult `json:"rules"`
+	Errors           []string              `json:"errors"`
 }
 
 func normativeSigningBytes(role string, raw []byte) []byte {

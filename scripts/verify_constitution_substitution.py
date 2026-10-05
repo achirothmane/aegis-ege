@@ -133,6 +133,11 @@ def verify_results(directory):
             assert trial["commit_coordinates"] == "UNDEFINED_NO_COMMITTED_EFFECT"
         base = trial_root / trial["case"] / trial["constitution"]
         assert json.loads((base / "evaluation.json").read_text()) == json.loads((base / "independent-policy-replay.json").read_text())
+        if trial["case"] == "same-effect-identifiable-with-consent":
+            public_input = json.loads((base / "normative-input-public.json").read_text())
+            assert any(e["payload"]["kind"] == "consent"
+                       and e["payload"]["statement"] == "CONSENTED"
+                       for e in public_input["evidence"]["events"]), "synthetic privacy control lacks actual consent evidence"
     disagreements = []
     for name, rows in sorted(groups.items()):
         assert {r["constitution"] for r in rows} == {"A", "B", "T"}

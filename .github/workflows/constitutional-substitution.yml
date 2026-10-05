@@ -69,6 +69,7 @@ jobs:
           go mod download
           go mod verify
           gofmt -d constitution_policy_test.go constitution_native_test.go > "$COMPOSITE_ARTIFACT_DIR/formatting.diff"
+          test ! -s "$COMPOSITE_ARTIFACT_DIR/formatting.diff"
           go test -race -mod=readonly -count=1 -v -run '^Test(PostgresConstitution|NormativeIndependentReplay)' . | tee "$COMPOSITE_ARTIFACT_DIR/native-test.log"
           ! grep -q -- '--- SKIP:' "$COMPOSITE_ARTIFACT_DIR/native-test.log"
       - name: Verify complete native matrix, disagreements and unchanged semantics
