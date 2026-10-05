@@ -44,7 +44,8 @@ def count(path):
         ):
             lines.update(range(token.start[0], token.end[0] + 1))
     measurement_only = {
-        token.start[0] for token in tokenize.generate_tokens(io.StringIO(text).readline)
+        token.start[0]
+        for token in tokenize.generate_tokens(io.StringIO(text).readline)
         if token.type == tokenize.COMMENT and token.string == "# MEASUREMENT_ONLY"
     }
     return {
@@ -69,8 +70,10 @@ def main():
         "common_loc": shared,
         "ordinary_custom_loc": a,
         "aegis_custom_loc": b,
-        "ordinary_gross_source_loc": sum(files[x]["gross_source_loc"] for x in COMMON) + files["ordinary.py"]["gross_source_loc"],
-        "aegis_gross_source_loc": sum(files[x]["gross_source_loc"] for x in COMMON) + files["aegis.py"]["gross_source_loc"],
+        "ordinary_gross_source_loc": sum(files[x]["gross_source_loc"] for x in COMMON)
+        + files["ordinary.py"]["gross_source_loc"],
+        "aegis_gross_source_loc": sum(files[x]["gross_source_loc"] for x in COMMON)
+        + files["aegis.py"]["gross_source_loc"],
         "custom_loc_reduction_percent": (a - b) / a * 100,
         "checker_only_ordinary_loc": files["ordinary.py"]["custom_loc"],
         "mapper_and_checker_aegis_loc": files["aegis.py"]["custom_loc"],

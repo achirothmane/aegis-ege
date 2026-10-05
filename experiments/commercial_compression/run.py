@@ -219,7 +219,9 @@ def corpus(args):
                 if variant == "ordinary":
                     outcome = ordinary.assess(old_envelope, q, root, challenge)
                 else:
-                    package = aegis.prepare(old_envelope, q, root, old_challenge, key, args.binary)
+                    package = aegis.prepare(
+                        old_envelope, q, root, old_challenge, key, args.binary
+                    )
                     outcome = aegis.assess(
                         old_envelope, q, root, challenge, package, args.binary
                     )
@@ -267,6 +269,8 @@ def corpus(args):
                     args.binary,
                 )
                 assert later["closure"] == "CLOSED", later
+                save(folder / (variant + "-later-evidence.json"), later_data)
+                save(folder / (variant + "-later-result.json"), later)
                 data["injected_wait_ms"] = (
                     time.monotonic_ns() - wait_start
                 ) / 1e6 - later_data["total_ms"]
@@ -349,7 +353,17 @@ def corpus(args):
         controls.append({"control": label, "ordinary": a, "aegis": b})
     # A separately signed old mapped bundle must not override a newer raw
     # observation even if the caller accidentally reuses its challenge.
-    admin.patch("controls", [{"op": "replace", "path": "/spec/template/spec/containers/0/image", "value": "registry.k8s.io/pause:3.8"}], required=True)
+    admin.patch(
+        "controls",
+        [
+            {
+                "op": "replace",
+                "path": "/spec/template/spec/containers/0/image",
+                "value": "registry.k8s.io/pause:3.8",
+            }
+        ],
+        required=True,
+    )
     changed_observation = observe(reader, args.audit, q, challenge, key)
     mixed = aegis.assess(changed_observation, q, root, challenge, package, args.binary)
     assert mixed["closure"] == "UNKNOWN"
@@ -360,7 +374,21 @@ def corpus(args):
     b = aegis.assess(replaced, q, root, "new-uid", package, args.binary)
     assert a["closure"] == b["closure"] == "UNKNOWN"
     controls.append({"control": "uid_replacement", "ordinary": a, "aegis": b})
-    compatibility = [{"control": "different_native_observation_same_challenge", "result": mixed}]
+    compatibility = [
+        {"control": "different_native_observation_same_challenge", "result": mixed}
+    ]
+    portable_controls = {
+        "question": q,
+        "challenge": challenge,
+        "envelope": envelope,
+        "package": package,
+        "altered_signature": bad,
+        "wrong_question": wrong,
+        "changed_observation": changed_observation,
+        "replaced_observation": replaced,
+        "replacement_challenge": "new-uid",
+        "altered_packages": {},
+    }
     for label in ("wrong_root", "claim_downgrade", "wrong_request", "altered_bundle"):
         altered = copy.deepcopy(package)
         if label == "wrong_root":
@@ -376,6 +404,8 @@ def corpus(args):
         result = aegis.assess(envelope, q, root, challenge, altered, args.binary)
         assert result["closure"] == "UNKNOWN"
         compatibility.append({"control": label, "result": result})
+        portable_controls["altered_packages"][label] = altered
+    save(out / "controls-evidence.json", portable_controls)
     # Marginal second operation: rollback, same native adapter and checker.
     second = deployment(admin, "second-operation")
     first_q = question(second, ns, IMAGE, "worker-1")
@@ -404,6 +434,8 @@ def corpus(args):
             args.binary,
         )
         assert result["closure"] == "CLOSED", result
+        save(folder / (variant + "-evidence.json"), data)
+        save(folder / (variant + "-result.json"), result)
         rollback[variant] = {"result": result, "total_ms": data["total_ms"]}
     save(out / "root.json", {"observer_root": root})
     summary = {

@@ -198,7 +198,9 @@ def assess(envelope, question, root, challenge, package, binary):
     try:
         facts = open_evidence(envelope, question, root, challenge)
         req, _ = request(question)
-        expected_case = relation("native-observation-v1", challenge, digest(envelope["body"]))
+        expected_case = relation(
+            "native-observation-v1", challenge, digest(envelope["body"])
+        )
         bundle, policy = copy.deepcopy(package["bundle"]), copy.deepcopy(
             package["policy"]
         )

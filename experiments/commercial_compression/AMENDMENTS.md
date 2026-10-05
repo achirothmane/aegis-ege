@@ -34,5 +34,9 @@ none adds a production Aegis feature.
    exclusions and hashes are also published. Removing the same seven lines from
    both totals does not create a compression advantage; it makes the unfavorable
    percentage slightly larger. No unrelated metrics are averaged.
+7. The public harness now retains complete late-availability, rollback and
+   tampered-control inputs as well as their result summaries. This closes an
+   archive completeness gap for independent offline replay; it changes no
+   required integration code, trust assumption or cost definition.
 
 The corrections are complete before the final commercial classification.
