@@ -269,6 +269,16 @@ def run_case(number, out, binary):
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             dispatches.extend(pool.map(contender, range(8)))
         assert dispatches[1:] == ["REPLAY"] * 8
+        def owner_contender(_):
+            log = DurableLog(str(directory / "workflow.sqlite"))
+            try:
+                return log.takeover()
+            finally:
+                log.db.close()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            transfers = list(pool.map(owner_contender, range(8)))
+        assert sum(transfers) == 1
+        dispatches.append("ONE_OF_EIGHT_SUCCESSOR_CAS_WINNERS")
     if number == 7:
         workflow.complete({"provider_status": "completed", "verification": "state-only"})
     history_key = signing_key("wedge-history-old")
@@ -327,6 +337,39 @@ def controls(out, binary):
         "substitute": independently_check(q, *fixture_bundle(d, q))["closure"],
         "aegis_enforcement_advantage": False}
     d.db.close()
+    # Strong observer access can resolve a workflow result that was initially
+    # weaker. If access is absent, neither consumer invents exact attribution.
+    d = Destination(fenced=True)
+    d.commit(q)
+    full = fresh_bundle(d, q, 1, signing_key("wedge-history-old"))
+    assert independently_check(q, *full)["closure"] == "CLOSED"
+    findings["weaker_observer_access_restored"] = "CLOSED_BY_NATIVE_READ_ON_BOTH_SIDES"
+    b, p = aegis_inputs(q, full[0]["body"], "FALSE-EXECUTOR-CLAIM", signing_key("wedge-history-old"), optimistic=True)
+    # Preserve an authentically signed admission/request; the signed executor
+    # claim now overstates a real target drift, which native evidence contradicts.
+    d.mutate()
+    later = fresh_bundle(d, q, 2, signing_key("wedge-history-old"))
+    b, p = aegis_inputs(q, later[0]["body"], "FALSE-EXECUTOR-CLAIM", signing_key("wedge-history-old"), optimistic=True)
+    directory = out / "FALSE-EXECUTOR-CLAIM"
+    directory.mkdir(exist_ok=True)
+    actual = consumer(binary, b, p, directory)
+    assert independently_check(q, *later)["closure"] == "UNKNOWN"
+    if binary:
+        assert actual["closure"] == "UNKNOWN" and not actual["claims_supported"]
+    findings["signed_executor_overstatement"] = {"substitute": "UNKNOWN", "aegis": actual.get("closure", "NOT_RUN"), "aegis_claims_supported": actual.get("claims_supported")}
+    # Prove the same native read closes through the unchanged consumer once
+    # the actual required predicate is restored; this is new evidence, not retry.
+    d.mutate(value=1)
+    now = fresh_bundle(d, q, 3, signing_key("wedge-history-old"))
+    b, p = aegis_inputs(q, now[0]["body"], "OBSERVATION-RESTORED", signing_key("wedge-history-old"))
+    directory = out / "OBSERVATION-RESTORED"
+    directory.mkdir(exist_ok=True)
+    actual = consumer(binary, b, p, directory)
+    if binary:
+        assert actual["closure"] == "CLOSED" and actual["claims_supported"]
+    assert independently_check(q, *now)["closure"] == "CLOSED"
+    findings["fresh_truth_restored_without_reexecution"] = "CLOSED_BY_BOTH"
+    d.db.close()
     # Correct native observation retained as an old signed artifact is not NOW.
     d = Destination(fenced=True)
     d.commit(q)
@@ -346,11 +389,12 @@ def controls(out, binary):
         "fresh_native_observation": "UNKNOWN", "interpretation": "neither offline format establishes perpetual freshness"}
     # The strongest substitute must not use independently_check's closed bit
     # while silently ignoring an untrusted historical chain.
+    d.mutate(value=1)
     broken = list(fixture_bundle(d, q, time=2))
     broken[2] = []
     report = independently_check(q, *broken)
-    assert report["history"] == "UNTRUSTED"
-    findings["broken_history"] = {"standalone_history": report["history"], "finality_allowed": False}
+    assert report["closure"] == "CLOSED" and report["history"] == "UNTRUSTED"
+    findings["broken_history"] = {"closure_bit": report["closure"], "standalone_history": report["history"], "finality_allowed": False}
     d.db.close()
     oldkey, newkey = signing_key("wedge-history-old"), signing_key("wedge-history-new")
     rotation, _ = authorize_history_rotation(q, "head", "CONTROL")

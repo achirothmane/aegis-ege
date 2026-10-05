@@ -1,0 +1,741 @@
+{
+  "baseline_sha": "04434db12fa0c85d3497faf6ebb40df937092c5d",
+  "aegis_actual_executed": true,
+  "vendor_products_installed": false,
+  "cases": [
+    {
+      "case": "WEDGE-01",
+      "physical_truth_ACP": null,
+      "physical_effect_count": 0,
+      "dispatches": [
+        "DENIED_AUTHORITY"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "worker-1",
+            1
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "UNKNOWN",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 243100
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-01",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "UNPROVEN",
+        "authority_currently_active": false,
+        "effect_evidence": "NONE",
+        "externally_committed_effects": 0,
+        "causality": "UNPROVEN",
+        "closure": "UNKNOWN",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [
+          "Matching state does not establish causality for this attempt",
+          "UNKNOWN does not authorize dispatch, retry or takeover"
+        ],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3419640,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-02",
+      "physical_truth_ACP": [
+        1,
+        0,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "worker-1",
+            1
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "UNKNOWN",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 238343
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-02",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "UNPROVEN",
+        "authority_currently_active": true,
+        "effect_evidence": "POSTCONDITION_ONLY",
+        "externally_committed_effects": 1,
+        "causality": "STATE_ONLY",
+        "closure": "UNKNOWN",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": false,
+        "uncertainty": [
+          "UNKNOWN does not authorize dispatch, retry or takeover"
+        ],
+        "errors": [
+          "commit evidence does not identify this exact effect/attempt/custody/transition"
+        ],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3046958,
+        "exit_code": 1
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-03",
+      "physical_truth_ACP": [
+        1,
+        1,
+        0
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "worker-1",
+            1
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "UNKNOWN",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 236140
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-03",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "VALID_AT_COMMIT",
+        "authority_currently_active": true,
+        "effect_evidence": "EXACT_ATTESTED_COMMIT",
+        "externally_committed_effects": 1,
+        "causality": "EXACT_COMMIT_RECORD",
+        "closure": "UNKNOWN",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [
+          "Exact commit exists but the required postcondition is no longer observed",
+          "UNKNOWN does not authorize dispatch, retry or takeover"
+        ],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3196449,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-04",
+      "physical_truth_ACP": [
+        1,
+        1,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED_THEN_PROCESS_EXIT_NO_ACK"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "successor",
+            2
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "CLOSED",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 244923
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-04",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "VALID_AT_COMMIT",
+        "authority_currently_active": true,
+        "effect_evidence": "EXACT_ATTESTED_COMMIT",
+        "externally_committed_effects": 1,
+        "causality": "EXACT_COMMIT_RECORD",
+        "closure": "CLOSED",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3433551,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-05",
+      "physical_truth_ACP": [
+        1,
+        1,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED_THEN_PROCESS_EXIT_NO_ACK",
+        "REPLAY"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "successor",
+            2
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "CLOSED",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 244472
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-05",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "VALID_AT_COMMIT",
+        "authority_currently_active": true,
+        "effect_evidence": "EXACT_ATTESTED_COMMIT",
+        "externally_committed_effects": 1,
+        "causality": "EXACT_COMMIT_RECORD",
+        "closure": "CLOSED",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3449155,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-06",
+      "physical_truth_ACP": [
+        1,
+        1,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED",
+        "REPLAY",
+        "REPLAY",
+        "REPLAY",
+        "REPLAY",
+        "REPLAY",
+        "REPLAY",
+        "REPLAY",
+        "REPLAY",
+        "ONE_OF_EIGHT_SUCCESSOR_CAS_WINNERS"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "successor",
+            2
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "CLOSED",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 249661
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-06",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "VALID_AT_COMMIT",
+        "authority_currently_active": true,
+        "effect_evidence": "EXACT_ATTESTED_COMMIT",
+        "externally_committed_effects": 1,
+        "causality": "EXACT_COMMIT_RECORD",
+        "closure": "CLOSED",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 4145457,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-07",
+      "physical_truth_ACP": [
+        1,
+        1,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "completed",
+            "{\"provider_status\": \"completed\", \"verification\": \"state-only\"}"
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "worker-1",
+            1
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "UNKNOWN",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 233857
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-07",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "UNPROVEN",
+        "authority_currently_active": true,
+        "effect_evidence": "POSTCONDITION_ONLY",
+        "externally_committed_effects": 0,
+        "causality": "STATE_ONLY",
+        "closure": "UNKNOWN",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [
+          "Matching state does not establish causality for this attempt",
+          "UNKNOWN does not authorize dispatch, retry or takeover"
+        ],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 4172026,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-08",
+      "physical_truth_ACP": [
+        1,
+        0,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "worker-1",
+            1
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "UNKNOWN",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 277872
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-08",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "UNPROVEN",
+        "authority_currently_active": true,
+        "effect_evidence": "POSTCONDITION_ONLY",
+        "externally_committed_effects": 1,
+        "causality": "STATE_ONLY",
+        "closure": "UNKNOWN",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": false,
+        "uncertainty": [
+          "UNKNOWN does not authorize dispatch, retry or takeover"
+        ],
+        "errors": [
+          "commit evidence does not identify this exact effect/attempt/custody/transition"
+        ],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 4714706,
+        "exit_code": 1
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-09",
+      "physical_truth_ACP": [
+        1,
+        1,
+        0
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "worker-1",
+            1
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "UNKNOWN",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 236431
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-09",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "VALID_AT_COMMIT",
+        "authority_currently_active": true,
+        "effect_evidence": "EXACT_ATTESTED_COMMIT",
+        "externally_committed_effects": 1,
+        "causality": "EXACT_COMMIT_RECORD",
+        "closure": "UNKNOWN",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [
+          "Exact commit exists but the required postcondition is no longer observed",
+          "UNKNOWN does not authorize dispatch, retry or takeover"
+        ],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3719275,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": false
+    },
+    {
+      "case": "WEDGE-10",
+      "physical_truth_ACP": [
+        1,
+        1,
+        1
+      ],
+      "physical_effect_count": 1,
+      "dispatches": [
+        "COMMITTED_THEN_PROCESS_EXIT_NO_ACK"
+      ],
+      "durable_workflow": {
+        "step": [
+          [
+            "credit-1",
+            "issued",
+            null
+          ]
+        ],
+        "owner": [
+          [
+            1,
+            "successor",
+            2
+          ]
+        ]
+      },
+      "substitute": {
+        "closure": "CLOSED",
+        "history": "TRUSTED",
+        "reason": "evaluated",
+        "evaluation_ns": 238654
+      },
+      "aegis": {
+        "schema": "aegis/composite-evidence/v1",
+        "structure": "VALID",
+        "signatures": "VALID",
+        "trust_roots": "VALID",
+        "admitted": true,
+        "intent_id": "intent:WEDGE-10",
+        "effect_id": "sha256:6c602f12ead85a1292beb6c64b5bd1eb93c36b71ee621d8831498f114204e7e9",
+        "attempt_id": "request-1",
+        "authority_at_commit": "VALID_AT_COMMIT",
+        "authority_currently_active": true,
+        "effect_evidence": "EXACT_ATTESTED_COMMIT",
+        "externally_committed_effects": 1,
+        "causality": "EXACT_COMMIT_RECORD",
+        "closure": "CLOSED",
+        "historical_trust": "TRUSTED_HISTORY",
+        "claim_type": "EXACT_EFFECT",
+        "required_claim_type": "EXACT_EFFECT",
+        "grade": "simulation",
+        "claims_supported": true,
+        "uncertainty": [],
+        "errors": [],
+        "succession_validity": "NOT_PROVIDED",
+        "custodian_authority": "UNPROVEN",
+        "process_ns": 3871350,
+        "exit_code": 0
+      },
+      "operator_actions": 0,
+      "observer_reads_after_recovery": 1,
+      "evidence_grade": "SQLite-native / Aegis wire simulation",
+      "upstream_key_transition_verified": true
+    }
+  ],
+  "controls": {
+    "no_native_authority_fence": {
+      "effect_count": 1,
+      "authority_at_commit": false,
+      "substitute": "UNKNOWN",
+      "aegis_enforcement_advantage": false
+    },
+    "weaker_observer_access_restored": "CLOSED_BY_NATIVE_READ_ON_BOTH_SIDES",
+    "signed_executor_overstatement": {
+      "substitute": "UNKNOWN",
+      "aegis": "UNKNOWN",
+      "aegis_claims_supported": false
+    },
+    "fresh_truth_restored_without_reexecution": "CLOSED_BY_BOTH",
+    "authentic_offline_snapshot_after_drift": {
+      "world_now": false,
+      "ordinary_old_artifact": "CLOSED_AS_OF_OLD_OBSERVATION",
+      "aegis_old_artifact": "CLOSED",
+      "fresh_native_observation": "UNKNOWN",
+      "interpretation": "neither offline format establishes perpetual freshness"
+    },
+    "broken_history": {
+      "closure_bit": "CLOSED",
+      "standalone_history": "UNTRUSTED",
+      "finality_allowed": false
+    },
+    "substituted_key_succession": "REJECTED"
+  },
+  "runtime": {
+    "python": "3.12.14",
+    "sqlite": "3.53.1"
+  },
+  "total_ns": 287486828,
+  "scope": "shared native destination + actual Aegis evidence consumer; NOT both full executors",
+  "experiment_source_sha256": "1a81375eb02748525e55fa13445340ca713b35163c339b2905cfbd09e30befe5",
+  "ordinary_substitute_source_sha256": "ce739a6817e3bff32e3b8caea0cf069c8031d5c2dc2879c6ba831a31cbb5b58f",
+  "pinned_aegis_binary_sha256": "8cbf5b62fc15bfc3787d42846da31ce9b975e99a43800373a8d58cae556f21ba",
+  "ci_run": 37254638619,
+  "repository_ci_run": 37254638585,
+  "initial_experiment_commit": "1689df731ea5b46588abb6294ef5b32d5c199039",
+  "go_checks": {
+    "passing_tests_and_subtests": 317,
+    "race_detector": true,
+    "cli_package": "no test files"
+  },
+  "decision": {
+    "overall": "W1",
+    "standalone_on_complete_native_destination": "W0",
+    "W2_W3_W4": "NOT_ESTABLISHED",
+    "investment": "RETEST"
+  },
+  "adoption_costs": "NOT_MEASURED: full vendor installs, customer onboarding, production recovery costs",
+  "additional_F_limits": [
+    "upstream exact-question binding required",
+    "upstream verified history signer succession",
+    "current read point independently justified",
+    "Aegis consumer only, not both full executors"
+  ]
+}
