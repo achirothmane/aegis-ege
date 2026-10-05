@@ -38,7 +38,17 @@ passed all **13** CI checks, including a fresh complete constitutional native ru
 [37257520071](https://github.com/achirothmane/aegis-ege/actions/runs/37257520071)
 and the previously failing composite corpus. The executed normative code and
 all baseline files are byte-identical between those revisions; only research
-report/evidence files were added. This final report update records that result.
+report/evidence files were added. These are historical exact-head validation
+snapshots; a later reporting commit does not inherit an all-green CI claim.
+
+The resumed review independently inspected exact head
+`b399e5b3c2a2aa776e5ff8f25051d9d312a192c3`. Its constitutional native run
+[37258339316](https://github.com/achirothmane/aegis-ege/actions/runs/37258339316)
+passed, and replay of its downloaded public archive with the byte-identical
+native-result checker reproduced the complete result. This head has **12 of 13**
+passing CI checks: the preexisting restored Genesis/custody corpus failed both
+its initial attempt and one targeted rerun. Section 9 and the execution index
+retain both failures. The all-green statement above applies only to `5fa1ee...`.
 Execution uses Go 1.25.3 with `-race -mod=readonly -count=1` and PostgreSQL 16.6
 pinned to image SHA-256
 `557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36`.
@@ -72,6 +82,18 @@ The later all-green reviewed head's native archive is artifact `11323341830`,
 It independently reproduces the same 51/28/23 matrix, 11 disagreements, 55 equal
 fingerprint pairs and three drift controls. Both archives and exact CI snapshots
 are identified in the execution index.
+
+The resumed exact `b399e5...` head's native archive is artifact `11323841645`,
+887599 bytes, SHA-256
+`63e06f2d79d1f933c6181ad6d94b308319ded06658026d6d44748157b6d447a1`.
+Its 449 public files reproduce 51 trials, 28 committed worlds, 23 blocked worlds,
+11 disagreement triplets, 55 equal fingerprint pairs and three drift controls.
+The unchanged result checker has Git blob
+`40477abb13f08a30260997b3fb08bff94c0fbec8` and SHA-256
+`5dfe5761e8768621c4088ea406c5fe3411d2eb4feb5a5885aa5ce5fea98d0766`.
+Its replayed result is equal to the uploaded `verified-native-result.json`.
+Whole-run invariance snapshots agree, the native log has no skips, and direct
+main/head Git-tree comparison preserves all 812 baseline blobs and file modes.
 
 ## 2. Sources and exact coverage
 
@@ -438,8 +460,7 @@ admission facts and the trusted-issuer limitation were separately inspected.
 
 ## 9. Verification limits and unresolved questions
 
-The first reviewed revision passed the constitutional native experiment and 12
-other CI checks. Its preexisting `composite-postgres` job failed in the restored
+The first reviewed revision passed the constitutional native experiment. Its preexisting `composite-postgres` job failed in the restored
 custody-elimination corpus, at
 `TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN`, when a fresh
 controller could not reach BOOTSTRAP_READY. A direct retry also failed at that
@@ -474,6 +495,44 @@ This later success required no source, fixture-generator, freshness-rule or
 legacy workflow changes. It establishes a complete passing reviewed-head run;
 it does not erase the earlier timing-sensitive failures or prove their precise
 root cause. PR #247 remains a draft research artifact, not a merged product change.
+
+**Resumed exact-head status.** At `b399e5b3c2a2aa776e5ff8f25051d9d312a192c3`,
+the constitutional native experiment, unit/integration, kernel shrink,
+native PostgreSQL and the existing three-domain gate passed. The first
+`composite-postgres` attempt failed in the restored corpus at the same
+`TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN` gate in
+[job 111600053884](https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111600053884).
+Its fixture export completed at 03:13:00.9901691 UTC; the controller's aggregate
+BOOTSTRAP_READY rejection appeared at 03:14:00.226709892 UTC.
+
+One targeted rerun, with no source or workflow changes, also failed at that gate
+in [job 111619403785](https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111619403785).
+Fixture export completed at 04:47:41.5826238 UTC; the same aggregate rejection
+appeared at 04:48:41.075897202 UTC. The fixture exporter uses
+`time.Now().UTC().Truncate(time.Second)` before the existing `now - 1 minute`
+receipt is constructed. A failure slightly less than 60 seconds after export
+completion can therefore be consistent with the strict 120-second receipt-age
+limit. This remains a timing-consistent inference: the child does not expose the
+exact failing verifier condition, and private Genesis inputs are not in the
+public archive. No clock, freshness rule, baseline test or workflow was changed.
+No further rerun was used to search for a favorable result.
+
+The original failure archive, artifact `11322844146` (28848685 bytes), has SHA-256
+`3729b2c57576ff7d30a788101fa3b3463fadedea0bb6d50b52a21400c76690ad`.
+The rerun failure archive, artifact `11326146348` (28846785 bytes), has SHA-256
+`5c70bb5a485d3a9dd7d684f9de3979a84b263dccc3b3ab9ea374226a7e2ddc8e`.
+Both were downloaded and their digests checked; both retain the same restored
+failure in `live-custody-reduction/restored.jsonl`, with no skipped restored
+cases. The deliberate semantic/retention mutants' expected failures are separate
+from this unmodified restored-corpus failure. Both attempt artifacts remain
+available; the rerun does not replace the earlier observation.
+
+The resumed head consequently has **12 passing checks and one failing legacy
+check**, even though its normative code is identical to the earlier all-green
+head. U4 remains a bounded constitutional-native finding; complete current-head
+legacy CI stability is unresolved. PR #247 remains a draft for research review.
+Subsequent report/index commits only document these exact-head snapshots; their
+checks must be read at their own head and cannot be inferred from older runs.
 
 Other bounds are substantial: this is one real native PostgreSQL research
 substrate, finite policy fragments, synthetic human-role/observer evidence, and
@@ -527,4 +586,5 @@ Claims explicitly withheld:
 The bounded product implication is generic: an organization supplies its external
 policy and trustworthy evidence/issuance contract; Aegis supplies execution
 governance. No enterprise, regulatory, religious or sector-specific product
-surface is built in this phase.
+surface is built in this phase. Commercial value, adoption and integration or
+recovery savings are outside this experiment and are not established by U4.

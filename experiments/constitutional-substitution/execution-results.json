@@ -1,4 +1,311 @@
 {
+  "resumed_reviewed_validation": {
+    "main_sha": "04434db12fa0c85d3497faf6ebb40df937092c5d",
+    "reviewed_head": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3",
+    "native_run": {
+      "id": 37258339316,
+      "job_id": 111600054023,
+      "url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339316",
+      "conclusion": "success",
+      "race_detector": true,
+      "skips": 0,
+      "test_elapsed_seconds": 106.218
+    },
+    "public_artifact": {
+      "id": 11323841645,
+      "name": "constitutional-substitution-37258339316",
+      "archive_sha256": "63e06f2d79d1f933c6181ad6d94b308319ded06658026d6d44748157b6d447a1",
+      "archive_bytes": 887599,
+      "public_files": 449,
+      "expires_at": "2027-01-03T03:10:22Z"
+    },
+    "archived_initial_ci_checks": [
+      {
+        "id": 111600401844,
+        "name": "Same kernel / three domains gate",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600401844",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600244321,
+        "name": "victim",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339277/job/111600244321",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600224606,
+        "name": "integration",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339281/job/111600224606",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600054213,
+        "name": "Kubernetes native effect",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054213",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600054188,
+        "name": "Terraform Complexity Dividend",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054188",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600054133,
+        "name": "GitHub/CI native effect",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054133",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600054059,
+        "name": "PostgreSQL native effect",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054059",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600054035,
+        "name": "kernel-shrink",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111600054035",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600054023,
+        "name": "constitution-native",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339316/job/111600054023",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600053930,
+        "name": "library-and-native-adapters",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339295/job/111600053930",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600053884,
+        "name": "composite-postgres",
+        "status": "completed",
+        "conclusion": "failure",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111600053884",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600053830,
+        "name": "unit",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339281/job/111600053830",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      },
+      {
+        "id": 111600053825,
+        "name": "native-postgresql",
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339303/job/111600053825",
+        "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+      }
+    ],
+    "original_composite_failure": {
+      "run_id": 37258339279,
+      "run_attempt": 1,
+      "job_id": 111600053884,
+      "url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111600053884",
+      "artifact": {
+        "id": 11322844146,
+        "name": "composite-native-evidence-37258339279",
+        "archive_sha256": "3729b2c57576ff7d30a788101fa3b3463fadedea0bb6d50b52a21400c76690ad",
+        "archive_bytes": 28848685,
+        "expires_at": "2027-01-03T03:10:22Z"
+      },
+      "test": "TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN",
+      "archive_log": "live-custody-reduction/restored.jsonl",
+      "failure_at": "2026-10-05T03:14:00.226709892Z",
+      "error": "fresh controller cannot verify exact Genesis: epoch=0 err=Genesis verification did not reach BOOTSTRAP_READY",
+      "fixture_export_completed_at": "2026-10-05T03:13:00.9901691Z",
+      "timing_explanation": "Consistent with the inherited fixture exporter truncating now to seconds, bootstrap receipt now minus one minute, and strict 120-second receipt maximum age; the child error does not identify the exact failed verifier condition.",
+      "root_cause_status": "TIMING_CONSISTENT_INFERENCE_NOT_INSTRUMENTED_PROOF",
+      "historical_failure_retained": true
+    },
+    "baseline_file_comparison": {
+      "baseline_files": 812,
+      "changed_or_missing_files": 0,
+      "blob_ids_and_git_modes_identical": true
+    },
+    "normative_code_unchanged_from_first_corrected_execution": true,
+    "classification_unchanged": "U4",
+    "scope": "Finite source-supplied operative fragments; truthful independently provisioned evidence/admission authorities; complete mediated native PostgreSQL profile. Not normative certification, universal proof or commercial validation.",
+    "archive_result_replay": {
+      "checker_git_blob": "40477abb13f08a30260997b3fb08bff94c0fbec8",
+      "checker_sha256": "5dfe5761e8768621c4088ea406c5fe3411d2eb4feb5a5885aa5ce5fea98d0766",
+      "unchanged_checker": true,
+      "result_matches_uploaded_verified_native_result": true,
+      "reproduced_result_sha256": "4174f448a6ef16c1b2256dc28243338ec98fc0acffc11ba88bb4c323dc52e406",
+      "native_matrix_trials": 51,
+      "committed_worlds": 28,
+      "blocked_worlds": 23,
+      "identical_input_disagreements": 11,
+      "equal_fingerprint_pairs": 55,
+      "current_truth_controls": 3,
+      "whole_run_fingerprints_equal": true
+    },
+    "verifier_binary_sha256": "4c31337522fbbadf6476c3450993f8696c4c11fbd0fb02ba8b5e688c6f55d20d",
+    "targeted_composite_rerun": {
+      "run_id": 37258339279,
+      "run_attempt": 2,
+      "job_id": 111619403785,
+      "url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111619403785",
+      "conclusion": "failure",
+      "test": "TestPostgresCompositeNoCustodyGenesisHistorySuccession/UNKNOWN",
+      "archive_log": "live-custody-reduction/restored.jsonl",
+      "fixture_export_completed_at": "2026-10-05T04:47:41.5826238Z",
+      "failure_at": "2026-10-05T04:48:41.075897202Z",
+      "artifact": {
+        "id": 11326146348,
+        "name": "composite-native-evidence-37258339279",
+        "archive_sha256": "5c70bb5a485d3a9dd7d684f9de3979a84b263dccc3b3ab9ea374226a7e2ddc8e",
+        "archive_bytes": 28846785
+      },
+      "same_restored_genesis_failure": true,
+      "source_changes": 0,
+      "freshness_rule_changes": 0,
+      "baseline_workflow_changes": 0,
+      "first_attempt_artifact_retained": true,
+      "further_reruns_performed": 0
+    },
+    "ci_after_targeted_rerun": {
+      "total_checks": 13,
+      "passed": 12,
+      "failed": 1,
+      "failed_check": "composite-postgres",
+      "checks": [
+        {
+          "id": 111619405194,
+          "name": "kernel-shrink",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111619405194",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111619403785,
+          "name": "composite-postgres",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339279/job/111619403785",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600401844,
+          "name": "Same kernel / three domains gate",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600401844",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600244321,
+          "name": "victim",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339277/job/111600244321",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600224606,
+          "name": "integration",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339281/job/111600224606",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600054213,
+          "name": "Kubernetes native effect",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054213",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600054188,
+          "name": "Terraform Complexity Dividend",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054188",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600054133,
+          "name": "GitHub/CI native effect",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054133",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600054059,
+          "name": "PostgreSQL native effect",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339289/job/111600054059",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600054023,
+          "name": "constitution-native",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339316/job/111600054023",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600053930,
+          "name": "library-and-native-adapters",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339295/job/111600053930",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600053830,
+          "name": "unit",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339281/job/111600053830",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        },
+        {
+          "id": 111600053825,
+          "name": "native-postgresql",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/achirothmane/aegis-ege/actions/runs/37258339303/job/111600053825",
+          "head_sha": "b399e5b3c2a2aa776e5ff8f25051d9d312a192c3"
+        }
+      ]
+    },
+    "validation_snapshot_semantics": "This snapshot applies to the exact reviewed head and stated attempts. A later reporting-only commit does not inherit an all-green CI claim; its exact-head checks are independently visible on PR #247."
+  },
   "subsequent_reviewed_validation": {
     "reviewed_head": "5fa1ee293a551eeb10db5ea41dfaa1bd6ba34eaf",
     "native_run": {
