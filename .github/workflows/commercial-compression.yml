@@ -1,0 +1,68 @@
+name: Bounded commercial compression
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/commercial_compression/**'
+      - 'docs/governed-action/commercial-compression.md'
+      - '.github/workflows/commercial-compression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-paired-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: '04434db12fa0c85d3497faf6ebb40df937092c5d'
+          path: baseline
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install shared test prerequisites
+        run: |
+          python -m pip install cryptography==46.0.0 black==24.8.0
+          go install sigs.k8s.io/kind@v0.33.0
+      - name: Normalize identical LOC format and retain exact source
+        run: |
+          mkdir -p compression-evidence/source
+          python -m black --quiet --line-length 88 experiments/commercial_compression/*.py
+          cp experiments/commercial_compression/*.py compression-evidence/source/
+          cp experiments/commercial_compression/PREREGISTRATION.md compression-evidence/source/
+          git rev-parse HEAD > compression-evidence/experiment-sha.txt
+          git -C baseline rev-parse HEAD > compression-evidence/main-sha.txt
+          python experiments/commercial_compression/measure.py > compression-evidence/loc.json
+      - name: Build and check unchanged evidence library
+        working-directory: baseline
+        run: |
+          go test -race -mod=readonly -count=1 -json ./evidenceverify > ../compression-evidence/library-tests.jsonl
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o ../aegis-evidence-inspect ./cmd/aegis-evidence-inspect
+      - name: Provision shared real destination
+        run: |
+          python experiments/commercial_compression/provision.py --state "$PWD/compression-state"
+          cp compression-state/provision.json compression-evidence/provision.json
+      - name: Run same native failure corpus and second operation
+        run: |
+          python -B experiments/commercial_compression/run.py --admin "$PWD/compression-state/admin-kubeconfig.yaml" --audit "$PWD/compression-state/audit/audit.log" --private "$PWD/compression-private" --binary "$PWD/aegis-evidence-inspect" --out "$PWD/compression-evidence/corpus"
+      - name: Follow documented clean setup with reversed paired order
+        run: |
+          python experiments/commercial_compression/clean_setup.py --base "$PWD/baseline" --admin "$PWD/compression-state/admin-kubeconfig.yaml" --audit "$PWD/compression-state/audit/audit.log" --out "$PWD/compression-evidence/clean"
+      - name: Retain actual consumer binary
+        run: cp aegis-evidence-inspect compression-evidence/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: commercial-compression-evidence
+          path: compression-evidence/
+          if-no-files-found: error
+      - name: Delete disposable cluster
+        if: always()
+        run: kind delete cluster --name compression-test

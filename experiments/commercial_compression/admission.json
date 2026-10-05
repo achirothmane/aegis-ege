@@ -1,0 +1,17 @@
+{
+  "apiVersion": "admissionregistration.k8s.io/v1",
+  "kind": "ValidatingAdmissionPolicy",
+  "metadata": {"name": "commercial-compression-image-fence"},
+  "spec": {
+    "failurePolicy": "Fail",
+    "matchConstraints": {
+      "resourceRules": [{"apiGroups": ["apps"], "apiVersions": ["v1"], "operations": ["UPDATE"], "resources": ["deployments"]}],
+      "namespaceSelector": {"matchLabels": {"compression.example/benchmark": "true"}}
+    },
+    "matchConditions": [{"name": "bounded-worker", "expression": "request.userInfo.username.startsWith('system:serviceaccount:compression-') && (request.userInfo.username.endsWith(':worker-1') || request.userInfo.username.endsWith(':worker-2'))"}],
+    "validations": [
+      {"expression": "object.metadata.annotations['compression.example/active'] == oldObject.metadata.annotations['compression.example/active'] && object.metadata.annotations['compression.example/epoch'] == oldObject.metadata.annotations['compression.example/epoch'] && object.metadata.annotations['compression.example/generation'] == oldObject.metadata.annotations['compression.example/generation']", "message": "worker cannot change destination-local authority"},
+      {"expression": "object.spec.template.spec.containers == oldObject.spec.template.spec.containers || (oldObject.metadata.annotations['compression.example/active'] == 'true' && object.metadata.annotations['compression.example/executor'] == request.userInfo.username && size(object.metadata.annotations['compression.example/effect']) > 0 && size(object.metadata.annotations['compression.example/attempt']) > 0)", "message": "governed image change needs current native authority and authenticated attempt"}
+    ]
+  }
+}
