@@ -44,7 +44,8 @@ def worker(args):
     first, first_data = recover(journal, q["logical_id"], "successor", reader,
                                 args.audit, key, root, args.variant, args.binary)
     assert first["closure"] == "CLOSED", first
-    first_seconds = time.monotonic() - started
+    first_finished = time.monotonic()
+    first_seconds = first_finished - started
     second_start = time.monotonic()
     # No new checker, recovery function, destination settings, root or permissions.
     second_q = question(admin.get(q["name"]), args.namespace, q["before_image"],
@@ -59,6 +60,7 @@ def worker(args):
     data = {
         "variant": args.variant, "namespace": args.namespace,
         "first_effect_setup_and_execution_seconds": first_seconds,
+        "first_effect_finished_monotonic": first_finished,
         "second_operation_seconds": time.monotonic() - second_start,
         "first_result": first, "second_result": second,
         "first_recovery_ms": first_data["total_ms"],
@@ -97,7 +99,9 @@ def main():
     for variant, label in (("ordinary", "a1"), ("aegis", "b1"),
                            ("aegis", "b2"), ("ordinary", "a2")):
         start = time.monotonic()
-        workspace = args.out.parent / ("clean-workspace-" + label)
+        private_setups = args.out.parent.parent / "compression-clean-private"
+        private_setups.mkdir(exist_ok=True)
+        workspace = private_setups / ("clean-workspace-" + label)
         assert not workspace.exists(), "clean workspace already exists"
         workspace.mkdir()
         kit = workspace / "kit"
@@ -135,6 +139,7 @@ def main():
         data = json.loads((workspace / "measurements.json").read_text())
         data.update({
             "label": label, "total_clean_setup_seconds": time.monotonic() - start,
+            "total_clean_setup_to_first_effect_seconds": data["first_effect_finished_monotonic"] - start,
             "dependency_install_seconds": dependency_seconds,
             "fresh_go_build_seconds": build_seconds,
             "source_copy": "fresh kit; new venv, namespace, journal, observer key and challenge",

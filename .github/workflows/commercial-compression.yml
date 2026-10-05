@@ -11,7 +11,29 @@ permissions:
   contents: read
 
 jobs:
+  remove-superseded-fixture-artifact:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const artifact_id = 11324645234;
+            try {
+              const {data} = await github.rest.actions.getArtifact({owner: context.repo.owner, repo: context.repo.repo, artifact_id});
+              if (data.name !== 'commercial-compression-evidence' || data.workflow_run.id !== 37259975801 || data.digest !== 'sha256:147fcb05a58f420a2411a126aabc7330599bbe77095d6128943297d6085f5437') {
+                throw new Error('Refusing to remove an unexpected artifact');
+              }
+              await github.rest.actions.deleteArtifact({owner: context.repo.owner, repo: context.repo.repo, artifact_id});
+              core.info('Removed the exact superseded disposable-fixture artifact.');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              core.info('The superseded artifact is already absent.');
+            }
   native-paired-comparison:
+    needs: remove-superseded-fixture-artifact
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -61,7 +83,14 @@ jobs:
         if: always()
         with:
           name: commercial-compression-evidence
-          path: compression-evidence/
+          path: |
+            compression-evidence/corpus/
+            compression-evidence/clean/
+            compression-evidence/source/
+            compression-evidence/*.json
+            compression-evidence/*.jsonl
+            compression-evidence/*-sha.txt
+            compression-evidence/aegis-evidence-inspect
           if-no-files-found: error
       - name: Delete disposable cluster
         if: always()
