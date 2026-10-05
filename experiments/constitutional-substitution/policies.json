@@ -1,0 +1,39 @@
+{
+  "schema": "aegis.constitution-fragments/v1",
+  "conflict_disposition": "REQUIRE_EXTERNAL_RESOLUTION",
+  "constitutions": [
+    {
+      "id": "A",
+      "source": "A.OP",
+      "rules": [
+        {"id": "A.review", "source": "A.OP", "kind": "require_facts", "conditions": [
+          {"field": "owner_recorded", "value": true},
+          {"field": "purpose_justified", "value": true},
+          {"field": "harm_review_passed", "value": true},
+          {"field": "privacy_review_passed", "value": true},
+          {"field": "truth_review_passed", "value": true},
+          {"field": "audit_recorded", "value": true}
+        ]},
+        {"id": "A.validation", "source": "A.OP+EXP", "kind": "approvals", "minimum": 1}
+      ]
+    },
+    {
+      "id": "B",
+      "source": "B.5 exploratory hypotheses, v0.4; no religious authority",
+      "rules": [
+        {"id": "B.safety", "source": "B.5.NAFS+EXP", "kind": "approvals", "minimum": 2, "conditions": [{"field": "safety_impact", "value": true}]},
+        {"id": "B.bias", "source": "B.5.AQL", "kind": "forbid_all", "conditions": [{"field": "documented_bias", "value": true}, {"field": "bias_reward", "value": true}]},
+        {"id": "B.disclosure", "source": "B.5.MAL+EXP", "kind": "disclosure", "threshold": 0.35},
+        {"id": "B.family", "source": "B.5.NASL", "kind": "forbid_all", "conditions": [{"field": "family_biometric", "value": true}, {"field": "legal_basis", "value": false}]},
+        {"id": "B.attribute", "source": "B.5.DIN", "kind": "forbid_all", "conditions": [{"field": "religious_attribute_use", "value": true}]}
+      ]
+    },
+    {
+      "id": "T",
+      "source": "EXP; explicitly synthetic privacy-first control",
+      "rules": [
+        {"id": "T.privacy", "source": "EXP", "kind": "forbid_all", "conditions": [{"field": "identifiable_data", "value": true}]}
+      ]
+    }
+  ]
+}
