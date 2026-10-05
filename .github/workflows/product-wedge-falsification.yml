@@ -1,0 +1,46 @@
+name: Product wedge falsification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/product-wedge-falsification.yml'
+      - 'experiments/product_wedge/**'
+      - 'docs/governed-action/product-wedge-falsification.md'
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: '04434db12fa0c85d3497faf6ebb40df937092c5d'
+          path: baseline
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: baseline/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install cryptography==46.0.0
+      - name: Execute pinned verifier and recovery assurance
+        working-directory: baseline
+        run: |
+          mkdir -p ../wedge-evidence
+          git rev-parse HEAD > ../wedge-evidence/baseline-sha.txt
+          go test -race -mod=readonly -count=1 -json ./evidenceverify ./cmd/aegis-evidence-inspect ./internal/journal > ../wedge-evidence/go-tests.jsonl
+          (cd governedaction && go test -race -count=1 -json ./...) > ../wedge-evidence/runtime-tests.jsonl
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o ../wedge-evidence/aegis-evidence-inspect ./cmd/aegis-evidence-inspect
+      - name: Run identical native failure corpus
+        run: python -B experiments/product_wedge/run.py --out wedge-evidence/corpus --aegis-binary "$PWD/wedge-evidence/aegis-evidence-inspect"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: product-wedge-evidence
+          path: wedge-evidence
+          if-no-files-found: error
