@@ -33,6 +33,12 @@ their Git file modes, including existing fixtures and workflows.
 The executed research-code revision is
 `cc360f68a1b8c32654f12230b0edbe9b1296927e`.
 Its native run is [37256521357](https://github.com/achirothmane/aegis-ege/actions/runs/37256521357).
+Subsequent exact reviewed head `5fa1ee293a551eeb10db5ea41dfaa1bd6ba34eaf`
+passed all **13** CI checks, including a fresh complete constitutional native run
+[37257520071](https://github.com/achirothmane/aegis-ege/actions/runs/37257520071)
+and the previously failing composite corpus. The executed normative code and
+all baseline files are byte-identical between those revisions; only research
+report/evidence files were added. This final report update records that result.
 Execution uses Go 1.25.3 with `-race -mod=readonly -count=1` and PostgreSQL 16.6
 pinned to image SHA-256
 `557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36`.
@@ -59,6 +65,13 @@ The corrected native archive is artifact `11323285625`, 876288 bytes, SHA-256
 `dc2a9f7c1f366c24533e6fa4acd10635316fdc5462537d06359e97d04853408d`.
 It contains 449 public files. Its Actions retention expires on 2027-01-03;
 the committed inventory and execution index retain the hashes and results.
+
+The later all-green reviewed head's native archive is artifact `11323341830`,
+887652 bytes, SHA-256
+`ebe2f5d709115c45c2b36257a988a42f615bc62a294a9172a36059dec21a667e`.
+It independently reproduces the same 51/28/23 matrix, 11 disagreements, 55 equal
+fingerprint pairs and three drift controls. Both archives and exact CI snapshots
+are identified in the execution index.
 
 ## 2. Sources and exact coverage
 
@@ -451,7 +464,16 @@ failed at the restored custody corpus in
 [run 37256521383](https://github.com/achirothmane/aegis-ege/actions/runs/37256521383/job/111594678633).
 Its fixture export completed at 02:46:19 UTC and the gate failed at 02:47:25,
 again consistent with that freshness inference. PR #247 remains a draft with
-this legacy verification failure disclosed. It is not a merge-ready all-green PR.
+these earlier failures disclosed for research review.
+
+At the subsequent exact head `5fa1ee293a551eeb10db5ea41dfaa1bd6ba34eaf`, all
+13 checks passed. The unchanged composite corpus passed both restored custody
+controls and native effect-record replay-exclusion falsification in
+[run 37257520083](https://github.com/achirothmane/aegis-ege/actions/runs/37257520083/job/111597677179).
+This later success required no source, fixture-generator, freshness-rule or
+legacy workflow changes. It establishes a complete passing reviewed-head run;
+it does not erase the earlier timing-sensitive failures or prove their precise
+root cause. PR #247 remains a draft research artifact, not a merged product change.
 
 Other bounds are substantial: this is one real native PostgreSQL research
 substrate, finite policy fragments, synthetic human-role/observer evidence, and
@@ -500,7 +522,7 @@ Claims explicitly withheld:
 - Authentic admission plus a policy hash proves underlying normative compliance.
 - All moral/legal constitutions fit, universal proof, or universal kernel minimality.
 - Aegis invented Capability ≠ Authority.
-- All legacy CI gates passed, production readiness, or readiness to market a religious feature.
+- A failure-free CI history, production readiness, or readiness to market a religious feature.
 
 The bounded product implication is generic: an organization supplies its external
 policy and trustworthy evidence/issuance contract; Aegis supplies execution
