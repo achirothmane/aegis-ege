@@ -1,0 +1,87 @@
+name: Constitutional substitution native experiment
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/constitutional-substitution/**'
+      - 'experiments/gosmig-simulation/constitution_*_test.go'
+      - 'scripts/verify_constitution_substitution.py'
+      - 'docs/governed-action/constitutional-substitution-v1.md'
+      - '.github/workflows/constitutional-substitution.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'experiments/constitutional-substitution/**'
+      - 'experiments/gosmig-simulation/constitution_*_test.go'
+      - 'scripts/verify_constitution_substitution.py'
+      - '.github/workflows/constitutional-substitution.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  constitution-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.6@sha256:557fea37a744d5f4c8faab304b0a90858b53ab119735a88c131fd19dab802f36
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: gosmig_fixture
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gosmig_fixture"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      GOSMIG_SIM_ADMIN_DSN: postgres://postgres:fixture-only@localhost:5432/gosmig_fixture?sslmode=disable
+      NATIVE_FENCE_REQUIRE: '1'
+      COMPOSITE_REQUIRE: '1'
+      COMPOSITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - name: Set experiment evidence paths
+        run: |
+          echo "EVIDENCE_VERIFY_BINARY=$RUNNER_TEMP/aegis-evidence-inspect" >> "$GITHUB_ENV"
+          echo "COMPOSITE_ARTIFACT_DIR=$RUNNER_TEMP/constitution-evidence" >> "$GITHUB_ENV"
+      - name: Preserve the entire verified baseline and build the unchanged consumer
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_kernel_shrink.py
+          python3 scripts/verify_constitution_substitution.py --stage before --out "$COMPOSITE_ARTIFACT_DIR/invariance-before.json"
+          go build -mod=readonly -trimpath -o "$EVIDENCE_VERIFY_BINARY" ./cmd/aegis-evidence-inspect
+          go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' ./cmd/aegis-evidence-inspect > "$COMPOSITE_ARTIFACT_DIR/verifier-dependencies.txt"
+          ! grep -E 'internal/|governedaction/|pgx|k8s.io|constitution' "$COMPOSITE_ARTIFACT_DIR/verifier-dependencies.txt"
+          sha256sum "$EVIDENCE_VERIFY_BINARY" > "$COMPOSITE_ARTIFACT_DIR/verifier-binary.sha256"
+      - name: Execute external policy evaluation and native effect/closure controls
+        working-directory: experiments/gosmig-simulation
+        run: |
+          set -euo pipefail
+          go mod download
+          go mod verify
+          gofmt -d constitution_policy_test.go constitution_native_test.go > "$COMPOSITE_ARTIFACT_DIR/formatting.diff"
+          test ! -s "$COMPOSITE_ARTIFACT_DIR/formatting.diff"
+          go test -race -mod=readonly -count=1 -v -run '^Test(PostgresConstitution|NormativeIndependentReplay)' . | tee "$COMPOSITE_ARTIFACT_DIR/native-test.log"
+          ! grep -q -- '--- SKIP:' "$COMPOSITE_ARTIFACT_DIR/native-test.log"
+      - name: Verify complete native matrix, disagreements and unchanged semantics
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_constitution_substitution.py --verify-results "$COMPOSITE_ARTIFACT_DIR" --out "$COMPOSITE_ARTIFACT_DIR/verified-native-result.json"
+          python3 scripts/verify_constitution_substitution.py --stage after --out "$COMPOSITE_ARTIFACT_DIR/invariance-after.json"
+          git diff --exit-code
+      - name: Preserve all public native evidence and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: constitutional-substitution-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/constitution-evidence/
