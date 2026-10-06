@@ -105,6 +105,19 @@ def main():
     if source.read_bytes() != original:
         raise RuntimeError("native alternative was not restored exactly")
     pins(data)
+    # The signed composite Genesis fixture has a deliberately short freshness
+    # bound. Long independent native trials can consume that window, so renew
+    # the simulation fixture immediately before the restored-control replay.
+    # This preserves the 120s policy instead of weakening it.
+    if os.environ.get("COMPOSITE_GENESIS_FIXTURE_DIR") and os.environ.get("COMPOSITE_GENESIS_INPUT"):
+        refreshed = run(
+            ["go", "test", "-mod=readonly", "-count=1", "-run", "^TestCompositeGenesisFixtureExport$", "./internal/genesisbootstrap"],
+            out / "refresh-genesis.log",
+            cwd=ROOT,
+            env=os.environ.copy(),
+        )
+        if refreshed.returncode:
+            raise RuntimeError("failed to refresh bounded composite Genesis fixture")
     env["COMPOSITE_ARTIFACT_DIR"] = str(out / "restored-native")
     controls(run(native_command(binary, "^TestPostgresCompositeNoCustody"), out / "restored.jsonl", env=env))
     result = {
