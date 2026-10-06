@@ -1,0 +1,36 @@
+{
+  "schema_version": "governed-action.r01-end-to-end/v1",
+  "source_head": "2c9c3a818dede1c8370fbd4c510856c82c7c7ef7",
+  "workflow_run_id": 37060044985,
+  "artifact_id": 11249254001,
+  "artifact_digest": "sha256:4a687e7bc0f5312871503b6e6bf8a81a6edfd3a9cbea37e27f10ed8f60e6f146",
+  "action_ref": "action:r01:fulfill-order-731",
+  "amount": 73100,
+  "e1": {
+    "effect_id": "effect:r01:e1",
+    "initially_exact": true,
+    "final_state": "REVERSED"
+  },
+  "e2": {
+    "effect_id": "effect:r01:e2",
+    "lost_ack_worker_exit": 93,
+    "provider_acceptance_rows": 1,
+    "webhook_deliveries": 2,
+    "webhook_value": "CAPTURED",
+    "api_value": "NOT_CAPTURED",
+    "unrelated_effect_id": "effect:r01:semantic-aba-unrelated",
+    "aggregate_captured_amount": 73100
+  },
+  "authority": {
+    "old_expires_at": "2026-10-02T20:22:20.265802Z",
+    "old_expired": true,
+    "current_owner": "worker-b",
+    "current_fence": 2
+  },
+  "e3": {
+    "effect_id": "effect:r01:e3",
+    "stale_attempt_exits": [41, 41],
+    "durable_rows": 0
+  },
+  "exact_postcondition": false
+}
