@@ -1,0 +1,43 @@
+name: Native Effect Boundary Profile Proof
+
+on:
+  pull_request:
+    paths:
+      - 'docs/engineering/native-effect-boundary-profile-v1.md'
+      - 'testdata/governed-action/native-destination-fence/**'
+      - 'scripts/verify_native_effect_boundary_profile.py'
+      - 'scripts/test_verify_native_effect_boundary_profile.py'
+      - '.github/workflows/native-effect-boundary-profile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cross-substrate-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Test profile verifier
+        run: python3 -m unittest scripts/test_verify_native_effect_boundary_profile.py -v
+
+      - name: Verify registered PostgreSQL and Kubernetes realizations
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-effect-boundary"
+          python3 scripts/verify_native_effect_boundary_profile.py \
+            | tee "$RUNNER_TEMP/native-effect-boundary/result.json"
+
+      - name: Preserve bounded generalization evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-effect-boundary-profile-${{ github.run_id }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/native-effect-boundary/result.json
