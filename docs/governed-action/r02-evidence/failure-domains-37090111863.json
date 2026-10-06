@@ -1,0 +1,44 @@
+{
+  "schema_version": "governed-action.r02-failure-domains/v1",
+  "source_head": "92c53d167ea285c5feb55af406c682f99c904df9",
+  "workflow_run_id": 37090111863,
+  "artifact_id": 11261977575,
+  "artifact_digest": "sha256:dfd08ac60df3df9696e752ebcaa713aa03c122d59078d382db69dfdab876fa97",
+  "action_ref": "action:r02:fulfill-order-731",
+  "amount": 73100,
+  "failure_domains": {
+    "e1": "postgresql-service-container",
+    "e2": "provider-a-http-process+durable-file",
+    "e3": "provider-b-http-process+durable-file",
+    "distinct": true
+  },
+  "e1": {
+    "effect_id": "effect:r02:e1",
+    "final_state": "REVERSED"
+  },
+  "e2": {
+    "effect_id": "effect:r02:e2",
+    "lost_ack_exit": 94,
+    "unavailable_after_exit": true,
+    "b_alive_during_a_partition": true,
+    "observed_after_restart": "CAPTURED",
+    "webhook_event_ids": ["evt-effect-r02-e2", "evt-effect-r02-e2"],
+    "webhook_values": ["CAPTURED", "CAPTURED"],
+    "api_value": "NOT_CAPTURED",
+    "unrelated_effect_id": "effect:r02:semantic-aba-unrelated",
+    "aggregate_captured_amount": 73100
+  },
+  "authority": {
+    "old_fence": 1,
+    "current_fence": 2
+  },
+  "e3": {
+    "effect_id": "effect:r02:e3",
+    "stale_status": 409,
+    "target_durable_rows": 0,
+    "control_status": 201,
+    "control_duplicate_code": 200,
+    "control_durable_rows": 1
+  },
+  "exact_postcondition": false
+}

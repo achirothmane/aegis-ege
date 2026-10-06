@@ -50,6 +50,7 @@ jobs:
       GOSMIG_SIM_ORACLE_RESULT: ${{ github.workspace }}/gosmig-evidence/k07-result.json
       GOSMIG_R01_CARDINALITY_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/r01-cardinality.json
       GOSMIG_R01_E2E_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/r01-end-to-end.json
+      GOSMIG_R02_EVIDENCE: ${{ github.workspace }}/gosmig-evidence/r02-failure-domains.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,7 +63,7 @@ jobs:
         working-directory: experiments/gosmig-simulation
         run: |
           mkdir -p "$GITHUB_WORKSPACE/gosmig-evidence"
-          test -z "$(gofmt -l guard.go simulation_test.go r01_native_cardinality_test.go r01_end_to_end_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go)"
+          test -z "$(gofmt -l guard.go simulation_test.go r01_native_cardinality_test.go r01_end_to_end_test.go r02_failure_domains_test.go ../../internal/governedactionnormative/gosmig_simulation_test.go)"
           go mod download
           go mod verify
           git diff --exit-code -- go.mod go.sum
@@ -83,6 +84,7 @@ jobs:
           test -s "$GOSMIG_SIM_EVIDENCE"
           test -s "$GOSMIG_R01_CARDINALITY_EVIDENCE"
           test -s "$GOSMIG_R01_E2E_EVIDENCE"
+          test -s "$GOSMIG_R02_EVIDENCE"
           go test -mod=readonly -count=1 -v ./internal/governedactionnormative | tee gosmig-evidence/frozen-k07-test.log
           test -s "$GOSMIG_SIM_ORACLE_RESULT"
       - name: Preserve native observations and resolved source
@@ -99,6 +101,9 @@ jobs:
             experiments/gosmig-simulation/simulation_test.go
             experiments/gosmig-simulation/r01_native_cardinality_test.go
             experiments/gosmig-simulation/r01_end_to_end_test.go
+            experiments/gosmig-simulation/r02_failure_domains_test.go
+            internal/decision/r02_failure_domains_evidence_test.go
+            internal/governedactionnormative/r02_failure_domains_projection_test.go
             internal/decision/r01_end_to_end_evidence_test.go
             internal/governedactionnormative/r01_end_to_end_projection_test.go
             internal/governedactionnormative/gosmig_simulation_test.go
