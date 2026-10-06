@@ -1,0 +1,20 @@
+{
+  "schema_version": "governed-action.redteam-r01/v1",
+  "oracle_policy": "frozen-v1-no-edit",
+  "action_ref": "action:r01:fulfill-order-731",
+  "effects": [
+    {"effect_id":"effect:r01:e1","kind":"inventory.reserve","boundary":"postgresql","must_preserve_exact_lineage":true},
+    {"effect_id":"effect:r01:e2","kind":"payment.capture","boundary":"provider-a","must_preserve_exact_lineage":true},
+    {"effect_id":"effect:r01:e3","kind":"shipment.create","boundary":"provider-b","must_preserve_exact_lineage":true}
+  ],
+  "attacks": [
+    {"id":"R01-01","fault":"lost_ack_after_provider_acceptance","expected":"E2_POSSIBLE_REPLAY_BLOCKED"},
+    {"id":"R01-02","fault":"worker_crash_then_authority_revocation","expected":"NO_SILENT_AUTHORITY_REUSE"},
+    {"id":"R01-03","fault":"stale_worker_after_takeover_attempts_E3","expected":"E3_BLOCKED_UNLESS_CURRENT_EXCLUSIVITY_AND_AUTHORITY"},
+    {"id":"R01-04","fault":"old_then_duplicate_webhook","expected":"NO_DUPLICATE_EFFECT_OR_FALSE_CERTAINTY"},
+    {"id":"R01-05","fault":"semantic_ABA_same_amount_different_lineage","expected":"VALUE_EQUALITY_NOT_EXACT_EFFECT_PROOF"},
+    {"id":"R01-06","fault":"E1_reversed_by_independent_actor","expected":"NO_COMPOUND_SUCCESS"},
+    {"id":"R01-07","fault":"conflicting_provider_observations","expected":"NO_FALSE_VERIFIED"},
+    {"id":"R01-08","fault":"clean_control_trace","expected":"USEFUL_EFFECTS_PERMITTED_AND_EXACT_POSTCONDITION_REQUIRED"}
+  ]
+}

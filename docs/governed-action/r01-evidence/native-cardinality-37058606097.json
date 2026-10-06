@@ -1,0 +1,34 @@
+{
+  "schema_version": "governed-action.r01-native-cardinality/v1",
+  "source_head": "9e42c149709ee7e0c2fc01e89aded040c3ca9f2a",
+  "workflow_run_id": 37058606097,
+  "artifact_id": 11249667178,
+  "artifact_digest": "sha256:585638e76c555cffc75779c1a71e407c93a498a28e1f98a4b4ec45e2148d3d1e",
+  "action_ref": "action:r01:fulfill-order-731",
+  "effect_id": "effect:r01:e3",
+  "workers": [
+    {
+      "worker": "callback-a",
+      "effect_id": "effect:r01:e3",
+      "action_ref": "action:r01:fulfill-order-731",
+      "authority_at": "2026-10-02T20:08:47.120614Z",
+      "boundary_at": "2026-10-02T20:08:47.126948Z",
+      "authority_valid": true,
+      "boundary_valid": true,
+      "created": false
+    },
+    {
+      "worker": "callback-b",
+      "effect_id": "effect:r01:e3",
+      "action_ref": "action:r01:fulfill-order-731",
+      "authority_at": "2026-10-02T20:08:47.120925Z",
+      "boundary_at": "2026-10-02T20:08:47.126944Z",
+      "authority_valid": true,
+      "boundary_valid": true,
+      "created": true
+    }
+  ],
+  "durable_rows": 1,
+  "winners": 1,
+  "passed": true
+}
