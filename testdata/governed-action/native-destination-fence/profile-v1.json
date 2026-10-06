@@ -1,12 +1,7 @@
 {
   "schema_version": "aegis.native-effect-boundary-profile/v1",
   "status": "experimental-bounded-generalization",
-  "source_main": "b439e3a23397c297fb10811fe3ac07674b6f810a",
   "frozen_kernel_contract_changed": false,
-  "runtime_pins": {
-    "runtime_blob": "6b35b2b3c71a25d9c9ee56c21782c9fcac0b03e5",
-    "fenced_runtime_blob": "24e749efe7c45cc9ca39f7ddf1a28f19547126e1"
-  },
   "obligations": [
     "exact_target_identity",
     "exact_effect_attempt_binding",
@@ -54,5 +49,15 @@
       "not a new semantic primitive",
       "not proof of complete mediation for unregistered write paths"
     ]
+  },
+  "proof_runtime_pins": {
+    "runtime_blob": "7e4b77757eb6490b18086d13fd22dbae02d277de",
+    "fenced_runtime_blob": "bff1a1b1fc7524fd6cdebe5cad905bf9efb7be77"
+  },
+  "current_main_context": {
+    "source_main": "b439e3a23397c297fb10811fe3ac07674b6f810a",
+    "runtime_blob": "6b35b2b3c71a25d9c9ee56c21782c9fcac0b03e5",
+    "fenced_runtime_blob": "24e749efe7c45cc9ca39f7ddf1a28f19547126e1",
+    "note": "The current runtime evolved after the registered v1 substrate proofs. This profile compares the frozen registered proof surfaces; current assurance depends on the repository's later frozen-replay/shrink checks."
   }
 }
